@@ -45,8 +45,7 @@ class RoleSerializer(serializers.ModelSerializer):
         fields = ['id', 'name', 'description', 'permissions']
 
     def get_permissions(self, obj):
-        # Get all RolePermission objects for this role
-        role_permissions = RolePermission.objects.filter(role=obj).select_related('permission', 'content_type')
+        # Use prefetched rolepermission_set (avoids N+1 queries)
         return [
             {
                 'uuid': str(rp.permission.id),
@@ -56,7 +55,7 @@ class RoleSerializer(serializers.ModelSerializer):
                 'type': rp.content_type.model,
                 'content_type': f"{rp.content_type.app_label} | {rp.content_type.model}"
             }
-            for rp in role_permissions
+            for rp in obj.rolepermission_set.all()
         ]
 
 class UserRoleSerializer(serializers.ModelSerializer):
