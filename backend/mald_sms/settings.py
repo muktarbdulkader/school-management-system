@@ -28,13 +28,9 @@ CORS_ALLOWED_ORIGINS = [
     "http://127.0.0.1:5173",
     "http://localhost:3000",
 
-    "https://school-management-system-frontend-dun.vercel.app",
+    "https://school-management-system-five-sable.vercel.app",
     "https://school.simbatech.et",
-    "https://school-management-system-frontend-4.vercel.app",
-    "https://school-management-system-frontend-e.vercel.app",
-    "https://school-management-system-frontend-6.vercel.app",
-    "https://school-management-system-frontend-6-one.vercel.app",
-    "https://school-management-system-tau-eight.vercel.app"
+     
 
 ]
 #🔒 Cookies (secure only in production)

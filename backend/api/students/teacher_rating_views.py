@@ -45,9 +45,15 @@ class TeacherRatingViewSet(viewsets.ModelViewSet):
         return context
     
     def perform_create(self, serializer):
-        # Set the parent automatically from the authenticated user
-        parent = self.request.user.parent_profile
-        serializer.save(parent=parent)
+        # Set the parent to the current user's parent profile if they have one
+        # Superadmins and staff may not have parent profiles
+        try:
+            parent = self.request.user.parent_profile
+            serializer.save(parent=parent)
+        except AttributeError:
+            # User doesn't have a parent profile (e.g., superadmin)
+            # Don't set parent field - it will be null
+            serializer.save(parent=None)
     
     @action(detail=False, methods=['get'], url_path='my-ratings')
     def my_ratings(self, request):
