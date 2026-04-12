@@ -11,12 +11,16 @@ DEBUG = not RENDER
 ALLOWED_HOSTS = [
     "localhost",
     "127.0.0.1",
-    "school-management-backend-nrs9.onrender.com",
 ]
+
+RENDER_EXTERNAL_HOSTNAME = os.environ.get('RENDER_EXTERNAL_HOSTNAME')
+if RENDER_EXTERNAL_HOSTNAME:
+    ALLOWED_HOSTS.append(RENDER_EXTERNAL_HOSTNAME)
+
 # 🔒 CSRF (needed for admin login on Render)
-CSRF_TRUSTED_ORIGINS = [
-    "https://school-management-backend-nrs9.onrender.com",
-]
+CSRF_TRUSTED_ORIGINS = []
+if RENDER_EXTERNAL_HOSTNAME:
+    CSRF_TRUSTED_ORIGINS.append(f"https://{RENDER_EXTERNAL_HOSTNAME}")
 # 🌍 CORS (Frontend)
 CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOWED_ORIGINS = [

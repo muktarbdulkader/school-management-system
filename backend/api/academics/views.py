@@ -94,6 +94,7 @@ class CourseTypesViewSet(viewsets.ModelViewSet):
             'status': 204,
             'data': {}
         }, status=status.HTTP_204_NO_CONTENT)
+
 class TermsViewSet(viewsets.ModelViewSet):
     queryset = Term.objects.all()
     serializer_class = TermsSerializer
