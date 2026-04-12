@@ -1,0 +1,245 @@
+═══════════════════════════════════════════════════════════════════
+                    PULL REQUEST WORKFLOW
+═══════════════════════════════════════════════════════════════════
+
+STEP 1: FORK THE REPOSITORY
+═══════════════════════════════════════════════════════════════════
+    
+    Original Repository (GitHub)
+    github.com/original-owner/school-management-system
+                    │
+                    │ [Click Fork Button]
+                    ↓
+    Your Fork (GitHub)
+    github.com/YOUR_USERNAME/school-management-system
+
+
+STEP 2: CLONE YOUR FORK
+═══════════════════════════════════════════════════════════════════
+
+    Your Fork (GitHub)
+    github.com/YOUR_USERNAME/school-management-system
+                    │
+                    │ git clone
+                    ↓
+    Your Computer
+    C:\Users\...\school-management-system
+
+
+STEP 3: CREATE A BRANCH
+═══════════════════════════════════════════════════════════════════
+
+    main branch
+        │
+        │ git checkout -b feature/my-feature
+        ↓
+    feature/my-feature branch
+    (Your working branch)
+
+
+STEP 4: MAKE CHANGES
+═══════════════════════════════════════════════════════════════════
+
+    Edit Files → Save → Test
+    
+    ┌─────────────────────────────────────┐
+    │  Modified Files:                    │
+    │  ✓ frontend/src/components/...     │
+    │  ✓ backend/api/views.py            │
+    │  ✓ README.md                        │
+    └─────────────────────────────────────┘
+
+
+STEP 5: COMMIT CHANGES
+═══════════════════════════════════════════════════════════════════
+
+    Working Directory
+        │
+        │ git add .
+        ↓
+    Staging Area
+        │
+        │ git commit -m "Add: my feature"
+        ↓
+    Local Repository
+    (Committed changes)
+
+
+STEP 6: PUSH TO YOUR FORK
+═══════════════════════════════════════════════════════════════════
+
+    Local Repository (Your Computer)
+    feature/my-feature branch
+                    │
+                    │ git push origin feature/my-feature
+                    ↓
+    Your Fork (GitHub)
+    feature/my-feature branch
+
+
+STEP 7: CREATE PULL REQUEST
+═══════════════════════════════════════════════════════════════════
+
+    Your Fork (GitHub)
+    feature/my-feature branch
+                    │
+                    │ Click "Compare & Pull Request"
+                    ↓
+    Pull Request Created
+    (Waiting for review)
+                    │
+                    │ Maintainer reviews
+                    ↓
+    ┌───────────────┴───────────────┐
+    │                               │
+    ↓                               ↓
+Approved ✅                    Changes Requested 🔄
+    │                               │
+    │                               │ Make changes
+    │                               │ git commit & push
+    │                               ↓
+    │                          PR Updated
+    │                               │
+    └───────────────┬───────────────┘
+                    ↓
+            PR Merged! 🎉
+                    │
+                    ↓
+    Your code is now in the main project!
+
+
+COMPLETE COMMAND SEQUENCE
+═══════════════════════════════════════════════════════════════════
+
+# 1. Fork on GitHub (click button)
+
+# 2. Clone your fork
+git clone https://github.com/YOUR_USERNAME/school-management-system.git
+cd school-management-system
+
+# 3. Add upstream remote
+git remote add upstream https://github.com/ORIGINAL_OWNER/school-management-system.git
+
+# 4. Create branch
+git checkout -b feature/my-awesome-feature
+
+# 5. Make your changes (edit files)
+
+# 6. Check what changed
+git status
+
+# 7. Stage changes
+git add .
+
+# 8. Commit changes
+git commit -m "Add: my awesome feature"
+
+# 9. Push to your fork
+git push origin feature/my-awesome-feature
+
+# 10. Go to GitHub and click "Compare & Pull Request"
+
+# 11. Fill in PR description and submit
+
+
+KEEPING YOUR FORK UPDATED
+═══════════════════════════════════════════════════════════════════
+
+    Original Repository (upstream)
+                    │
+                    │ git pull upstream main
+                    ↓
+    Your Local Repository (main branch)
+                    │
+                    │ git push origin main
+                    ↓
+    Your Fork (origin)
+
+
+VISUAL REPRESENTATION OF REMOTES
+═══════════════════════════════════════════════════════════════════
+
+    ┌─────────────────────────────────────────────────────┐
+    │  Original Repository (upstream)                     │
+    │  github.com/original-owner/school-management-system │
+    └─────────────────────────────────────────────────────┘
+                            ↑
+                            │ Pull Request
+                            │
+    ┌─────────────────────────────────────────────────────┐
+    │  Your Fork (origin)                                 │
+    │  github.com/YOUR_USERNAME/school-management-system  │
+    └─────────────────────────────────────────────────────┘
+                            ↑
+                            │ push
+                            │
+    ┌─────────────────────────────────────────────────────┐
+    │  Your Local Repository                              │
+    │  C:\Users\...\school-management-system              │
+    └─────────────────────────────────────────────────────┘
+
+
+BRANCH WORKFLOW
+═══════════════════════════════════════════════════════════════════
+
+    main
+    │
+    ├── feature/add-dashboard
+    │   └── (your work here)
+    │
+    ├── feature/fix-bug
+    │   └── (your work here)
+    │
+    └── feature/update-docs
+        └── (your work here)
+
+    Each feature gets its own branch!
+
+
+COMMON SCENARIOS
+═══════════════════════════════════════════════════════════════════
+
+Scenario 1: Starting a new feature
+───────────────────────────────────
+git checkout main
+git pull upstream main
+git checkout -b feature/new-feature
+# Make changes
+git add .
+git commit -m "Add: new feature"
+git push origin feature/new-feature
+# Create PR on GitHub
+
+
+Scenario 2: Updating an existing PR
+───────────────────────────────────
+git checkout feature/existing-feature
+# Make more changes
+git add .
+git commit -m "Update: address review comments"
+git push origin feature/existing-feature
+# PR automatically updates!
+
+
+Scenario 3: Syncing your fork
+───────────────────────────────────
+git checkout main
+git pull upstream main
+git push origin main
+
+
+═══════════════════════════════════════════════════════════════════
+                        QUICK REFERENCE
+═══════════════════════════════════════════════════════════════════
+
+git status              → See what changed
+git add .               → Stage all changes
+git commit -m "msg"     → Commit with message
+git push origin branch  → Push to your fork
+git pull upstream main  → Get latest from original
+git checkout -b branch  → Create new branch
+git checkout branch     → Switch to branch
+git branch              → List branches
+git log --oneline       → See commit history
+
+═══════════════════════════════════════════════════════════════════

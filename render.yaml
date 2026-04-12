@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: school-management-backend
+    env: python
+    buildCommand: "chmod +x build.sh && ./build.sh"
+    startCommand: "gunicorn mald_sms.wsgi:application"
+    rootDir: backend
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.3
+      - key: DJANGO_SETTINGS_MODULE
+        value: mald_sms.settings
+      # Add other vars like DATABASE_URL as secrets in the Dashboard

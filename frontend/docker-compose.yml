@@ -1,0 +1,40 @@
+services:
+  nginx:
+    build:
+      context: ./docker/nginx
+      dockerfile: Dockerfile
+    container_name: nginx
+    ports:
+      - "${NGINX_HOST_HTTP_PORT:-80}:80"
+      - "${NGINX_HOST_HTTPS_PORT:-443}:443"
+    depends_on:
+      - pms_frontend
+    volumes:
+      - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf
+      - ./docker/nginx/ssl:/etc/nginx/ssl
+    networks:
+      - pms_network
+  
+  pms_frontend:
+    image: drogaconsulting/pms:latest
+    container_name: pms_frontend
+    environment:
+      - VITE_APP_VERSION=${VITE_APP_VERSION:-/}
+      - GENERATE_SOURCEMAP=${GENERATE_SOURCEMAP:-/}
+      - VITE_APP_BASE_NAME=${VITE_APP_BASE_NAME:-/}
+      - VITE_AUTH_URL=${VITE_AUTH_URL}
+      - VITE_PMS_URL=${VITE_PMS_URL}
+      - VITE_WORKFLOW_URL=${VITE_WORKFLOW_URL}
+      - VITE_WORKFLOW_API_KEY=${VITE_WORKFLOW_API_KEY}
+      - VITE_WORKFLOW_ID=${VITE_WORKFLOW_ID}
+    restart: unless-stopped
+    ports:
+     - "3000:3000"
+    volumes:
+     - ./:/app
+     - /app/node_modules
+    networks:
+     - pms_network
+
+networks:
+  pms_network:

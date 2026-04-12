@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>School Chat</title>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; display: flex; }
+        #sidebar { width: 250px; border-right: 1px solid #ccc; padding: 10px; }
+        #chat-area { flex-grow: 1; padding: 10px; }
+        #chat-log { border: 1px solid #ccc; padding: 10px; height: 400px; overflow-y: auto; }
+        #message-input { width: 80%; padding: 5px; }
+        #send-button { padding: 5px 10px; }
+        .conversation { cursor: pointer; padding: 5px; }
+        .conversation:hover { background: #f0f0f0; }
+        .selected { background: #e0e0e0; }
+        #group-members { margin-top: 20px; }
+    </style>
+</head>
+<body>
+    <div id="sidebar">
+        <h3>Conversations</h3>
+        <input id="search-users" type="text" placeholder="Search users..." />
+        <div id="conversation-list"></div>
+        <h3>Groups</h3>
+        <div id="group-list"></div>
+    </div>
+    <div id="chat-area">
+        <h2 id="chat-title">Select a conversation</h2>
+        <div id="group-members"></div>
+        <div id="chat-log"></div>
+        <input id="message-input" type="text" placeholder="Type your message..." />
+        <button id="send-button">Send</button>
+    </div>
+    <script>
+        const token = "{{ token }}";
+        const userId = "{{ user_id }}";
+        const branchId = "{{ branch_id }}";
+        const chatType = "{{ chat_type }}";
+        const groupId = "{{ group_id|default_if_none:'' }}";
+        const receiverId = "{{ receiver_id|default_if_none:'' }}";
+        const receiverName = "{{ receiver_name|default_if_none:'' }}";
+        let currentChat = null;
+        let chatSocket = null;
+
+        // Fetch users for private chats
+        async function loadUsers(search = '') {
+            try {
+                const params = { role: 'teacher,staff', search };
+                if (branchId) params.branch_id = branchId;
+                const response = await axios.get('/api/users/users/', {
+                    params,
+                    headers: { Authorization: `Bearer ${token}` }
+                });
+                const conversationList = document.getElementById('conversation-list');
+                conversationList.innerHTML = response.data.map(user => `
+                    <div class="conversation" data-type="private" data-id="${user.id}">
+                        ${user.full_name} (${user.email})
+                    </div>
+                `).join('');
+                addConversationListeners();
+            } catch (error) {
+                console.error('Error fetching users:', error.response?.data || error.message);
+            }
+        }
+
+        // Fetch groups
+        async function loadGroups() {
+            try {
+                const params = {};
+                if (branchId) params.branch_id = branchId;
+                const response = await axios.get('/api/communication/group_chats/', {
+                    params,
+                    headers: { Authorization: `Bearer ${token}` }
+                });
+                const groupList = document.getElementById('group-list');
+                groupList.innerHTML = response.data.map(group => `
+                    <div class="conversation" data-type="group" data-id="${group.id}">
+                        ${group.name}
+                    </div>
+                `).join('');
+                addConversationListeners();
+            } catch (error) {
+                console.error('Error fetching groups:', error.response?.data || error.message);
+            }
+        }
+
+        // Fetch chat history
+        async function loadChatHistory(type, id) {
+            try {
+                const url = type === 'private' ? '/api/communication/chat_history/' : '/api/communication/group_chat_messages/';
+                const params = type === 'private' ? { receiver: id } : { group: id };
+                if (branchId) params.branch_id = branchId;
+                const response = await axios.get(url, {
+                    params,
+                    headers: { Authorization: `Bearer ${token}` }
+                });
+                const chatLog = document.getElementById('chat-log');
+                chatLog.innerHTML = response.data.map(msg => `
+                    <div><strong>${msg.sender}</strong> (${new Date(msg.timestamp).toLocaleString()}): ${msg.message}</div>
+                `).join('');
+                chatLog.scrollTop = chatLog.scrollHeight;
+            } catch (error) {
+                console.error('Error fetching chat history:', error.response?.data || error.message);
+            }
+        }
+
+        // Fetch group members
+        async function loadGroupMembers(groupId) {
+            try {
+                const params = { group_chat: groupId };
+                if (branchId) params.branch_id = branchId;
+                const response = await axios.get('/api/communication/group_chat_members/', {
+                    params,
+                    headers: { Authorization: `Bearer ${token}` }
+                });
+                const groupMembers = document.getElementById('group-members');
+                groupMembers.innerHTML = `<h3>Group Members</h3><ul>${response.data.map(member => `<li>${member.user}</li>`).join('')}</ul>`;
+            } catch (error) {
+                console.error('Error fetching group members:', error.response?.data || error.message);
+            }
+        }
+
+        // Connect WebSocket
+        function connectWebSocket(type, id) {
+            if (chatSocket) {
+                chatSocket.close();
+            }
+            const queryParams = [`token=${encodeURIComponent(token)}`];
+            if (branchId) queryParams.push(`branch_id=${branchId}`);
+            const wsUrl = type === 'private' 
+                ? `ws://${window.location.host}/ws/chat/${[userId, id].sort().join('_')}/?${queryParams.join('&')}`
+                : `ws://${window.location.host}/ws/groupchat/${id}/?${queryParams.join('&')}`;
+            chatSocket = new WebSocket(wsUrl);
+
+            chatSocket.onopen = () => console.log('WebSocket connected');
+            chatSocket.onmessage = (e) => {
+                const data = JSON.parse(e.data);
+                if (data.error) {
+                    console.error('WebSocket error:', data.error);
+                    return;
+                }
+                const chatLog = document.getElementById('chat-log');
+                chatLog.innerHTML += `<div><strong>${data.sender_name}</strong> (${new Date(data.timestamp).toLocaleString()}): ${data.message}</div>`;
+                chatLog.scrollTop = chatLog.scrollHeight;
+            };
+            chatSocket.onclose = (e) => console.error('WebSocket closed:', e);
+            chatSocket.onerror = (e) => console.error('WebSocket error:', e);
+        }
+
+        // Send message
+        document.getElementById('send-button').onclick = () => {
+            if (!currentChat || !chatSocket || chatSocket.readyState !== WebSocket.OPEN) {
+                alert('Please select a conversation and ensure WebSocket is connected.');
+                return;
+            }
+            const messageInput = document.getElementById('message-input');
+            const message = messageInput.value.trim();
+            if (!message) return;
+            
+            const payload = {
+                message,
+                sender_id: userId,
+                receiver_id: currentChat.type === 'private' ? currentChat.id : undefined,
+                branch_id: branchId || undefined
+            };
+            chatSocket.send(JSON.stringify(payload));
+            messageInput.value = '';
+        };
+
+        // Add conversation listeners
+        function addConversationListeners() {
+            document.querySelectorAll('.conversation').forEach(item => {
+                item.onclick = () => {
+                    document.querySelectorAll('.conversation').forEach(el => el.classList.remove('selected'));
+                    item.classList.add('selected');
+                    const type = item.dataset.type;
+                    const id = item.dataset.id;
+                    currentChat = { type, id };
+                    document.getElementById('chat-title').textContent = item.textContent;
+                    loadChatHistory(type, id);
+                    connectWebSocket(type, id);
+                    if (type === 'group') {
+                        loadGroupMembers(id);
+                    } else {
+                        document.getElementById('group-members').innerHTML = '';
+                    }
+                };
+            });
+        }
+
+        // Search users
+        document.getElementById('search-users').oninput = (e) => {
+            loadUsers(e.target.value);
+        };
+
+        // Initialize
+        function initializeChat() {
+            if (chatType === 'group' && groupId) {
+                currentChat = { type: 'group', id: groupId };
+                axios.get(`/api/communication/group_chats/${groupId}/`, {
+                    headers: { Authorization: `Bearer ${token}` }
+                }).then(response => {
+                    document.getElementById('chat-title').textContent = response.data.name;
+                    loadGroupMembers(groupId);
+                    loadChatHistory('group', groupId);
+                    connectWebSocket('group', groupId);
+                }).catch(error => {
+                    console.error('Error fetching group:', error.response?.data || error.message);
+                    document.getElementById('chat-title').textContent = 'Error loading group';
+                });
+            } else if (chatType === 'private' && receiverId) {
+                currentChat = { type: 'private', id: receiverId };
+                document.getElementById('chat-title').textContent = receiverName;
+                loadChatHistory('private', receiverId);
+                connectWebSocket('private', receiverId);
+                document.getElementById('group-members').innerHTML = '';
+            }
+            loadUsers();
+            loadGroups();
+        }
+
+        initializeChat();
+    </script>
+</body>
+</html>

@@ -1,0 +1,45 @@
+{
+  "short_name": "Droga PMS",
+  "name": "Droga Performance Management System",
+  "description": "Droga PMS is a structured framework used by Droga Groups to assess, monitor, and improve the performance of its employees or units. It integrates various processes that help ensure employee and organizational goals are aligned, employee productivity is optimized, and areas for development are identified and addressed.",
+
+  "icons": [
+    {
+      "src": "./72.svg",
+      "sizes": "72x72",
+      "type": "image/svg+xml"
+    },
+    {
+      "src": "./96.svg",
+      "sizes": "96x96",
+      "type": "image/svg+xml"
+    },
+    {
+      "src": "./128.svg",
+      "sizes": "128x128",
+      "type": "image/svg+xml"
+    },
+    {
+      "src": "./192.svg",
+      "sizes": "192x192",
+      "type": "image/svg+xml"
+    },
+    {
+      "src": "./256.svg",
+      "sizes": "256x256",
+      "type": "image/svg+xml"
+    },
+    {
+      "src": "./512.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml"
+    }
+  ],
+
+  "start_url": "https://droga-pms.vercel.app/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "theme_color": "#003b73",
+  "background_color": "#eef2f6"
+}

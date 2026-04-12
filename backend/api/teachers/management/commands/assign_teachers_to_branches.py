@@ -1,0 +1,1 @@
+postgresql://school_management_db_c0v9_user:MZomm1A7GNzl67ggXNHtNKv5hiGoFLAZ@dpg-d76dvcsr85hc73bikk9g-a/school_management_db_c0v9

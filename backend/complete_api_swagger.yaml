@@ -1,0 +1,3208 @@
+openapi: 3.0.3
+info:
+  title: School Management System - Complete API
+  description: |
+    Complete API documentation for School Management System with all endpoints.
+    
+    ## Features
+    - Authentication & Authorization (JWT)
+    - User Management (Students, Teachers, Parents, Admins)
+    - Academic Management (Classes, Subjects, Terms)
+    - Schedule & Attendance
+    - Communication (Chat, Announcements, Meetings)
+    - Teacher Performance Tracking
+    - Task Management
+    - Data Export (PDF, Excel, CSV)
+    - Library Management
+    - Leave Requests
+    - Authentication Enhancements (OTP, 2FA)
+    - Resource Requests
+    
+    ## Authentication
+    Most endpoints require JWT authentication. Include the token in the Authorization header:
+    ```
+    Authorization: Bearer <your_jwt_token>
+    ```
+  version: 1.0.0
+  contact:
+    name: API Support
+    email: support@schoolsystem.com
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: http://localhost:8000
+    description: Development server
+  - url: https://api.schoolsystem.com
+    description: Production server
+
+tags:
+  - name: Authentication
+    description: Login, register, token management
+  - name: Users
+    description: User CRUD operations
+  - name: Students
+    description: Student management and profiles
+  - name: Teachers
+    description: Teacher management and profiles
+  - name: Parents
+    description: Parent management and relationships
+  - name: Academics
+    description: Classes, subjects, terms, sections
+  - name: Schedule
+    description: Timetables, slots, attendance
+  - name: Exams
+    description: Exam management and results
+  - name: Communication
+    description: Chat, announcements, meetings
+  - name: Blogs
+    description: School blog and PR
+  - name: Teacher Performance
+    description: Performance tracking and ratings
+  - name: Task Management
+    description: Tasks, assignments, delegation
+  - name: Data Export
+    description: PDF, Excel, CSV exports
+  - name: Library Management
+    description: Books, borrowing, members
+  - name: Leave Requests
+    description: Leave request workflow
+  - name: Auth Enhancements
+    description: OTP, 2FA, password reset
+  - name: Resource Requests
+    description: Supply and equipment requests
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT token obtained from login endpoint
+  
+  schemas:
+    # Common Response Schemas
+    ApiResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: "Operation successful"
+        status:
+          type: integer
+          example: 200
+        data:
+          type: object
+          description: Response data (varies by endpoint)
+    
+    Error:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        message:
+          type: string
+          example: "Error message"
+        status:
+          type: integer
+          example: 400
+    
+    # Authentication Schemas
+    LoginRequest:
+      type: object
+      required:
+        - email
+        - password
+      properties:
+        email:
+          type: string
+          format: email
+          example: "teacher@school.com"
+        password:
+          type: string
+          format: password
+          example: "password123"
+    
+    LoginResponse:
+      type: object
+      properties:
+        access:
+          type: string
+          example: "eyJ0eXAiOiJKV1QiLCJhbGc..."
+        refresh:
+          type: string
+          example: "eyJ0eXAiOiJKV1QiLCJhbGc..."
+        user:
+          $ref: '#/components/schemas/User'
+    
+    RegisterRequest:
+      type: object
+      required:
+        - email
+        - full_name
+        - password
+      properties:
+        email:
+          type: string
+          format: email
+        full_name:
+          type: string
+        password:
+          type: string
+          format: password
+        role_name:
+          type: string
+          enum: [student, teacher, parent, admin]
+    
+    # User Schemas
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        full_name:
+          type: string
+        is_active:
+          type: boolean
+        roles:
+          type: array
+          items:
+            type: string
+        created_at:
+          type: string
+          format: date-time
+
+    
+    Student:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        user:
+          $ref: '#/components/schemas/User'
+        branch:
+          type: object
+        grade:
+          type: object
+        section:
+          type: object
+        birth_date:
+          type: string
+          format: date
+        gender:
+          type: string
+        family_status:
+          type: string
+        health_info:
+          type: string
+    
+    Teacher:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        user:
+          $ref: '#/components/schemas/User'
+        subject_specialties:
+          type: string
+        rating:
+          type: number
+          format: float
+        attendance_percentage:
+          type: number
+          format: float
+    
+    # Task Management Schemas
+    Task:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        description:
+          type: string
+        status:
+          type: string
+          enum: [todo, in_progress, done, not_done]
+        priority:
+          type: string
+          enum: [low, medium, high, urgent]
+        due_date:
+          type: string
+          format: date
+        created_by:
+          type: object
+        assigned_to:
+          type: object
+        created_at:
+          type: string
+          format: date-time
+    
+    TaskCreate:
+      type: object
+      required:
+        - title
+        - description
+      properties:
+        title:
+          type: string
+          example: "Prepare lesson plan"
+        description:
+          type: string
+          example: "Create detailed lesson plan for Math Grade 10"
+        priority:
+          type: string
+          enum: [low, medium, high, urgent]
+          example: "high"
+        due_date:
+          type: string
+          format: date
+          example: "2024-03-20"
+        assigned_to:
+          type: string
+          format: uuid
+    
+    # Library Schemas
+    Book:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        author:
+          type: string
+        isbn:
+          type: string
+        category:
+          type: string
+        total_copies:
+          type: integer
+        available_copies:
+          type: integer
+        publisher:
+          type: string
+        published_year:
+          type: integer
+    
+    BookCreate:
+      type: object
+      required:
+        - title
+        - author
+        - isbn
+      properties:
+        title:
+          type: string
+          example: "Introduction to Python"
+        author:
+          type: string
+          example: "John Doe"
+        isbn:
+          type: string
+          example: "978-0-123456-78-9"
+        category:
+          type: string
+          example: "Programming"
+        total_copies:
+          type: integer
+          example: 5
+        publisher:
+          type: string
+        published_year:
+          type: integer
+          example: 2023
+    
+    # Leave Request Schemas
+    LeaveRequest:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        student_id:
+          type: object
+        requested_by:
+          type: object
+        subject_id:
+          type: object
+        date:
+          type: string
+          format: date
+        reason:
+          type: string
+        status:
+          type: string
+          enum: [pending, approved, rejected]
+        created_at:
+          type: string
+          format: date-time
+    
+    LeaveRequestCreate:
+      type: object
+      required:
+        - student_id
+        - date
+        - reason
+      properties:
+        student_id:
+          type: string
+          format: uuid
+        subject_id:
+          type: string
+          format: uuid
+        date:
+          type: string
+          format: date
+          example: "2024-03-15"
+        reason:
+          type: string
+          example: "Medical appointment"
+    
+    # Resource Request Schemas
+    ResourceRequest:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        request_type:
+          type: string
+          enum: [supplies, exam_duplication, equipment, maintenance, other]
+        title:
+          type: string
+        description:
+          type: string
+        quantity:
+          type: integer
+        priority:
+          type: string
+          enum: [low, medium, high, urgent]
+        status:
+          type: string
+          enum: [pending, approved, rejected, completed, cancelled]
+        requested_by:
+          type: object
+        department:
+          type: string
+        estimated_cost:
+          type: number
+        needed_by:
+          type: string
+          format: date
+        created_at:
+          type: string
+          format: date-time
+
+security:
+  - bearerAuth: []
+
+paths:
+  # ==================== AUTHENTICATION ====================
+  /api/users/login/:
+    post:
+      tags:
+        - Authentication
+      summary: User login
+      description: Authenticate user and receive JWT tokens
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+            examples:
+              teacher:
+                summary: Teacher login
+                value:
+                  email: "teacher@school.com"
+                  password: "password123"
+              student:
+                summary: Student login
+                value:
+                  email: "student@school.com"
+                  password: "password123"
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '401':
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  
+  /api/users/register/:
+    post:
+      tags:
+        - Authentication
+      summary: User registration
+      description: Register a new user account
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+            example:
+              email: "newuser@school.com"
+              full_name: "John Doe"
+              password: "securepass123"
+              role_name: "teacher"
+      responses:
+        '201':
+          description: User created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  
+  /api/users/token/refresh/:
+    post:
+      tags:
+        - Authentication
+      summary: Refresh JWT token
+      description: Get new access token using refresh token
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                refresh:
+                  type: string
+            example:
+              refresh: "eyJ0eXAiOiJKV1QiLCJhbGc..."
+      responses:
+        '200':
+          description: Token refreshed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  access:
+                    type: string
+
+  
+  # ==================== USERS ====================
+  /api/users/users/:
+    get:
+      tags:
+        - Users
+      summary: List all users
+      description: Get paginated list of users with optional filters
+      parameters:
+        - name: role
+          in: query
+          schema:
+            type: string
+            enum: [student, teacher, parent, admin]
+        - name: is_active
+          in: query
+          schema:
+            type: boolean
+        - name: search
+          in: query
+          description: Search by name or email
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+    
+    post:
+      tags:
+        - Users
+      summary: Create new user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+  
+  /api/users/users/{id}/:
+    get:
+      tags:
+        - Users
+      summary: Get user details
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+    
+    put:
+      tags:
+        - Users
+      summary: Update user
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                full_name:
+                  type: string
+                email:
+                  type: string
+                is_active:
+                  type: boolean
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+    
+    delete:
+      tags:
+        - Users
+      summary: Delete user
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Deleted
+  
+  /api/users/profile/:
+    get:
+      tags:
+        - Users
+      summary: Get current user profile
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+    
+    put:
+      tags:
+        - Users
+      summary: Update current user profile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                phone:
+                  type: string
+                bio:
+                  type: string
+                profile_picture:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+  
+  # ==================== STUDENTS ====================
+  /api/students/students/:
+    get:
+      tags:
+        - Students
+      summary: List all students
+      parameters:
+        - name: grade
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: section
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: branch
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: search
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+    
+    post:
+      tags:
+        - Students
+      summary: Create new student
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - user_id
+                - branch_id
+                - grade_id
+              properties:
+                user_id:
+                  type: string
+                  format: uuid
+                branch_id:
+                  type: string
+                  format: uuid
+                grade_id:
+                  type: string
+                  format: uuid
+                section_id:
+                  type: string
+                  format: uuid
+                birth_date:
+                  type: string
+                  format: date
+                gender:
+                  type: string
+                  enum: [male, female]
+                family_status:
+                  type: string
+                health_info:
+                  type: string
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+  
+  /api/students/students/{id}/:
+    get:
+      tags:
+        - Students
+      summary: Get student details
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+    
+    put:
+      tags:
+        - Students
+      summary: Update student
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+  
+  /api/students/behavior-ratings/:
+    get:
+      tags:
+        - Students
+      summary: List behavior ratings
+      parameters:
+        - name: student_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: start_date
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: end_date
+          in: query
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+    
+    post:
+      tags:
+        - Students
+      summary: Create behavior rating
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - student_id
+                - rating
+              properties:
+                student_id:
+                  type: string
+                  format: uuid
+                rating:
+                  type: integer
+                  minimum: 1
+                  maximum: 5
+                comment:
+                  type: string
+                date:
+                  type: string
+                  format: date
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+
+  
+  # ==================== TEACHERS ====================
+  /api/teachers/teachers/:
+    get:
+      tags:
+        - Teachers
+      summary: List all teachers
+      parameters:
+        - name: subject
+          in: query
+          schema:
+            type: string
+        - name: rating_min
+          in: query
+          schema:
+            type: number
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+    
+    post:
+      tags:
+        - Teachers
+      summary: Create new teacher
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - user_id
+              properties:
+                user_id:
+                  type: string
+                  format: uuid
+                subject_specialties:
+                  type: string
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+  
+  /api/teachers/teachers/{id}/:
+    get:
+      tags:
+        - Teachers
+      summary: Get teacher details
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+  
+  # ==================== ACADEMICS ====================
+  /api/academics/classes/:
+    get:
+      tags:
+        - Academics
+      summary: List all classes
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+    
+    post:
+      tags:
+        - Academics
+      summary: Create new class
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                grade:
+                  type: string
+                branch_id:
+                  type: string
+                  format: uuid
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+  
+  /api/academics/subjects/:
+    get:
+      tags:
+        - Academics
+      summary: List all subjects
+      parameters:
+        - name: course_type
+          in: query
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+    
+    post:
+      tags:
+        - Academics
+      summary: Create new subject
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                code:
+                  type: string
+                course_type_id:
+                  type: string
+                  format: uuid
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+  
+  /api/academics/terms/:
+    get:
+      tags:
+        - Academics
+      summary: List all terms
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+    
+    post:
+      tags:
+        - Academics
+      summary: Create new term
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                start_date:
+                  type: string
+                  format: date
+                end_date:
+                  type: string
+                  format: date
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+  
+  # ==================== SCHEDULE & ATTENDANCE ====================
+  /api/schedule/attendance/:
+    get:
+      tags:
+        - Schedule
+      summary: List attendance records
+      parameters:
+        - name: student_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: subject_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: date
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [Present, Late, Absent, Excused]
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+    
+    post:
+      tags:
+        - Schedule
+      summary: Mark attendance
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - student_id
+                - subject_id
+                - date
+                - status
+              properties:
+                student_id:
+                  type: string
+                  format: uuid
+                subject_id:
+                  type: string
+                  format: uuid
+                date:
+                  type: string
+                  format: date
+                status:
+                  type: string
+                  enum: [Present, Late, Absent, Excused]
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+  
+  /api/schedule/class-schedule/:
+    get:
+      tags:
+        - Schedule
+      summary: Get class schedule
+      parameters:
+        - name: class_id
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: section_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: day_of_week
+          in: query
+          schema:
+            type: string
+            enum: [Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, Sunday]
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+    
+    post:
+      tags:
+        - Schedule
+      summary: Create schedule slot
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                class_id:
+                  type: string
+                  format: uuid
+                section_id:
+                  type: string
+                  format: uuid
+                subject_id:
+                  type: string
+                  format: uuid
+                teacher_id:
+                  type: string
+                  format: uuid
+                day_of_week:
+                  type: string
+                start_time:
+                  type: string
+                  format: time
+                end_time:
+                  type: string
+                  format: time
+                period_number:
+                  type: integer
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+  
+  # ==================== EXAMS ====================
+  /api/schedule/exams/:
+    get:
+      tags:
+        - Exams
+      summary: List all exams
+      parameters:
+        - name: term_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: class_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: exam_type
+          in: query
+          schema:
+            type: string
+            enum: [final, mid_term, unit_test, diagnostic_test, other]
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+    
+    post:
+      tags:
+        - Exams
+      summary: Create new exam
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                term_id:
+                  type: string
+                  format: uuid
+                exam_type:
+                  type: string
+                subject_id:
+                  type: string
+                  format: uuid
+                class_id:
+                  type: string
+                  format: uuid
+                start_date:
+                  type: string
+                  format: date
+                end_date:
+                  type: string
+                  format: date
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+
+  
+  # ==================== COMMUNICATION ====================
+  /api/communication/chats/:
+    get:
+      tags:
+        - Communication
+      summary: List chat messages
+      parameters:
+        - name: receiver_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+    
+    post:
+      tags:
+        - Communication
+      summary: Send chat message
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - receiver_id
+                - message
+              properties:
+                receiver_id:
+                  type: string
+                  format: uuid
+                message:
+                  type: string
+                attachment:
+                  type: string
+                  format: binary
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+  
+  /api/communication/announcements/:
+    get:
+      tags:
+        - Communication
+      summary: List announcements
+      parameters:
+        - name: is_urgent
+          in: query
+          schema:
+            type: boolean
+        - name: audience_role
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+    
+    post:
+      tags:
+        - Communication
+      summary: Create announcement
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - title
+                - content
+              properties:
+                title:
+                  type: string
+                content:
+                  type: string
+                is_urgent:
+                  type: boolean
+                audience_roles:
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+  
+  /api/communication/meetings/:
+    get:
+      tags:
+        - Communication
+      summary: List meetings
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending, accepted, rejected, completed]
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+    
+    post:
+      tags:
+        - Communication
+      summary: Request meeting
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - requested_to_id
+                - meeting_date
+                - purpose
+              properties:
+                requested_to_id:
+                  type: string
+                  format: uuid
+                meeting_date:
+                  type: string
+                  format: date-time
+                purpose:
+                  type: string
+                location:
+                  type: string
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+  
+  /api/communication/meetings/{id}/respond/:
+    post:
+      tags:
+        - Communication
+      summary: Respond to meeting request
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status:
+                  type: string
+                  enum: [accepted, rejected]
+                response_message:
+                  type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+  
+  # ==================== BLOGS ====================
+  /api/blogs/posts/:
+    get:
+      tags:
+        - Blogs
+      summary: List blog posts
+      parameters:
+        - name: category
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: author
+          in: query
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+    
+    post:
+      tags:
+        - Blogs
+      summary: Create blog post
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - title
+                - content
+              properties:
+                title:
+                  type: string
+                content:
+                  type: string
+                category_id:
+                  type: string
+                  format: uuid
+                featured_image:
+                  type: string
+                  format: binary
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+  
+  # ==================== TEACHER PERFORMANCE ====================
+  /api/performance/performance-metrics/:
+    get:
+      tags:
+        - Teacher Performance
+      summary: List performance metrics
+      parameters:
+        - name: teacher_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: start_date
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: end_date
+          in: query
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+    
+    post:
+      tags:
+        - Teacher Performance
+      summary: Create performance metric
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - teacher_id
+              properties:
+                teacher_id:
+                  type: string
+                  format: uuid
+                attendance_percentage:
+                  type: number
+                  format: float
+                task_completion_rate:
+                  type: number
+                  format: float
+                average_rating:
+                  type: number
+                  format: float
+                month:
+                  type: integer
+                year:
+                  type: integer
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+  
+  /api/performance/teacher-ratings/:
+    get:
+      tags:
+        - Teacher Performance
+      summary: List teacher ratings
+      parameters:
+        - name: teacher_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: rating_min
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 5
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+    
+    post:
+      tags:
+        - Teacher Performance
+      summary: Rate teacher
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - teacher_id
+                - rating
+              properties:
+                teacher_id:
+                  type: string
+                  format: uuid
+                rating:
+                  type: integer
+                  minimum: 1
+                  maximum: 5
+                comment:
+                  type: string
+                date:
+                  type: string
+                  format: date
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+  
+  /api/performance/daily-tasks/:
+    get:
+      tags:
+        - Teacher Performance
+      summary: List daily tasks
+      parameters:
+        - name: teacher_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: date
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: is_completed
+          in: query
+          schema:
+            type: boolean
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+    
+    post:
+      tags:
+        - Teacher Performance
+      summary: Log daily task
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - teacher_id
+                - task_description
+              properties:
+                teacher_id:
+                  type: string
+                  format: uuid
+                task_description:
+                  type: string
+                is_completed:
+                  type: boolean
+                  default: false
+                date:
+                  type: string
+                  format: date
+                notes:
+                  type: string
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+  
+  /api/performance/performance-reports/:
+    get:
+      tags:
+        - Teacher Performance
+      summary: Get performance reports
+      parameters:
+        - name: teacher_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: start_date
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: end_date
+          in: query
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+
+  
+  # ==================== TASK MANAGEMENT ====================
+  /api/tasks/tasks/:
+    get:
+      tags:
+        - Task Management
+      summary: List all tasks
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [todo, in_progress, done, not_done]
+        - name: priority
+          in: query
+          schema:
+            type: string
+            enum: [low, medium, high, urgent]
+        - name: assigned_to
+          in: query
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: true
+                message: "OK"
+                status: 200
+                data:
+                  count: 25
+                  results:
+                    - id: "123e4567-e89b-12d3-a456-426614174000"
+                      title: "Prepare lesson plan"
+                      status: "in_progress"
+                      priority: "high"
+                      due_date: "2024-03-20"
+    
+    post:
+      tags:
+        - Task Management
+      summary: Create new task
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TaskCreate'
+            example:
+              title: "Prepare lesson plan"
+              description: "Create detailed lesson plan for Math Grade 10"
+              priority: "high"
+              due_date: "2024-03-20"
+              assigned_to: "123e4567-e89b-12d3-a456-426614174000"
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+  
+  /api/tasks/tasks/{id}/:
+    get:
+      tags:
+        - Task Management
+      summary: Get task details
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+    
+    put:
+      tags:
+        - Task Management
+      summary: Update task
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title:
+                  type: string
+                description:
+                  type: string
+                status:
+                  type: string
+                  enum: [todo, in_progress, done, not_done]
+                priority:
+                  type: string
+                  enum: [low, medium, high, urgent]
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+    
+    delete:
+      tags:
+        - Task Management
+      summary: Delete task
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Deleted
+  
+  /api/tasks/tasks/{id}/delegate/:
+    post:
+      tags:
+        - Task Management
+      summary: Delegate task to another user
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - new_assignee
+              properties:
+                new_assignee:
+                  type: string
+                  format: uuid
+                notes:
+                  type: string
+            example:
+              new_assignee: "987e6543-e21b-12d3-a456-426614174000"
+              notes: "Please handle this task"
+      responses:
+        '200':
+          description: Task delegated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+  
+  /api/tasks/tasks/{id}/comments/:
+    get:
+      tags:
+        - Task Management
+      summary: Get task comments
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+    
+    post:
+      tags:
+        - Task Management
+      summary: Add comment to task
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - comment
+              properties:
+                comment:
+                  type: string
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+  
+  /api/tasks/tasks/my-tasks/:
+    get:
+      tags:
+        - Task Management
+      summary: Get tasks assigned to current user
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+  
+  /api/tasks/tasks/overdue/:
+    get:
+      tags:
+        - Task Management
+      summary: Get overdue tasks
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+  
+  /api/tasks/tasks/statistics/:
+    get:
+      tags:
+        - Task Management
+      summary: Get task statistics
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                  status:
+                    type: integer
+                  data:
+                    type: object
+                    properties:
+                      total:
+                        type: integer
+                      by_status:
+                        type: object
+                      by_priority:
+                        type: object
+  
+  # ==================== DATA EXPORT ====================
+  /api/export/student-report-card/:
+    get:
+      tags:
+        - Data Export
+      summary: Export student report card (PDF)
+      parameters:
+        - name: student_id
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: term_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: PDF file
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+  
+  /api/export/teacher-performance/:
+    get:
+      tags:
+        - Data Export
+      summary: Export teacher performance report (PDF)
+      parameters:
+        - name: teacher_id
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: start_date
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: end_date
+          in: query
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: PDF file
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+  
+  /api/export/students-excel/:
+    get:
+      tags:
+        - Data Export
+      summary: Export students list (Excel)
+      parameters:
+        - name: class_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: section_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Excel file
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                type: string
+                format: binary
+  
+  /api/export/grades-excel/:
+    get:
+      tags:
+        - Data Export
+      summary: Export grades (Excel)
+      parameters:
+        - name: class_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: term_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Excel file
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                type: string
+                format: binary
+  
+  /api/export/attendance-report/:
+    get:
+      tags:
+        - Data Export
+      summary: Export attendance report (Excel)
+      parameters:
+        - name: start_date
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+        - name: end_date
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+        - name: class_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Excel file
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                type: string
+                format: binary
+
+  
+  # ==================== LIBRARY MANAGEMENT ====================
+  /api/library/books/:
+    get:
+      tags:
+        - Library Management
+      summary: List all books
+      parameters:
+        - name: category
+          in: query
+          schema:
+            type: string
+        - name: available
+          in: query
+          schema:
+            type: boolean
+        - name: search
+          in: query
+          description: Search by title, author, or ISBN
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: true
+                message: "OK"
+                status: 200
+                data:
+                  count: 150
+                  results:
+                    - id: "123e4567-e89b-12d3-a456-426614174000"
+                      title: "Introduction to Python"
+                      author: "John Doe"
+                      isbn: "978-0-123456-78-9"
+                      category: "Programming"
+                      total_copies: 5
+                      available_copies: 3
+    
+    post:
+      tags:
+        - Library Management
+      summary: Add new book
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BookCreate'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+  
+  /api/library/books/{id}/:
+    get:
+      tags:
+        - Library Management
+      summary: Get book details
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+    
+    put:
+      tags:
+        - Library Management
+      summary: Update book
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BookCreate'
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+    
+    delete:
+      tags:
+        - Library Management
+      summary: Delete book
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Deleted
+  
+  /api/library/books/{id}/borrow/:
+    post:
+      tags:
+        - Library Management
+      summary: Borrow a book
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - member_id
+              properties:
+                member_id:
+                  type: string
+                  format: uuid
+                due_date:
+                  type: string
+                  format: date
+            example:
+              member_id: "123e4567-e89b-12d3-a456-426614174000"
+              due_date: "2024-04-15"
+      responses:
+        '200':
+          description: Book borrowed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+  
+  /api/library/books/{id}/return/:
+    post:
+      tags:
+        - Library Management
+      summary: Return a book
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - transaction_id
+              properties:
+                transaction_id:
+                  type: string
+                  format: uuid
+      responses:
+        '200':
+          description: Book returned successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+  
+  /api/library/members/:
+    get:
+      tags:
+        - Library Management
+      summary: List library members
+      parameters:
+        - name: member_type
+          in: query
+          schema:
+            type: string
+            enum: [student, teacher, staff]
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+    
+    post:
+      tags:
+        - Library Management
+      summary: Register library member
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - user_id
+                - member_type
+              properties:
+                user_id:
+                  type: string
+                  format: uuid
+                member_type:
+                  type: string
+                  enum: [student, teacher, staff]
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+  
+  /api/library/transactions/:
+    get:
+      tags:
+        - Library Management
+      summary: List borrowing transactions
+      parameters:
+        - name: member_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: book_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [borrowed, returned, overdue]
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+  
+  /api/library/statistics/:
+    get:
+      tags:
+        - Library Management
+      summary: Get library statistics
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                  status:
+                    type: integer
+                  data:
+                    type: object
+                    properties:
+                      total_books:
+                        type: integer
+                      total_borrowed:
+                        type: integer
+                      total_available:
+                        type: integer
+                      total_members:
+                        type: integer
+  
+  # ==================== LEAVE REQUESTS ====================
+  /api/leave/leave-requests/:
+    get:
+      tags:
+        - Leave Requests
+      summary: List leave requests
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending, approved, rejected]
+        - name: student_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: start_date
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: end_date
+          in: query
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+    
+    post:
+      tags:
+        - Leave Requests
+      summary: Create leave request
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LeaveRequestCreate'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+  
+  /api/leave/leave-requests/{id}/:
+    get:
+      tags:
+        - Leave Requests
+      summary: Get leave request details
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+    
+    put:
+      tags:
+        - Leave Requests
+      summary: Update leave request
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LeaveRequestCreate'
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+    
+    delete:
+      tags:
+        - Leave Requests
+      summary: Delete leave request
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Deleted
+  
+  /api/leave/leave-requests/{id}/approve-reject/:
+    post:
+      tags:
+        - Leave Requests
+      summary: Approve or reject leave request
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - status
+              properties:
+                status:
+                  type: string
+                  enum: [approved, rejected]
+                rejection_reason:
+                  type: string
+            example:
+              status: "approved"
+      responses:
+        '200':
+          description: Request processed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+  
+  /api/leave/leave-requests/my-requests/:
+    get:
+      tags:
+        - Leave Requests
+      summary: Get my leave requests
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+  
+  /api/leave/leave-requests/pending/:
+    get:
+      tags:
+        - Leave Requests
+      summary: Get pending leave requests
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+  
+  /api/leave/leave-requests/statistics/:
+    get:
+      tags:
+        - Leave Requests
+      summary: Get leave request statistics
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      total:
+                        type: integer
+                      pending:
+                        type: integer
+                      approved:
+                        type: integer
+                      rejected:
+                        type: integer
+
+  
+  # ==================== AUTH ENHANCEMENTS ====================
+  /api/auth/otp/request/:
+    post:
+      tags:
+        - Auth Enhancements
+      summary: Request OTP code
+      description: Request a one-time password for login, password reset, or verification
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - purpose
+              properties:
+                email:
+                  type: string
+                  format: email
+                purpose:
+                  type: string
+                  enum: [login, password_reset, email_verification, 2fa]
+            example:
+              email: "user@school.com"
+              purpose: "login"
+      responses:
+        '200':
+          description: OTP sent
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+  
+  /api/auth/otp/verify/:
+    post:
+      tags:
+        - Auth Enhancements
+      summary: Verify OTP code
+      description: Verify the OTP code sent to user's email
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - code
+                - purpose
+              properties:
+                email:
+                  type: string
+                  format: email
+                code:
+                  type: string
+                  minLength: 6
+                  maxLength: 6
+                purpose:
+                  type: string
+            example:
+              email: "user@school.com"
+              code: "123456"
+              purpose: "login"
+      responses:
+        '200':
+          description: OTP verified
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+        '400':
+          description: Invalid or expired OTP
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  
+  /api/auth/two-factor/enable/:
+    post:
+      tags:
+        - Auth Enhancements
+      summary: Enable 2FA
+      description: Enable two-factor authentication for current user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - method
+              properties:
+                method:
+                  type: string
+                  enum: [sms, email, app]
+                phone_number:
+                  type: string
+                  description: Required for SMS method
+            example:
+              method: "email"
+      responses:
+        '200':
+          description: 2FA enabled
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                  data:
+                    type: object
+                    properties:
+                      backup_codes:
+                        type: array
+                        items:
+                          type: string
+  
+  /api/auth/two-factor/disable/:
+    post:
+      tags:
+        - Auth Enhancements
+      summary: Disable 2FA
+      description: Disable two-factor authentication for current user
+      responses:
+        '200':
+          description: 2FA disabled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+  
+  /api/auth/two-factor/status/:
+    get:
+      tags:
+        - Auth Enhancements
+      summary: Get 2FA status
+      description: Check if 2FA is enabled for current user
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      is_enabled:
+                        type: boolean
+                      method:
+                        type: string
+  
+  /api/auth/password-reset/request/:
+    post:
+      tags:
+        - Auth Enhancements
+      summary: Request password reset
+      description: Request password reset code via email
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+              properties:
+                email:
+                  type: string
+                  format: email
+            example:
+              email: "user@school.com"
+      responses:
+        '200':
+          description: Reset code sent
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+  
+  /api/auth/password-reset/confirm/:
+    post:
+      tags:
+        - Auth Enhancements
+      summary: Confirm password reset
+      description: Reset password using OTP code
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - code
+                - new_password
+                - confirm_password
+              properties:
+                email:
+                  type: string
+                  format: email
+                code:
+                  type: string
+                new_password:
+                  type: string
+                  format: password
+                  minLength: 8
+                confirm_password:
+                  type: string
+                  format: password
+            example:
+              email: "user@school.com"
+              code: "123456"
+              new_password: "newpassword123"
+              confirm_password: "newpassword123"
+      responses:
+        '200':
+          description: Password reset successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+        '400':
+          description: Invalid code or passwords don't match
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  
+  /api/auth/login-attempts/my-attempts/:
+    get:
+      tags:
+        - Auth Enhancements
+      summary: Get my login attempts
+      description: View login attempt history for current user
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+  
+  # ==================== RESOURCE REQUESTS ====================
+  /api/resources/resource-requests/:
+    get:
+      tags:
+        - Resource Requests
+      summary: List resource requests
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending, approved, rejected, completed, cancelled]
+        - name: request_type
+          in: query
+          schema:
+            type: string
+            enum: [supplies, exam_duplication, equipment, maintenance, other]
+        - name: priority
+          in: query
+          schema:
+            type: string
+            enum: [low, medium, high, urgent]
+        - name: department
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+    
+    post:
+      tags:
+        - Resource Requests
+      summary: Create resource request
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - request_type
+                - title
+                - description
+              properties:
+                request_type:
+                  type: string
+                  enum: [supplies, exam_duplication, equipment, maintenance, other]
+                title:
+                  type: string
+                description:
+                  type: string
+                quantity:
+                  type: integer
+                  default: 1
+                priority:
+                  type: string
+                  enum: [low, medium, high, urgent]
+                  default: medium
+                department:
+                  type: string
+                estimated_cost:
+                  type: number
+                  format: float
+                needed_by:
+                  type: string
+                  format: date
+                notes:
+                  type: string
+                items:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      item_name:
+                        type: string
+                      description:
+                        type: string
+                      quantity:
+                        type: integer
+                      unit:
+                        type: string
+                      estimated_unit_cost:
+                        type: number
+            example:
+              request_type: "supplies"
+              title: "Office Supplies for Math Department"
+              description: "Need markers, erasers, and notebooks"
+              quantity: 1
+              priority: "medium"
+              department: "Mathematics"
+              estimated_cost: 150.00
+              needed_by: "2024-03-20"
+              items:
+                - item_name: "Whiteboard Markers"
+                  quantity: 20
+                  unit: "pieces"
+                  estimated_unit_cost: 2.50
+                - item_name: "Erasers"
+                  quantity: 10
+                  unit: "pieces"
+                  estimated_unit_cost: 1.00
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+  
+  /api/resources/resource-requests/{id}/:
+    get:
+      tags:
+        - Resource Requests
+      summary: Get resource request details
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+    
+    put:
+      tags:
+        - Resource Requests
+      summary: Update resource request
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+    
+    delete:
+      tags:
+        - Resource Requests
+      summary: Delete resource request
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Deleted
+  
+  /api/resources/resource-requests/{id}/approve-reject/:
+    post:
+      tags:
+        - Resource Requests
+      summary: Approve or reject resource request
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - status
+              properties:
+                status:
+                  type: string
+                  enum: [approved, rejected]
+                rejection_reason:
+                  type: string
+                notes:
+                  type: string
+            example:
+              status: "approved"
+              notes: "Approved with reduced quantity"
+      responses:
+        '200':
+          description: Request processed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+  
+  /api/resources/resource-requests/{id}/complete/:
+    post:
+      tags:
+        - Resource Requests
+      summary: Mark request as completed
+      description: Mark an approved request as completed
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Request completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+  
+  /api/resources/resource-requests/my-requests/:
+    get:
+      tags:
+        - Resource Requests
+      summary: Get my resource requests
+      description: Get requests created by current user
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+  
+  /api/resources/resource-requests/pending/:
+    get:
+      tags:
+        - Resource Requests
+      summary: Get pending resource requests
+      description: Get all pending requests (admin only)
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+  
+  /api/resources/resource-requests/statistics/:
+    get:
+      tags:
+        - Resource Requests
+      summary: Get resource request statistics
+      description: Get statistics about resource requests
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                  status:
+                    type: integer
+                  data:
+                    type: object
+                    properties:
+                      total:
+                        type: integer
+                      pending:
+                        type: integer
+                      approved:
+                        type: integer
+                      rejected:
+                        type: integer
+                      completed:
+                        type: integer
+                      by_type:
+                        type: object
+                        additionalProperties:
+                          type: integer

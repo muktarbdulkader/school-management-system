@@ -1,0 +1,56 @@
+version: '3.1'
+
+services:
+  web:
+    build: .
+    command: >
+      sh -c "
+        # Clean existing migrations
+        find . -path '*/migrations/*.py' -not -name '__init__.py' -delete;
+        find . -path '*/migrations/*.pyc' -delete;
+        
+        # Create initial empty migrations for problematic apps
+        python manage.py makemigrations academics --name initial_academics --empty;
+        python manage.py makemigrations students --name initial_students --empty;
+        
+        # Create migrations in proper order
+        python manage.py makemigrations users;
+        python manage.py makemigrations teachers;
+        
+        # Create actual academics models (excluding student dependencies)
+        python manage.py makemigrations academics;
+        
+        # Create students models
+        python manage.py makemigrations students;
+        
+        # Create remaining apps
+        python manage.py makemigrations schedule;
+        python manage.py makemigrations communication;
+        python manage.py makemigrations reports;
+        python manage.py makemigrations materials;
+        python manage.py makemigrations library;
+        python manage.py makemigrations blogs;
+        python manage.py makemigrations assessments;
+        python manage.py makemigrations lessontopics;
+
+        
+        # Final migration to handle any remaining relationships
+        python manage.py makemigrations;
+        
+        # Apply all migrations
+        python manage.py migrate;
+        
+        # Create superuser
+        python manage.py shell < /app/create_superuser.py;
+        
+        # Start server
+        python manage.py runserver 0.0.0.0:8000"
+    volumes:
+      - .:/app
+      - ./db.sqlite3:/app/db.sqlite3
+    ports:
+      - "8020:8000"
+    environment:
+      - DJANGO_SETTINGS_MODULE=mald_sms.settings
+      - DJANGO_SUPERUSER_EMAIL=admin@gmail.com
+      - DJANGO_SUPERUSER_PASSWORD=admin123

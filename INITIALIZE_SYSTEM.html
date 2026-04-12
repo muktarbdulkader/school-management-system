@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Initialize School Management System</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            max-width: 600px;
+            width: 100%;
+            padding: 40px;
+        }
+        
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 28px;
+        }
+        
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+        
+        .status {
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            display: none;
+        }
+        
+        .status.info {
+            background: #e3f2fd;
+            color: #1976d2;
+            border-left: 4px solid #1976d2;
+        }
+        
+        .status.success {
+            background: #e8f5e9;
+            color: #388e3c;
+            border-left: 4px solid #388e3c;
+        }
+        
+        .status.error {
+            background: #ffebee;
+            color: #c62828;
+            border-left: 4px solid #c62828;
+        }
+        
+        .status.warning {
+            background: #fff3e0;
+            color: #f57c00;
+            border-left: 4px solid #f57c00;
+        }
+        
+        button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            width: 100%;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        
+        button:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(0,0,0,0.2);
+        }
+        
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+        
+        .details {
+            margin-top: 20px;
+            padding: 15px;
+            background: #f5f5f5;
+            border-radius: 8px;
+            font-size: 14px;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        
+        .details pre {
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+        
+        .loader {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+            display: none;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .step {
+            padding: 10px;
+            margin: 10px 0;
+            background: #f9f9f9;
+            border-radius: 6px;
+            border-left: 3px solid #667eea;
+        }
+        
+        .step-title {
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 5px;
+        }
+        
+        .step-status {
+            font-size: 13px;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎓 School Management System</h1>
+        <p class="subtitle">One-time system initialization</p>
+        
+        <div id="statusBox" class="status"></div>
+        <div id="loader" class="loader"></div>
+        
+        <button id="checkBtn" onclick="checkStatus()">Check System Status</button>
+        <button id="initBtn" onclick="initializeSystem()" style="margin-top: 10px;">Initialize System</button>
+        
+        <div id="details" class="details" style="display: none;"></div>
+    </div>
+
+    <script>
+        const API_URL = 'https://school-management-backend-nrs9.onrender.com/api/users';
+        
+        function showStatus(message, type) {
+            const statusBox = document.getElementById('statusBox');
+            statusBox.textContent = message;
+            statusBox.className = `status ${type}`;
+            statusBox.style.display = 'block';
+        }
+        
+        function showLoader(show) {
+            document.getElementById('loader').style.display = show ? 'block' : 'none';
+        }
+        
+        function showDetails(data) {
+            const detailsDiv = document.getElementById('details');
+            detailsDiv.innerHTML = '<pre>' + JSON.stringify(data, null, 2) + '</pre>';
+            detailsDiv.style.display = 'block';
+        }
+        
+        async function checkStatus() {
+            showLoader(true);
+            showStatus('Checking system status...', 'info');
+            document.getElementById('checkBtn').disabled = true;
+            
+            try {
+                const response = await fetch(`${API_URL}/setup/status/`);
+                const data = await response.json();
+                
+                if (data.initialized) {
+                    showStatus(`✅ System is already initialized! ${data.roles_count} roles, ${data.users_count} users`, 'success');
+                } else {
+                    showStatus('⚠️ System not initialized yet. Click "Initialize System" button.', 'warning');
+                }
+                
+                showDetails(data);
+            } catch (error) {
+                showStatus(`❌ Error: ${error.message}`, 'error');
+            } finally {
+                showLoader(false);
+                document.getElementById('checkBtn').disabled = false;
+            }
+        }
+        
+        async function initializeSystem() {
+            if (!confirm('This will create roles, users, and initial data. Continue?')) {
+                return;
+            }
+            
+            showLoader(true);
+            showStatus('Initializing system... This may take 30-60 seconds...', 'info');
+            document.getElementById('initBtn').disabled = true;
+            document.getElementById('checkBtn').disabled = true;
+            
+            try {
+                const response = await fetch(`${API_URL}/setup/initialize/`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    if (data.status === 'already_initialized') {
+                        showStatus('ℹ️ System was already initialized!', 'info');
+                    } else {
+                        showStatus(`🎉 Success! Created ${data.roles_created} roles and ${data.users_created} users!`, 'success');
+                    }
+                    showDetails(data);
+                } else {
+                    showStatus(`❌ Error: ${data.message || 'Unknown error'}`, 'error');
+                    showDetails(data);
+                }
+            } catch (error) {
+                showStatus(`❌ Network Error: ${error.message}`, 'error');
+            } finally {
+                showLoader(false);
+                document.getElementById('initBtn').disabled = false;
+                document.getElementById('checkBtn').disabled = false;
+            }
+        }
+        
+        // Auto-check status on load
+        window.onload = () => {
+            checkStatus();
+        };
+    </script>
+</body>
+</html>
