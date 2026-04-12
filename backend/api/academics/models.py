@@ -129,6 +129,7 @@ class Section(models.Model):
     name = models.CharField(max_length=10)  # e.g., "A", "B"
     room_number = models.CharField(max_length=20, blank=True, null=True)
     capacity = models.IntegerField(default=30)
+    class_teacher = models.ForeignKey('teachers.Teacher', on_delete=models.SET_NULL, null=True, blank=True, related_name='managed_sections')
 
     class Meta:
         db_table = 'sections'

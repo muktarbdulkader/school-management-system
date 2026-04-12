@@ -790,7 +790,7 @@ class LessonPlanEvaluationsViewSet(viewsets.ModelViewSet):
             from teachers.models import TeacherAssignment
             teacher = Teacher.objects.get(user=user)
             teacher_assignments = TeacherAssignment.objects.filter(teacher=teacher)
-            lesson_plans = LessonPlans.objects.filter(teacher_assignment__in=teacher_assignments)
+            lesson_plans = LessonPlans.objects.filter(created_by__in=teacher_assignments)
             return self.queryset.filter(lesson_plan_id__in=lesson_plans)
         return self.queryset.none()
 

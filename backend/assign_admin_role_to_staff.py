@@ -11,7 +11,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'mald_sms.settings')
 django.setup()
 
-from users.models import User, Role, UserRole
+from api.users.models import User, Role, UserRole
 
 def assign_admin_role_to_staff():
     """Assign admin role to all staff users who don't have any roles"""

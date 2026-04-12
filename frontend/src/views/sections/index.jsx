@@ -23,7 +23,7 @@ function SectionsPage() {
   const [formData, setFormData] = useState({
     name: '',
     class_fk: '',
-    class_teacher_id: '',
+    class_teacher: '',
     room_number: '',
     capacity: ''
   });
@@ -91,21 +91,21 @@ function SectionsPage() {
       setFormData({
         name: section.name || '',
         class_fk: section.class_details?.id || section.class_fk || '',
-        class_teacher_id: section.class_teacher_details?.id || section.class_teacher_id || '',
+        class_teacher: section.class_teacher_details?.id || section.class_teacher || '',
         room_number: section.room_number || '',
         capacity: section.capacity || ''
       });
     } else {
       setEditMode(false);
       setCurrentSection(null);
-      setFormData({ name: '', class_fk: '', class_teacher_id: '', room_number: '', capacity: '' });
+      setFormData({ name: '', class_fk: '', class_teacher: '', room_number: '', capacity: '' });
     }
     setDialogOpen(true);
   };
 
   const handleCloseDialog = () => {
     setDialogOpen(false);
-    setFormData({ name: '', class_fk: '', class_teacher_id: '', room_number: '', capacity: '' });
+    setFormData({ name: '', class_fk: '', class_teacher: '', room_number: '', capacity: '' });
     setCurrentSection(null);
     setEditMode(false);
   };
@@ -129,8 +129,8 @@ function SectionsPage() {
         capacity: parseInt(formData.capacity)
       };
 
-      if (formData.class_teacher_id) {
-        payload.class_teacher_id = formData.class_teacher_id;
+      if (formData.class_teacher) {
+        payload.class_teacher = formData.class_teacher;
       }
 
       const response = await fetch(url, {
@@ -320,14 +320,14 @@ function SectionsPage() {
                           {section.class_teacher_details ? (
                             <Stack direction="row" spacing={1} alignItems="center">
                               <Avatar sx={{ width: 24, height: 24, fontSize: '0.75rem' }}>
-                                {section.class_teacher_details.user?.full_name?.charAt(0) || 'T'}
+                                {section.class_teacher_details.name?.charAt(0) || 'T'}
                               </Avatar>
                               <Box>
-                                <Typography variant="body2">
-                                  {section.class_teacher_details.user?.full_name || '—'}
+                                <Typography variant="h6">
+                                  {section.class_teacher_details.name || 'Teacher'}
                                 </Typography>
                                 <Typography variant="caption" color="text.secondary">
-                                  {section.class_teacher_details.user?.email || ''}
+                                  {section.class_teacher_details.user_details?.email || ''}
                                 </Typography>
                               </Box>
                             </Stack>
@@ -353,7 +353,7 @@ function SectionsPage() {
                                     sx={{ fontSize: '0.7rem' }}
                                   />
                                   <Typography variant="caption" color="text.secondary">
-                                    → {ta.subject_name}
+                                    → {ta.subject_name || 'Subject'}
                                   </Typography>
                                 </Stack>
                               ))}
@@ -454,15 +454,15 @@ function SectionsPage() {
             <TextField
               select
               label="Class Teacher"
-              value={formData.class_teacher_id}
-              onChange={(e) => setFormData({ ...formData, class_teacher_id: e.target.value })}
+              value={formData.class_teacher}
+              onChange={(e) => setFormData({ ...formData, class_teacher: e.target.value })}
               fullWidth
               helperText="Optional - Assign a class teacher"
             >
               <MenuItem value="">None</MenuItem>
               {teachers.map((teacher) => (
                 <MenuItem key={teacher.id} value={teacher.id}>
-                  {teacher.user?.full_name || teacher.full_name} - {teacher.user?.email || teacher.email}
+                  {teacher.name} - {teacher.user_details?.email || 'No Email'}
                 </MenuItem>
               ))}
             </TextField>

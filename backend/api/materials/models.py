@@ -12,6 +12,10 @@ class ResourceRequest(models.Model):
     """
     Requests for supplies, exam duplication, and other resources
     """
+    class Meta:
+        app_label = 'materials'
+        db_table = 'resource_requests'
+
     REQUEST_TYPE_CHOICES = (
         ('supplies', 'Office Supplies'),
         ('exam_duplication', 'Exam Duplication'),

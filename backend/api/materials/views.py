@@ -265,20 +265,20 @@ def export_report_card(request, student_id):
         return Response({'success': False, 'message': f'Student with ID {student_id} not found or invalid'}, status=200)
 
     try:
-        if not term:
+        if not Term:
             return Response({'success': False, 'message': 'No term found'}, status=200)
 
         # Get grades from ExamResults
         grades = ExamResults.objects.filter(
             student_id=student,
-            exam_id__term_id=term
+            exam_id__term_id=Term
         ).select_related('subject_id', 'exam_id')
 
         # Get attendance data
         attendance_records = Attendance.objects.filter(
             student_id=student,
-            date__gte=term.start_date,
-            date__lte=term.end_date
+            date__gte=Term.start_date,
+            date__lte=Term.end_date
         )
 
         if not attendance_records.exists():
@@ -297,10 +297,10 @@ def export_report_card(request, student_id):
         }
 
         # Generate PDF
-        buffer = PDFExporter.export_report_card(student, term, grades, attendance_data)
+        buffer = PDFExporter.export_report_card(student, Term, grades, attendance_data)
 
         response = HttpResponse(buffer, content_type='application/pdf')
-        response['Content-Disposition'] = f'attachment; filename="report_card_{student.user.full_name}_{term.name}.pdf"'
+        response['Content-Disposition'] = f'attachment; filename="report_card_{student.user.full_name}_{Term.name}.pdf"'
         return response
 
     except Student.DoesNotExist:

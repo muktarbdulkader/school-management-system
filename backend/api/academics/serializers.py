@@ -57,19 +57,19 @@ class ClassesSerializer(serializers.ModelSerializer):
 
 class SectionsSerializer(serializers.ModelSerializer):
     class_fk = serializers.PrimaryKeyRelatedField(queryset=Class.objects.all(), write_only=True)
-    class_teacher_id = serializers.PrimaryKeyRelatedField(
+    class_teacher = serializers.PrimaryKeyRelatedField(
         queryset=Teacher.objects.all(),
         allow_null=True,
         required=False,
         write_only=True
     )
     class_details = ClassesSerializer(source='class_fk', read_only=True)
-    class_teacher_details = TeacherSerializer(source='class_teacher_id', read_only=True)
+    class_teacher_details = TeacherSerializer(source='class_teacher', read_only=True)
     teacher_assignments = serializers.SerializerMethodField()
 
     class Meta:
         model = Section
-        fields = ['id', 'class_fk', 'class_details', 'name', 'class_teacher_id', 'class_teacher_details', 
+        fields = ['id', 'class_fk', 'class_details', 'name', 'class_teacher', 'class_teacher_details', 
                   'room_number', 'capacity', 'teacher_assignments']
 
     def get_teacher_assignments(self, obj):

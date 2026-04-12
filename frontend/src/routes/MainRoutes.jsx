@@ -108,6 +108,9 @@ const Grades = Loadable(lazy(() => import('views/Grade')));
 const TeachersClassUnits = Loadable(
   lazy(() => import('views/classes/teachers-class-units')),
 );
+const MyTasks = Loadable(lazy(() => import('views/teachers/MyTasks')));
+const MyReports = Loadable(lazy(() => import('views/teachers/MyReports')));
+const MyPerformance = Loadable(lazy(() => import('views/teachers/MyPerformance')));
 const ChildProfile = Loadable(lazy(() => import('views/child-profile')));
 const DashboardDetail = Loadable(
   lazy(
@@ -853,7 +856,7 @@ const MainRoutes = {
       path: 'teacher-tasks',
       element: (
         <Protected>
-          <Tasks />
+          <MyTasks />
         </Protected>
       ),
     },
@@ -869,7 +872,7 @@ const MainRoutes = {
       path: 'myreport',
       element: (
         <Protected>
-          <TeacherReports />
+          <MyReports />
         </Protected>
       ),
     },
@@ -877,7 +880,7 @@ const MainRoutes = {
       path: 'teacher-reports',
       element: (
         <Protected>
-          <TeacherReports />
+          <MyReports />
         </Protected>
       ),
     },
@@ -885,7 +888,7 @@ const MainRoutes = {
       path: 'myperformance',
       element: (
         <Protected>
-          <Performance />
+          <MyPerformance />
         </Protected>
       ),
     },
@@ -893,7 +896,7 @@ const MainRoutes = {
       path: 'teacher-tasks',
       element: (
         <Protected>
-          <Tasks />
+          <MyTasks />
         </Protected>
       ),
     },

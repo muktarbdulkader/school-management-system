@@ -6,4 +6,4 @@ class TeachersConfig(AppConfig):
     name = 'teachers'
 
     def ready(self):
-        import teachers.signals  # noqa: F401
+        import  teachers.signals  # noqa: F401

@@ -206,7 +206,7 @@ export default function MeetingRequestsPage() {
                     >
                       {teachers.map((teacher) => (
                         <MenuItem key={teacher.id} value={teacher.id}>
-                          {teacher.user?.full_name} - {teacher.specialization || teacher.subject_specialties || 'Not Assigned'}
+                          {teacher.name} - {teacher.specialization || teacher.subject_specialties || 'Not Assigned'}
                         </MenuItem>
                       ))}
                     </Select>
