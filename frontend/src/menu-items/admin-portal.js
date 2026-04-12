@@ -1,7 +1,8 @@
 import {
   IconDashboard, IconUsers, IconSchool, IconBook, IconCalendar,
   IconBell, IconUserCheck, IconShield, IconDownload, IconCoin,
-  IconMessage, IconBuildingStore, IconChartBar, IconChecklist
+  IconMessage, IconBuildingStore, IconChartBar, IconChecklist,
+  IconClock
 } from '@tabler/icons-react';
 import getRolesAndPermissionsFromToken from 'utils/auth/getRolesAndPermissionsFromToken';
 
@@ -39,6 +40,10 @@ export const getAdminPortalMenu = () => {
 
   if (roles.some(r => ['admin', 'super_admin', 'head_admin', 'ceo', 'tlh'].includes(r))) {
     items.push({ id: 'schedule', title: 'Schedule', type: 'item', url: '/schedule', icon: IconCalendar, breadcrumbs: false });
+  }
+
+  if (roles.some(r => ['admin', 'super_admin', 'head_admin', 'ceo'].includes(r))) {
+    items.push({ id: 'terms', title: 'Term Management', type: 'item', url: '/terms', icon: IconClock, breadcrumbs: false });
   }
 
   if (roles.some(r => ['admin', 'super_admin', 'head_admin', 'ceo', 'analyst', 'librarian'].includes(r))) {

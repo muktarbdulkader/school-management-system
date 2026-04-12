@@ -11,9 +11,9 @@ import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { format } from 'date-fns';
-import PageContainer from '../../components/container/PageContainer';
-import { Backend } from '../../services/backend';
-import { GetToken } from '../../services/auth';
+import MainPage from "ui-component/MainPage";
+import Backend from "services/backend";
+import GetToken from "utils/auth-token";
 import { toast } from 'react-toastify';
 
 const TERM_CHOICES = [
@@ -31,7 +31,7 @@ const TermManagement = () => {
   const [editMode, setEditMode] = useState(false);
   const [selectedTerm, setSelectedTerm] = useState(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  
+
   const [formData, setFormData] = useState({
     name: '', academic_year: '', branch: '', start_date: null, end_date: null, is_current: false
   });
@@ -179,7 +179,7 @@ const TermManagement = () => {
 
   return (
     <LocalizationProvider dateAdapter={AdapterDateFns}>
-      <PageContainer title="Term Management">
+      <MainPage title="Term Management">
         <Box sx={{ mb: 3 }}>
           <Stack direction="row" justifyContent="space-between" alignItems="center">
             <Box>
@@ -301,7 +301,7 @@ const TermManagement = () => {
             <Button color="error" variant="contained" onClick={handleDelete}>Delete</Button>
           </DialogActions>
         </Dialog>
-      </PageContainer>
+      </MainPage>
     </LocalizationProvider>
   );
 };

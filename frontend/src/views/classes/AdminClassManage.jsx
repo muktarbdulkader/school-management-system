@@ -1,12 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import {
   Box, Typography, Button, Paper, Stack, Grid, Chip, IconButton, Dialog,
-  DialogTitle, DialogContent, DialogActions, TextField, Divider, Card, CardContent
+  DialogTitle, DialogContent, DialogActions, TextField, Divider, Card, CardContent,
+  Tooltip
 } from '@mui/material';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
   IconArrowLeft, IconEdit, IconTrash, IconPlus, IconSchool,
-  IconSettings, IconAlertCircle, IconUsers
+  IconSettings, IconAlertCircle, IconUsers, IconBook
 } from '@tabler/icons-react';
 import PageContainer from 'ui-component/MainPage';
 import DrogaCard from 'ui-component/cards/DrogaCard';
@@ -260,7 +261,8 @@ function AdminClassManage() {
                       cursor: 'pointer',
                       borderColor: selectedClass?.id === cls.id ? 'primary.main' : 'divider',
                       bgcolor: selectedClass?.id === cls.id ? 'primary.50' : 'background.paper',
-                      '&:hover': { bgcolor: 'action.hover' }
+                      '&:hover': { bgcolor: 'action.hover' },
+                      transition: 'all 0.2s ease'
                     }}
                     onClick={() => handleSelectClass(cls)}
                   >
@@ -269,13 +271,42 @@ function AdminClassManage() {
                         <Typography variant="h6" fontWeight={600}>
                           {cls.grade}
                         </Typography>
-                        <Typography variant="body2" color="text.secondary">
+                        <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
                           {cls.description || 'No description'}
                         </Typography>
+                        {cls.branch_details && (
+                          <Chip
+                            label={cls.branch_details.name}
+                            size="small"
+                            variant="outlined"
+                            sx={{ mt: 1, fontSize: '0.75rem' }}
+                          />
+                        )}
                       </Box>
-                      {selectedClass?.id === cls.id && (
-                        <Chip label="Selected" size="small" color="primary" />
-                      )}
+                      <Stack direction="row" spacing={1} alignItems="center">
+                        {/* Student Count Badge */}
+                        <Tooltip title="Students enrolled">
+                          <Chip
+                            icon={<IconUsers size={16} />}
+                            label={`${cls.student_count || 0} Students`}
+                            size="small"
+                            color={cls.student_count > 0 ? 'success' : 'default'}
+                            variant="filled"
+                          />
+                        </Tooltip>
+                        {/* Sections Count Badge */}
+                        <Tooltip title="Sections">
+                          <Chip
+                            icon={<IconBook size={16} />}
+                            label={`${cls.sections_count || 0} Sections`}
+                            size="small"
+                            variant="outlined"
+                          />
+                        </Tooltip>
+                        {selectedClass?.id === cls.id && (
+                          <Chip label="Selected" size="small" color="primary" />
+                        )}
+                      </Stack>
                     </Stack>
                   </Paper>
                 ))}

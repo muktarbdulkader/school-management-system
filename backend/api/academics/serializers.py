@@ -36,9 +36,24 @@ class ClassesSerializer(serializers.ModelSerializer):
         write_only=True
     )
     branch_details = BranchSerializer(source = 'branch', read_only=True)
+    student_count = serializers.SerializerMethodField()
+    sections_count = serializers.SerializerMethodField()
+
     class Meta:
         model = Class
-        fields = ['id', 'grade', 'branch', 'branch_details']
+        fields = ['id', 'grade', 'branch', 'branch_details', 'student_count', 'sections_count']
+
+    def get_student_count(self, obj):
+        # Count all students enrolled in this class through sections
+        from students.models import Student
+        count = Student.objects.filter(
+            section__class_fk=obj
+        ).count()
+        return count
+
+    def get_sections_count(self, obj):
+        # Use section_set since Section model doesn't have a related_name defined
+        return obj.section_set.count()
 
 class SectionsSerializer(serializers.ModelSerializer):
     class_fk = serializers.PrimaryKeyRelatedField(queryset=Class.objects.all(), write_only=True)
