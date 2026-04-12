@@ -865,6 +865,14 @@ const MainRoutes = {
         </Protected>
       ),
     },
+    {
+      path: 'myperformance',
+      element: (
+        <Protected>
+          <Performance />
+        </Protected>
+      ),
+    },
 
     {
       path: 'task/detail',
