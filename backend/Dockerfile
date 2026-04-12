@@ -18,5 +18,5 @@ RUN pip install --no-cache-dir --prefer-binary -r requirements.txt
 # Copy project files
 COPY . /code/
 
-# Run migrations and start the server
-CMD ["sh", "-c", "python manage.py migrate && python manage.py create_roles && python manage.py create_users && gunicorn --bind 0.0.0.0:10000 mald_sms.wsgi:application"]
+# Run migrations, collect static files, and start the server
+CMD ["sh", "-c", "python manage.py migrate && python manage.py collectstatic --noinput && python manage.py create_roles && python manage.py create_users && gunicorn --bind 0.0.0.0:10000 mald_sms.wsgi:application"]

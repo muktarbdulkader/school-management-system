@@ -1,8 +1,9 @@
 VITE_APP_VERSION=v1.0.0
 GENERATE_SOURCEMAP=false
 
-### Backend API URL ###
-VITE_SMS_URL=https://school-management-system-apbn.onrender.com/api/
+### Backend API URL - LOCAL DEVELOPMENT ###
+VITE_SMS_URL=http://localhost:8000/api/
 
 ## PUBLIC URL
-VITE_APP_BASE_NAME=/https://school-management-system-apbn.onrender.com
+VITE_APP_BASE_NAME=/
+VITE_API_URL=http://localhost:8000

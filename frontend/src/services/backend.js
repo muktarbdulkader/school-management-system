@@ -1,5 +1,5 @@
 // Reusable API base URL from environment variable
-const API = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+const API = import.meta.env.VITE_API_URL || import.meta.env.VITE_SMS_URL || 'http://localhost:8000';
 
 // Backend API Configuration
 const Backend = {

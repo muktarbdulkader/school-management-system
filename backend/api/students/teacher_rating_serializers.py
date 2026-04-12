@@ -29,8 +29,15 @@ class TeacherRatingCreateSerializer(serializers.ModelSerializer):
         ]
     
     def validate(self, data):
-        # Validate that the student belongs to the parent
-        parent = self.context['request'].user.parent_profile
+        # Validate that the student belongs to the parent (only if user is a parent)
+        request = self.context['request']
+        user = request.user
+        
+        # Skip parent validation for superadmins/staff without parent profiles
+        if not hasattr(user, 'parent_profile'):
+            return data
+            
+        parent = user.parent_profile
         from .models import ParentStudent
         if not ParentStudent.objects.filter(parent=parent, student=data['student']).exists():
             raise serializers.ValidationError("You can only rate teachers of your own children.")

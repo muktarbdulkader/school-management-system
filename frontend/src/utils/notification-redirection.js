@@ -13,6 +13,19 @@ export const NotificationRedirection = (body, navigate) => {
         },
       });
       break;
+    case 'eod_report':
+    case 'my_report':
+      navigate('/teacher-reports');
+      break;
+    case 'teacher_task':
+    case 'task_assigned':
+    case 'my_task':
+      navigate('/teacher-tasks');
+      break;
+    case 'performance_report':
+    case 'my_performance':
+      navigate('/myperformance');
+      break;
     default:
       navigate('/');
   }
