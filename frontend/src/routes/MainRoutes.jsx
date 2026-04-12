@@ -16,6 +16,7 @@ const CurriculumUnitsManager = Loadable(lazy(() => import('views/curriculum-unit
 const FeedBacks = Loadable(lazy(() => import('views/feedbacks')));
 const Coaching = Loadable(lazy(() => import('views/coaching')));
 const EODReport = Loadable(lazy(() => import('views/EodReport/EodReport')));
+const TeacherReports = Loadable(lazy(() => import('views/EodReport/EodReport')));
 const EodReportView = Loadable(
   lazy(() => import('views/myTeamEodReport/EdoReportView')),
 );
@@ -845,6 +846,22 @@ const MainRoutes = {
       element: (
         <Protected>
           <Tasks />
+        </Protected>
+      ),
+    },
+    {
+      path: 'todo',
+      element: (
+        <Protected>
+          <Todo />
+        </Protected>
+      ),
+    },
+    {
+      path: 'myreport',
+      element: (
+        <Protected>
+          <TeacherReports />
         </Protected>
       ),
     },
