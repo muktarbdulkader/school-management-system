@@ -850,6 +850,14 @@ const MainRoutes = {
       ),
     },
     {
+      path: 'teacher-tasks',
+      element: (
+        <Protected>
+          <Tasks />
+        </Protected>
+      ),
+    },
+    {
       path: 'todo',
       element: (
         <Protected>
@@ -866,10 +874,26 @@ const MainRoutes = {
       ),
     },
     {
+      path: 'teacher-reports',
+      element: (
+        <Protected>
+          <TeacherReports />
+        </Protected>
+      ),
+    },
+    {
       path: 'myperformance',
       element: (
         <Protected>
           <Performance />
+        </Protected>
+      ),
+    },
+    {
+      path: 'teacher-tasks',
+      element: (
+        <Protected>
+          <Tasks />
         </Protected>
       ),
     },
