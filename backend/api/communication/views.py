@@ -391,8 +391,13 @@ class ChatViewSet(viewsets.ModelViewSet):
                     'branch_name': p.branch.name if p.branch else 'Global'
                 })
 
-            available_subjects = Subject.objects.filter(id__in=cst_records.values_list('subject_id', flat=True)).values('id', 'name').distinct()
-            available_classes = Class.objects.filter(id__in=cst_records.values_list('class_id', flat=True)).values('id', 'grade').distinct()
+            # Get available subjects and classes from teacher's assignments
+            available_subjects = Subject.objects.filter(
+                id__in=assignment_records.values_list('subject_id', flat=True)
+            ).values('id', 'name').distinct()
+            available_classes = Class.objects.filter(
+                id__in=assignment_records.values_list('class_fk_id', flat=True)
+            ).values('id', 'grade').distinct()
 
         # 3. STUDENT LOGIC
         elif student_profile:

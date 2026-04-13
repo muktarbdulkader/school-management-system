@@ -1,0 +1,21 @@
+[build]
+  # Use a specific Node version that's stable and memory-efficient
+  environment = { NODE_VERSION = "18.20.0", NODE_OPTIONS = "--max-old-space-size=4096" }
+  publish = "dist"
+  command = "npm run build"
+
+[build.processing]
+  skip_processing = true
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+[context.production]
+  # Production build optimizations
+  environment = { NODE_ENV = "production" }
+
+[context.deploy-preview]
+  # Preview builds also need memory
+  environment = { NODE_OPTIONS = "--max-old-space-size=4096" }

@@ -1,8 +1,12 @@
-from rest_framework import viewsets
+import logging
+
+from rest_framework import viewsets, status
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.exceptions import PermissionDenied
 from .models import Teacher, TeacherTask, TeacherPerformanceRating, TeacherMetrics, TeacherPerformanceReport, TeacherAssignment
+
+logger = logging.getLogger(__name__)
 from .serializers import (
     TeacherPerformanceRatingSerializer, TeacherSerializer, teacherTaskSerializer,
     TeacherMetricsSerializer, TeacherPerformanceReportSerializer, TeacherRegistrationSerializer,
@@ -1041,9 +1045,22 @@ class TeacherPerformanceRatingViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         queryset = self.queryset
+        user = self.request.user
         teacher_id = self.request.query_params.get('teacher')
+
+        # If user is a teacher, only show their own ratings
+        try:
+            teacher = Teacher.objects.get(user=user)
+            return queryset.filter(teacher=teacher).order_by('-rating_date')
+        except Teacher.DoesNotExist:
+            pass
+        except Exception as e:
+            logger.error(f"Error checking teacher status: {e}")
+
+        # For admins/students/parents, allow filtering by teacher_id
         if teacher_id:
             queryset = queryset.filter(teacher_id=teacher_id)
+
         return queryset.order_by('-rating_date')
 
     def list(self, request, *args, **kwargs):
@@ -1396,13 +1413,13 @@ class TeacherAssignmentViewSet(viewsets.ModelViewSet):
 
         # Check if user is a teacher
         try:
-            teacher = user.teacher_profile
+            teacher = Teacher.objects.get(user=user)
             # Teachers can see their own assignments
             queryset = queryset.filter(teacher=teacher)
             if class_id:
                 queryset = queryset.filter(class_fk_id=class_id)
             return queryset
-        except:
+        except Teacher.DoesNotExist:
             pass
 
         # Admins can see assignments for their accessible branches
@@ -1419,3 +1436,143 @@ class TeacherAssignmentViewSet(viewsets.ModelViewSet):
             return queryset
 
         return self.queryset.none()
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+        serializer = self.get_serializer(queryset, many=True)
+        return Response({
+            'success': True,
+            'message': 'Teacher assignments retrieved successfully',
+            'status': 200,
+            'data': serializer.data
+        })
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        return Response({
+            'success': True,
+            'message': 'Teacher assignment created successfully',
+            'status': 201,
+            'data': serializer.data
+        }, status=status.HTTP_201_CREATED)
+
+    def perform_create(self, serializer):
+        user = self.request.user
+        if not self.is_administrative_user(user):
+            raise PermissionDenied("Only administrators can create teacher assignments")
+        serializer.save()
+
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop('partial', False)
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+        return Response({
+            'success': True,
+            'message': 'Teacher assignment updated successfully',
+            'status': 200,
+            'data': serializer.data
+        })
+
+    def perform_update(self, serializer):
+        user = self.request.user
+        if not self.is_administrative_user(user):
+            raise PermissionDenied("Only administrators can update teacher assignments")
+        serializer.save()
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        self.perform_destroy(instance)
+        return Response({
+            'success': True,
+            'message': 'Teacher assignment deleted successfully',
+            'status': 204,
+            'data': []
+        }, status=status.HTTP_204_NO_CONTENT)
+
+    def perform_destroy(self, instance):
+        user = self.request.user
+        if not self.is_administrative_user(user):
+            raise PermissionDenied("Only administrators can delete teacher assignments")
+        instance.delete()
+
+    @action(detail=False, methods=['get'], url_path='teacher-detail/(?P<teacher_id>[^/.]+)')
+    def teacher_detail(self, request, teacher_id=None):
+        """Get detailed information about a teacher including all their assignments"""
+        try:
+            teacher = Teacher.objects.get(id=teacher_id)
+        except Teacher.DoesNotExist:
+            return Response({
+                'success': False,
+                'message': 'Teacher not found',
+                'status': 404
+            }, status=404)
+
+        # Get all assignments for this teacher
+        assignments = TeacherAssignment.objects.filter(
+            teacher=teacher
+        ).select_related('class_fk', 'section', 'subject', 'term')
+
+        # Group by subject and class for better display
+        teaching_info = []
+        for assignment in assignments:
+            teaching_info.append({
+                'class': {
+                    'id': str(assignment.class_fk.id),
+                    'grade': assignment.class_fk.grade
+                },
+                'section': {
+                    'id': str(assignment.section.id) if assignment.section else None,
+                    'name': assignment.section.name if assignment.section else 'All Sections'
+                },
+                'subject': {
+                    'id': str(assignment.subject.id),
+                    'name': assignment.subject.name,
+                    'code': assignment.subject.code
+                },
+                'term': {
+                    'id': str(assignment.term.id) if assignment.term else None,
+                    'name': assignment.term.name if assignment.term else None
+                },
+                'is_primary': assignment.is_primary,
+                'is_active': assignment.is_active,
+                'assigned_on': assignment.assigned_on
+            })
+
+        # Calculate summary stats
+        unique_classes = set(a.class_fk.grade for a in assignments)
+        unique_subjects = set(a.subject.name for a in assignments)
+        unique_sections = set(a.section.name for a in assignments if a.section)
+
+        # Get user data safely
+        user = teacher.user
+        teacher_data = {
+            'teacher': {
+                'id': str(teacher.id),
+                'teacher_id': teacher.teacher_id,
+                'name': user.full_name if user else 'N/A',
+                'email': user.email if user else 'N/A',
+                'phone': getattr(user, 'phone', None) or getattr(user, 'mobile', None) or 'N/A',
+                'is_active': user.is_active if user else False
+            },
+            'summary': {
+                'total_assignments': len(assignments),
+                'unique_classes': len(unique_classes),
+                'unique_subjects': len(unique_subjects),
+                'unique_sections': len(unique_sections),
+                'classes_list': list(unique_classes),
+                'subjects_list': list(unique_subjects),
+                'sections_list': list(unique_sections)
+            },
+            'assignments': teaching_info
+        }
+
+        return Response({
+            'success': True,
+            'message': 'Teacher details retrieved successfully',
+            'status': 200,
+            'data': teacher_data
+        })

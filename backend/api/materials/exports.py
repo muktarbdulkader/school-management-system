@@ -4,6 +4,7 @@ Supports PDF, Excel, and CSV exports
 """
 import io
 import csv
+import gc
 from datetime import datetime
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter, A4
@@ -111,6 +112,10 @@ class PDFExporter:
         # Build PDF
         doc.build(elements)
         buffer.seek(0)
+        
+        # Force garbage collection to free memory
+        gc.collect()
+        
         return buffer
 
     @staticmethod
@@ -141,6 +146,10 @@ class PDFExporter:
 
         doc.build(elements)
         buffer.seek(0)
+        
+        # Force garbage collection to free memory
+        gc.collect()
+        
         return buffer
 
 
@@ -208,6 +217,10 @@ class ExcelExporter:
         buffer = io.BytesIO()
         wb.save(buffer)
         buffer.seek(0)
+        
+        # Force garbage collection
+        gc.collect()
+        
         return buffer
 
     @staticmethod
@@ -234,6 +247,10 @@ class ExcelExporter:
         buffer = io.BytesIO()
         wb.save(buffer)
         buffer.seek(0)
+        
+        # Force garbage collection
+        gc.collect()
+        
         return buffer
 
 

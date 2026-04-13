@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: school-management-system
+    runtime: python
+    buildCommand: "./build.sh"
+    startCommand: "gunicorn mald_sms.wsgi:application --config gunicorn_config.py"
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: PYTHONUNBUFFERED
+        value: "true"
+      - key: DJANGO_SETTINGS_MODULE
+        value: mald_sms.settings
+      - key: RENDER
+        value: "true"
+    plan: starter  # 512MB RAM - use minimal workers

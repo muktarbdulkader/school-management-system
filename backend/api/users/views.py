@@ -4,6 +4,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.exceptions import PermissionDenied
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Permission
 from django.core.management import call_command
 from io import StringIO
 
@@ -737,6 +738,26 @@ class RolePermissionViewSet(viewsets.ModelViewSet):
     )
     serializer_class = RolePermissionSerializer
     permission_classes = [IsAuthenticated]
+
+    @action(detail=False, methods=['get'], url_path='available')
+    def available_permissions(self, request):
+        """
+        Get all available Django permissions for role assignment.
+        Returns permissions grouped by content type.
+        """
+        permissions = Permission.objects.select_related('content_type').all()
+        data = [{
+            'id': perm.id,
+            'name': perm.name,
+            'codename': perm.codename,
+            'content_type': perm.content_type.name if perm.content_type else 'General'
+        } for perm in permissions]
+
+        return Response({
+            'success': True,
+            'message': 'Permissions retrieved successfully',
+            'data': data
+        })
 
     def get_queryset(self):
         user = self.request.user

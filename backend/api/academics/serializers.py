@@ -170,22 +170,94 @@ class ClassCreateSerializer(serializers.Serializer):
         }
 
 class ClassDetailSerializer(serializers.ModelSerializer):
-    """Serializer for Class details with sections and courses"""
+    """Serializer for Class details with sections, courses, and teacher assignments"""
     sections = SectionsSerializer(source='section_set', many=True, read_only=True)
     courses = serializers.SerializerMethodField()
+    branch_details = BranchSerializer(source='branch', read_only=True)
 
     class Meta:
         model = Class
-        fields = ['id', 'grade', 'sections', 'courses', 'branch']
+        fields = ['id', 'grade', 'sections', 'courses', 'branch', 'branch_details']
 
     def get_courses(self, obj):
-        """Get all courses assigned to this class"""
-        class_subjects = obj.class_subjects.all().select_related('subject')
-        return [{
-            'id': str(cs.subject.id),
-            'name': cs.subject.name,
-            'code': cs.subject.code
-        } for cs in class_subjects]
+        """Get all courses assigned to this class with teacher assignments"""
+        from teachers.models import TeacherAssignment
+
+        # Get subjects from both ClassSubject and direct Subject links
+        courses_data = []
+
+        # 1. From direct Subjects (created via CreateClass flow)
+        direct_subjects = obj.direct_subjects.all().select_related('global_subject')
+        for subject in direct_subjects:
+            # Get teacher assignments for this subject
+            teacher_assignments = TeacherAssignment.objects.filter(
+                class_fk=obj,
+                subject=subject
+            ).select_related('teacher', 'teacher__user', 'section')
+
+            assignments_data = []
+            for ta in teacher_assignments:
+                assignments_data.append({
+                    'id': str(ta.id),
+                    'teacher_id': str(ta.teacher.id),
+                    'teacher_name': ta.teacher.user.full_name if ta.teacher.user else 'Unknown',
+                    'section_id': str(ta.section.id) if ta.section else None,
+                    'section_name': ta.section.name if ta.section else 'All Sections',
+                    'is_primary': ta.is_primary,
+                    'is_active': ta.is_active
+                })
+
+            courses_data.append({
+                'id': str(subject.id),
+                'name': subject.name,
+                'code': subject.code,
+                'description': subject.description,
+                'assignment_day': subject.assignment_day,
+                'global_subject': {
+                    'id': str(subject.global_subject.id),
+                    'name': subject.global_subject.name
+                } if subject.global_subject else None,
+                'teacher_assignments': assignments_data
+            })
+
+        # 2. From ClassSubject (legacy/classic flow)
+        class_subjects = obj.class_subjects.all().select_related('subject', 'global_subject')
+        for cs in class_subjects:
+            # Skip if already added from direct_subjects
+            if any(c['id'] == str(cs.subject.id) for c in courses_data):
+                continue
+
+            # Get teacher assignments
+            teacher_assignments = TeacherAssignment.objects.filter(
+                class_fk=obj,
+                subject=cs.subject
+            ).select_related('teacher', 'teacher__user', 'section')
+
+            assignments_data = []
+            for ta in teacher_assignments:
+                assignments_data.append({
+                    'id': str(ta.id),
+                    'teacher_id': str(ta.teacher.id),
+                    'teacher_name': ta.teacher.user.full_name if ta.teacher.user else 'Unknown',
+                    'section_id': str(ta.section.id) if ta.section else None,
+                    'section_name': ta.section.name if ta.section else 'All Sections',
+                    'is_primary': ta.is_primary,
+                    'is_active': ta.is_active
+                })
+
+            courses_data.append({
+                'id': str(cs.subject.id),
+                'name': cs.subject.name,
+                'code': cs.subject.code,
+                'description': cs.subject.description,
+                'global_subject': {
+                    'id': str(cs.global_subject.id),
+                    'name': cs.global_subject.name
+                } if cs.global_subject else None,
+                'teacher_assignments': assignments_data
+            })
+
+        return courses_data
 
 class SubjectsSerializer(serializers.ModelSerializer):
     course_type = serializers.PrimaryKeyRelatedField(queryset=CourseType.objects.all(), write_only=True, required=False, allow_null=True)
@@ -196,17 +268,33 @@ class SubjectsSerializer(serializers.ModelSerializer):
     section_details = SectionsSerializer(source='section', read_only=True)
     branch = serializers.PrimaryKeyRelatedField(queryset=Branch.objects.all(), write_only=True, required=False, allow_null=True)
     branch_details = BranchSerializer(source='branch', read_only=True)
+    # Link to GlobalSubject - the template subject this was created from
+    global_subject = serializers.PrimaryKeyRelatedField(queryset=GlobalSubject.objects.all(), write_only=True, required=False, allow_null=True)
+    global_subject_details = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = Subject
         fields = [
-            'id', 'name', 'code', 'description', 
+            'id', 'name', 'code', 'description',
             'course_type', 'course_type_details', 'assignment_day',
             'class_grade', 'class_grade_details',
             'section', 'section_details',
             'branch', 'branch_details',
+            'global_subject',  # Write-only input
+            'global_subject_details',  # Read-only output
             'created_at'
         ]
+
+    def get_global_subject_details(self, obj):
+        """Return global subject details if linked"""
+        if obj.global_subject:
+            return {
+                'id': str(obj.global_subject.id),
+                'name': obj.global_subject.name,
+                'description': obj.global_subject.description,
+                'is_active': obj.global_subject.is_active
+            }
+        return None
 
 class ClassSubjectSerializer(serializers.ModelSerializer):
     """Serializer for ClassSubject model (grade-subject relationship)"""

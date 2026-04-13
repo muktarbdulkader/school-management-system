@@ -41,7 +41,7 @@ const AddRole = ({ open, handleClose, onSave, submitting }) => {
   const handleFetchingPermissions = async () => {
     setPermissionLoading(true);
     const token = await GetToken();
-    const Api = Backend.auth + Backend.permissions;
+    const Api = Backend.auth + Backend.permissions + 'available/';
     const header = {
       Authorization: `Bearer ${token}`,
       accept: 'application/json',
@@ -55,10 +55,10 @@ const AddRole = ({ open, handleClose, onSave, submitting }) => {
       .then((response) => response.json())
       .then((response) => {
         if (response.success) {
-          const permissionsData = response.data;
+          const permissionsData = response.data || [];
 
           const grouped = permissionsData.reduce((acc, perm) => {
-            // Extract content type from permission name (e.g., "users | role | Can add role")
+            // Extract content type from permission name (e.g. "users | role | Can add role")
             const parts = perm.name.split('|');
             const type = parts.length >= 2 ? parts.slice(0, 2).join(' | ') : (perm.content_type || 'General');
             if (!acc[type]) {
@@ -70,15 +70,24 @@ const AddRole = ({ open, handleClose, onSave, submitting }) => {
           }, {});
 
           setPermissions(grouped);
+          setError(false);
+        } else {
+          console.error('API returned error:', response);
+          setError(true);
         }
       })
-      .catch(() => { })
+      .catch((err) => {
+        console.error('Error fetching permissions:', err);
+        setError(true);
+      })
       .finally(() => setPermissionLoading(false));
   };
 
   useEffect(() => {
-    handleFetchingPermissions();
-  }, []);
+    if (open) {
+      handleFetchingPermissions();
+    }
+  }, [open]);
 
   return (
     <Modal
@@ -176,7 +185,12 @@ const AddRole = ({ open, handleClose, onSave, submitting }) => {
                     <CircularProgress size={20} />
                   </Box>
                 ) : error ? (
-                  <Fallbacks severity="error" title="Server error" description="There is an error fetching Permissions" />
+                  <Box sx={{ textAlign: 'center', py: 4 }}>
+                    <Fallbacks severity="error" title="Server error" description="Failed to fetch permissions from server" />
+                    <Button variant="outlined" onClick={handleFetchingPermissions} sx={{ mt: 2 }}>
+                      Retry
+                    </Button>
+                  </Box>
                 ) : Object.keys(permissions).length === 0 ? (
                   <Fallbacks
                     severity="info"

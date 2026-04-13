@@ -257,6 +257,8 @@ class Subject(models.Model):
     branch = models.ForeignKey('users.Branch', on_delete=models.CASCADE, null=True, blank=True, related_name='subjects')
     class_grade = models.ForeignKey(Class, on_delete=models.CASCADE, null=True, blank=True, related_name='direct_subjects')
     section = models.ForeignKey(Section, on_delete=models.CASCADE, null=True, blank=True, related_name='section_subjects')
+    # Track which global subject this was created from
+    global_subject = models.ForeignKey(GlobalSubject, on_delete=models.SET_NULL, null=True, blank=True, related_name='subjects')
     created_at = models.DateTimeField(auto_now_add=True, null=True, blank=True)
 
     class Meta:

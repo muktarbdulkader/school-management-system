@@ -373,17 +373,21 @@ class ClassesViewSet(viewsets.ModelViewSet):
         # Get course names for response
         courses_data = Subject.objects.filter(id__in=course_ids).values('id', 'name')
         courses_list = [{'id': str(c['id']), 'name': c['name']} for c in courses_data]
-        
-        # Get section names
-        section_names = [f"{grade.grade}{s.name}" for s in sections]
-        
+
+        # Get section objects with IDs and names
+        sections_data = [{
+            'id': str(s.id),
+            'name': s.name,
+            'full_name': f"{grade.grade}{s.name}"
+        } for s in sections]
+
         return Response({
             'success': True,
             'message': 'Class created successfully with sections and courses',
             'data': {
                 'id': str(grade.id),
                 'grade': int(grade.grade),
-                'sections': section_names,
+                'sections': sections_data,
                 'courses': courses_list
             }
         }, status=status.HTTP_201_CREATED)
@@ -744,6 +748,10 @@ class SubjectsViewSet(viewsets.ModelViewSet):
             # Handle branch: convert empty strings or missing to None
             if 'branch' not in data or data['branch'] == '' or data['branch'] == 'null':
                 data['branch'] = None
+
+            # Handle global_subject: convert empty strings or missing to None
+            if 'global_subject' not in data or data['global_subject'] == '' or data['global_subject'] == 'null':
+                data['global_subject'] = None
 
             # Ensure name and code are present
             if 'name' not in data or not data['name']:

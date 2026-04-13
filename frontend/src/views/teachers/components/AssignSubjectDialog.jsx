@@ -19,13 +19,18 @@ import Backend from 'services/backend';
 import { toast } from 'react-hot-toast';
 
 const AssignSubjectDialog = ({ open, onClose, teacherId, onAssignmentSuccess }) => {
-  const [subjects, setSubjects] = useState([]);
+  const [allSubjects, setAllSubjects] = useState([]);
+  const [filteredSubjects, setFilteredSubjects] = useState([]);
   const [classes, setClasses] = useState([]);
   const [sections, setSections] = useState([]);
+  const [terms, setTerms] = useState([]);
+  const [classSubjectsMap, setClassSubjectsMap] = useState({});
 
   const [selectedSubject, setSelectedSubject] = useState('');
   const [selectedClass, setSelectedClass] = useState('');
   const [selectedSection, setSelectedSection] = useState('');
+  const [selectedTerm, setSelectedTerm] = useState('');
+  const [isPrimary, setIsPrimary] = useState(false);
 
   const [loading, setLoading] = useState(false);
   const [assigning, setAssigning] = useState(false);
@@ -39,34 +44,79 @@ const AssignSubjectDialog = ({ open, onClose, teacherId, onAssignmentSuccess }) 
   useEffect(() => {
     if (selectedClass) {
       fetchSections(selectedClass);
+      // Filter subjects for selected class
+      const classSubjects = classSubjectsMap[selectedClass] || [];
+      setFilteredSubjects(classSubjects);
+      setSelectedSubject('');
     } else {
       setSections([]);
+      setFilteredSubjects([]);
       setSelectedSection('');
+      setSelectedSubject('');
     }
-  }, [selectedClass]);
+  }, [selectedClass, classSubjectsMap]);
 
   const fetchInitialData = async () => {
     setLoading(true);
     try {
       const token = await GetToken();
 
-      const [subjectsRes, classesRes] = await Promise.all([
+      const [subjectsRes, classesRes, classSubjectsRes, termsRes] = await Promise.all([
         fetch(`${Backend.api}${Backend.subjects}`, {
           headers: { Authorization: `Bearer ${token}` }
         }),
         fetch(`${Backend.api}${Backend.classes}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        }),
+        fetch(`${Backend.api}${Backend.classSubjects}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        }),
+        fetch(`${Backend.api}${Backend.terms}`, {
           headers: { Authorization: `Bearer ${token}` }
         })
       ]);
 
       if (subjectsRes.ok) {
         const data = await subjectsRes.json();
-        setSubjects(data.data || data.results || []);
+        setAllSubjects(data.data || data.results || []);
       }
 
       if (classesRes.ok) {
         const data = await classesRes.json();
         setClasses(data.data || data.results || []);
+      }
+
+      if (termsRes.ok) {
+        const data = await termsRes.json();
+        const termsData = data.data || data.results || [];
+        // Filter only active terms
+        const activeTerms = termsData.filter(t => t.is_active !== false);
+        setTerms(activeTerms);
+        // Auto-select first active term
+        if (activeTerms.length > 0 && !selectedTerm) {
+          setSelectedTerm(activeTerms[0].id);
+        }
+      }
+
+      // Build class-subjects mapping from class_subjects API
+      if (classSubjectsRes.ok) {
+        const data = await classSubjectsRes.json();
+        const classSubjectsData = data.data || data.results || [];
+        const classSubjects = {};
+        classSubjectsData.forEach(mapping => {
+          const classId = mapping.class_fk || mapping.class_id;
+          if (classId) {
+            if (!classSubjects[classId]) {
+              classSubjects[classId] = [];
+            }
+            // Use subject_details or subject from the mapping
+            const subject = mapping.subject_details || mapping.subject;
+            if (subject && !classSubjects[classId].find(s => s.id === subject.id)) {
+              classSubjects[classId].push(subject);
+            }
+          }
+        });
+        setClassSubjectsMap(classSubjects);
       }
     } catch (e) {
       console.error('Error fetching data:', e);
@@ -110,7 +160,10 @@ const AssignSubjectDialog = ({ open, onClose, teacherId, onAssignmentSuccess }) 
           teacher: teacherId,
           subject: selectedSubject,
           class_fk: selectedClass,
-          section: selectedSection
+          section: selectedSection,
+          term: selectedTerm || null,
+          is_primary: isPrimary,
+          is_active: true
         })
       });
 
@@ -134,10 +187,21 @@ const AssignSubjectDialog = ({ open, onClose, teacherId, onAssignmentSuccess }) 
     setSelectedSubject('');
     setSelectedClass('');
     setSelectedSection('');
+    setSelectedTerm('');
+    setIsPrimary(false);
+  };
+
+  const handleClose = () => {
+    setSelectedSubject('');
+    setSelectedClass('');
+    setSelectedSection('');
+    setSelectedTerm('');
+    setIsPrimary(false);
+    onClose();
   };
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
+    <Dialog open={open} onClose={handleClose} maxWidth="xs" fullWidth>
       <DialogTitle>
         <Stack direction="row" spacing={1} alignItems="center">
           <IconBook size={20} />
@@ -182,18 +246,52 @@ const AssignSubjectDialog = ({ open, onClose, teacherId, onAssignmentSuccess }) 
               </Select>
             </FormControl>
 
-            <FormControl fullWidth>
-              <InputLabel>Select Subject</InputLabel>
+            <FormControl fullWidth disabled={!selectedClass || filteredSubjects.length === 0}>
+              <InputLabel>
+                {filteredSubjects.length === 0 && selectedClass
+                  ? 'No subjects available for this class'
+                  : 'Select Subject'}
+              </InputLabel>
               <Select
                 value={selectedSubject}
                 onChange={(e) => setSelectedSubject(e.target.value)}
                 label="Select Subject"
               >
-                {subjects.map((sub) => (
+                {filteredSubjects.length === 0 && selectedClass && (
+                  <MenuItem disabled>No subjects assigned to this class</MenuItem>
+                )}
+                {filteredSubjects.map((sub) => (
                   <MenuItem key={sub.id} value={sub.id}>
                     {sub.name} {sub.code ? `(${sub.code})` : ''}
                   </MenuItem>
                 ))}
+              </Select>
+            </FormControl>
+
+            <FormControl fullWidth disabled={terms.length === 0}>
+              <InputLabel>Term</InputLabel>
+              <Select
+                value={selectedTerm}
+                onChange={(e) => setSelectedTerm(e.target.value)}
+                label="Term"
+              >
+                {terms.map((term) => (
+                  <MenuItem key={term.id} value={term.id}>
+                    {term.name} {term.academic_year ? `(${term.academic_year})` : ''}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+
+            <FormControl fullWidth>
+              <InputLabel>Assignment Type</InputLabel>
+              <Select
+                value={isPrimary ? 'primary' : 'secondary'}
+                onChange={(e) => setIsPrimary(e.target.value === 'primary')}
+                label="Assignment Type"
+              >
+                <MenuItem value="primary">Primary Assignment</MenuItem>
+                <MenuItem value="secondary">Secondary Assignment</MenuItem>
               </Select>
             </FormControl>
           </Stack>

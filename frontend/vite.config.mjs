@@ -30,23 +30,47 @@ export default defineConfig({
   },
 
   build: {
-    chunkSizeWarningLimit: 1000, 
+    chunkSizeWarningLimit: 1000,
+    // Disable sourcemaps to save memory during build
+    sourcemap: false,
+    // Reduce memory usage during minification
+    minify: 'esbuild',
+    target: 'es2020',
+    // Optimize build performance
+    reportCompressedSize: false,
     rollupOptions: {
       output: {
+        // Simplify chunking to reduce memory overhead
         manualChunks(id) {
           if (id.includes('node_modules')) {
-            // Split major libraries into separate chunks for faster loading and caching
-            if (id.includes('@mui')) return 'vendor_mui';
-            if (id.includes('apexcharts') || id.includes('recharts') || id.includes('chart.js') || id.includes('highcharts')) return 'vendor_charts';
-            if (id.includes('lodash') || id.includes('moment') || id.includes('date-fns') || id.includes('dayjs')) return 'vendor_utils';
-            if (id.includes('framer-motion') || id.includes('animate.css')) return 'vendor_animation';
-            if (id.includes('xlsx') || id.includes('file-saver')) return 'vendor_data_export';
-            if (id.includes('quill')) return 'vendor_editors';
+            // Group heavy UI libraries together
+            if (id.includes('@mui') || id.includes('@nextui-org') || id.includes('@radix-ui')) {
+              return 'vendor_ui';
+            }
+            // Group chart libraries
+            if (id.includes('apexcharts') || id.includes('recharts') || id.includes('highcharts')) {
+              return 'vendor_charts';
+            }
+            // Group data/export libraries (heaviest)
+            if (id.includes('xlsx') || id.includes('quill') || id.includes('framer-motion')) {
+              return 'vendor_heavy';
+            }
+            // Everything else
             return 'vendor';
           }
         },
       },
     },
+    // Memory optimization for esbuild
+    commonjsOptions: {
+      transformMixedEsModules: true,
+    },
+  },
+  esbuild: {
+    // Drop console in production to reduce bundle size
+    drop: ['console', 'debugger'],
+    // Reduce memory usage
+    treeShaking: true,
   },
 
   server: {

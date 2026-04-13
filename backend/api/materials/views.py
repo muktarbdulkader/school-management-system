@@ -265,20 +265,30 @@ def export_report_card(request, student_id):
         return Response({'success': False, 'message': f'Student with ID {student_id} not found or invalid'}, status=200)
 
     try:
-        if not Term:
+        # Get the current/active term
+        from academics.models import Term as TermModel
+        current_term = TermModel.objects.filter(is_current=True).first()
+        if not current_term:
+            # Fallback to the term_id from query params or most recent term
+            if term_id:
+                current_term = TermModel.objects.filter(id=term_id).first()
+            if not current_term:
+                current_term = TermModel.objects.order_by('-start_date').first()
+        
+        if not current_term:
             return Response({'success': False, 'message': 'No term found'}, status=200)
 
         # Get grades from ExamResults
         grades = ExamResults.objects.filter(
             student_id=student,
-            exam_id__term_id=Term
+            exam_id__term_id=current_term
         ).select_related('subject_id', 'exam_id')
 
         # Get attendance data
         attendance_records = Attendance.objects.filter(
             student_id=student,
-            date__gte=Term.start_date,
-            date__lte=Term.end_date
+            date__gte=current_term.start_date,
+            date__lte=current_term.end_date
         )
 
         if not attendance_records.exists():
@@ -297,15 +307,15 @@ def export_report_card(request, student_id):
         }
 
         # Generate PDF
-        buffer = PDFExporter.export_report_card(student, Term, grades, attendance_data)
+        buffer = PDFExporter.export_report_card(student, current_term, grades, attendance_data)
 
         response = HttpResponse(buffer, content_type='application/pdf')
-        response['Content-Disposition'] = f'attachment; filename="report_card_{student.user.full_name}_{Term.name}.pdf"'
+        response['Content-Disposition'] = f'attachment; filename="report_card_{student.user.full_name}_{current_term.name}.pdf"'
         return response
 
     except Student.DoesNotExist:
         return Response({'success': False, 'message': 'Student not found'}, status=200)
-    except Term.DoesNotExist:
+    except TermModel.DoesNotExist:
         return Response({'success': False, 'message': 'Term not found'}, status=200)
 
 
@@ -408,15 +418,9 @@ class ResourceRequestViewSet(viewsets.ModelViewSet):
         return ResourceRequestSerializer
 
     def create(self, request, *args, **kwargs):
-        """Create a new resource request"""
-        from users.models import has_model_permission
-        if not has_model_permission(request.user, 'resourcerequest', 'add', branch_id=None):
-            return Response({
-                'success': False,
-                'message': 'You do not have permission to create resource requests',
-                'status': status.HTTP_403_FORBIDDEN
-            }, status=status.HTTP_403_FORBIDDEN)
-
+        """Create a new resource request - any authenticated user can create"""
+        # All authenticated users can create resource requests
+        # Approval is restricted to admins via approve_reject action
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
@@ -650,13 +654,30 @@ class DigitalResourceViewSet(viewsets.ModelViewSet):
             
         return queryset
 
-    def perform_create(self, serializer):
-        user = self.request.user
+    def create(self, request, *args, **kwargs):
+        user = request.user
         # Get user's branch from UserBranchAccess
         from users.models import UserBranchAccess
         user_branch = UserBranchAccess.objects.filter(user=user).first()
         branch = user_branch.branch if user_branch else None
+        
+        if not branch:
+            return Response({
+                'success': False,
+                'message': 'You must be assigned to a branch to upload resources. Please contact an administrator.',
+                'status': 400
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
         serializer.save(uploaded_by=user, branch=branch)
+        
+        return Response({
+            'success': True,
+            'message': 'Digital resource uploaded successfully',
+            'status': 201,
+            'data': serializer.data
+        }, status=status.HTTP_201_CREATED)
 
     def list(self, request, *args, **kwargs):
         queryset = self.filter_queryset(self.get_queryset())

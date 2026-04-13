@@ -52,11 +52,40 @@ class ObjectiveCategoriesViewSet(viewsets.ModelViewSet):
             'data': serializer.data
         }, status=status.HTTP_201_CREATED)
 
+    def is_administrative_user(self, user):
+        """Helper to check if user has admin, super_admin, or staff roles"""
+        if user.is_superuser:
+            return True
+        user_roles = list(user.userrole_set.values_list('role__name', flat=True))
+        admin_roles = ['admin', 'super_admin', 'superadmin', 'staff', 'head_admin', 'ceo']
+        return any(role.lower() in admin_roles for role in user_roles)
+
     def perform_create(self, serializer):
+        user = self.request.user
         branch_id = self.request.data.get('branch_id')
-        if branch_id and not has_model_permission(self.request.user, 'objectivescategories', 'add', branch_id):
+
+        # 1. Admin/Staff Access
+        if self.is_administrative_user(user):
+            serializer.save(created_by=user)
+            return
+
+        # 2. Teacher Access (Subject-based)
+        from teachers.models import Teacher, TeacherAssignment
+        try:
+            teacher = Teacher.objects.get(user=user)
+            subject_id = self.request.data.get('subject_id')
+            if subject_id:
+                if TeacherAssignment.objects.filter(teacher=teacher, subject_id=subject_id).exists():
+                    serializer.save(created_by=user)
+                    return
+        except Teacher.DoesNotExist:
+            pass
+
+        # 3. Explicit Model Permission Check (Fallback)
+        if branch_id and not has_model_permission(user, 'objectivescategories', 'add', branch_id):
             raise PermissionDenied("No permission to create categories.")
-        serializer.save(created_by=self.request.user)
+
+        serializer.save(created_by=user)
 
     def update(self, request, *args, **kwargs):
         partial = kwargs.pop('partial', False)
@@ -273,18 +302,18 @@ class ObjectiveUnitsViewSet(viewsets.ModelViewSet):
             return
 
         # 2. Teacher Access (Subject-based)
-        if hasattr(user, 'teacher_profile'):
+        from teachers.models import Teacher, TeacherAssignment
+        try:
+            teacher = Teacher.objects.get(user=user)
             category_id = self.request.data.get('category_id')
             if category_id:
-                try:
-                    category = ObjectiveCategories.objects.get(id=category_id)
-                    subject = category.subject
-                    from teachers.models import TeacherAssignment
-                    if TeacherAssignment.objects.filter(teacher=user.teacher_profile, subject=subject).exists():
-                        serializer.save(created_by=user)
-                        return
-                except ObjectiveCategories.DoesNotExist:
-                    pass
+                # Get the subject from the category
+                category = ObjectiveCategories.objects.filter(id=category_id).first()
+                if category and TeacherAssignment.objects.filter(teacher=teacher, subject=category.subject).exists():
+                    serializer.save(created_by=user)
+                    return
+        except Teacher.DoesNotExist:
+            pass
 
         # 3. Explicit Model Permission Check (Fallback)
         if branch_id and not has_model_permission(user, 'objectiveunits', 'add', branch_id):
@@ -354,17 +383,19 @@ class ObjectiveSubunitsViewSet(viewsets.ModelViewSet):
             return
 
         # 2. Teacher Access (Unit-based)
-        if hasattr(user, 'teacher_profile'):
+        from teachers.models import Teacher, TeacherAssignment
+        try:
+            teacher = Teacher.objects.get(user=user)
             unit_id = self.request.data.get('unit_id')
             if unit_id:
-                try:
-                    unit = ObjectiveUnits.objects.get(id=unit_id)
-                    subject = unit.category_id.subject_id
-                    if TeacherAssignment.objects.filter(teacher=user.teacher_profile, subject=subject).exists():
+                # Get the subject through unit -> category -> subject
+                unit = ObjectiveUnits.objects.filter(id=unit_id).select_related('category_id__subject').first()
+                if unit and unit.category_id and unit.category_id.subject:
+                    if TeacherAssignment.objects.filter(teacher=teacher, subject=unit.category_id.subject).exists():
                         serializer.save(created_by=user)
                         return
-                except ObjectiveUnits.DoesNotExist:
-                    pass
+        except Teacher.DoesNotExist:
+            pass
 
         # 3. Explicit Model Permission Check (Fallback)
         if branch_id and not has_model_permission(user, 'objectivesubunits', 'add', branch_id):

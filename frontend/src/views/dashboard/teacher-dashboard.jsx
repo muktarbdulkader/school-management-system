@@ -16,6 +16,7 @@ import {
   Download,
   TrendingUp,
   CheckCircle,
+  Layers,
 } from 'lucide-react';
 import { DashboardCard } from './components/techer-dashoard/TeacherDashboardCard';
 import { Box, Grid, Typography, Card, CardContent, Avatar, Chip, Paper } from '@mui/material';
@@ -23,6 +24,7 @@ import { useNavigate } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import AddButton from 'ui-component/buttons/AddButton';
 import AddDailyLesson from './components/techer-dashoard/components/AddDailyLesson';
+import ManageUnits from './components/techer-dashoard/components/ManageUnits';
 import { useEffect, useState } from 'react';
 import Backend from 'services/backend';
 import GetToken from 'utils/auth-token';
@@ -31,10 +33,12 @@ import { toast, ToastContainer } from 'react-toastify';
 export default function TeacherDashboardPage() {
   const navigate = useNavigate();
   const user = useSelector((state) => state?.user?.user);
-  const [add, setAdd] = useState();
+  const [add, setAdd] = useState(false);
+  const [manageUnitsOpen, setManageUnitsOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [isAddingLesson, setIsAddingLesson] = useState(false);
   const [subjects, setSubjects] = useState([]);
+  const [categories, setCategories] = useState([]);
   const [units, setUnits] = useState([]);
   const [subunits, setSubunits] = useState([]);
   const [learningObjectives, setLearningObjectives] = useState([]);
@@ -77,15 +81,43 @@ export default function TeacherDashboardPage() {
       const responseData = await response.json();
 
       if (responseData.success) {
-        // Extract unique subjects from teacher assignments
+        console.log('Teacher assignments data:', responseData.data);
+        // Extract unique subjects from teacher assignments (use subject_details since subject is write-only)
         const uniqueSubjects = [...new Map(responseData.data
-          .filter(item => item.subject)
+          .filter(item => item.subject_details)
           .map(item => {
-            const subjectData = item.subject;
+            const subjectData = item.subject_details;
             return [subjectData.id, subjectData];
           })
         ).values()];
+        console.log('Extracted subjects:', uniqueSubjects);
         setSubjects(uniqueSubjects);
+      } else {
+        toast.warning(responseData.message);
+      }
+    } catch (error) {
+      toast.error(error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleFetchingCategories = async () => {
+    setLoading(true);
+    const token = await GetToken();
+    const Api = `${Backend.auth}${Backend.objectiveCategories}`;
+    const header = {
+      Authorization: `Bearer ${token}`,
+      accept: 'application/json',
+      'Content-Type': 'application/json',
+    };
+
+    try {
+      const response = await fetch(Api, { method: 'GET', headers: header });
+      const responseData = await response.json();
+
+      if (responseData.success) {
+        setCategories(responseData.data);
       } else {
         toast.warning(responseData.message);
       }
@@ -304,6 +336,7 @@ export default function TeacherDashboardPage() {
 
   useEffect(() => {
     handleFetchingSubjects();
+    handleFetchingCategories();
     handleFetchingUnits();
     handleFetchingSubunits();
     handleFetchingLearningObjectives();
@@ -314,6 +347,58 @@ export default function TeacherDashboardPage() {
     fetchTeacherTasks();
     fetchTeacherReports();
   }, []);
+
+  // API functions for creating categories, units, and subunits
+  const handleCreateCategory = async (data) => {
+    const token = await GetToken();
+    const response = await fetch(`${Backend.auth}${Backend.createObjectiveCategory}`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(data),
+    });
+    const result = await response.json();
+    if (result.success) {
+      handleFetchingCategories();
+    }
+    return result;
+  };
+
+  const handleCreateUnit = async (data) => {
+    const token = await GetToken();
+    const response = await fetch(`${Backend.auth}${Backend.createObjectiveUnit}`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(data),
+    });
+    const result = await response.json();
+    if (result.success) {
+      handleFetchingUnits();
+    }
+    return result;
+  };
+
+  const handleCreateSubunit = async (data) => {
+    const token = await GetToken();
+    const response = await fetch(`${Backend.auth}${Backend.createObjectiveSubunit}`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(data),
+    });
+    const result = await response.json();
+    if (result.success) {
+      handleFetchingSubunits();
+    }
+    return result;
+  };
 
   const fetchDashboardStats = async () => {
     try {
@@ -907,6 +992,20 @@ export default function TeacherDashboardPage() {
           />
         </Grid>
 
+        <Grid item xs={12} sm={6} lg={6} xl={3}>
+          <DashboardCard
+            icon={<Layers size={24} />}
+            title="Manage Units"
+            description="Create and organize units and sub-units for your subjects"
+            buttonText="Manage Units"
+            buttonHref="#"
+            statusText={`${units.length} unit${units.length !== 1 ? 's' : ''}, ${subunits.length} sub-unit${subunits.length !== 1 ? 's' : ''}`}
+            statusColor="#8b5cf6"
+            gradientFrom="#6366f1"
+            gradientTo="#4f46e5"
+            onClick={() => setManageUnitsOpen(true)}
+          />
+        </Grid>
 
         <Grid item xs={12} sm={6} lg={6} xl={3}>
           <DashboardCard
@@ -1014,6 +1113,23 @@ export default function TeacherDashboardPage() {
         groupSections={groupSections}
         learningObjectives={learningObjectives}
         terms={terms}
+      />
+
+      <ManageUnits
+        open={manageUnitsOpen}
+        onClose={() => setManageUnitsOpen(false)}
+        subjects={subjects}
+        categories={categories}
+        units={units}
+        subunits={subunits}
+        onCategoryCreated={handleCreateCategory}
+        onUnitCreated={handleCreateUnit}
+        onSubunitCreated={handleCreateSubunit}
+        onRefresh={() => {
+          handleFetchingCategories();
+          handleFetchingUnits();
+          handleFetchingSubunits();
+        }}
       />
     </Box>
   );

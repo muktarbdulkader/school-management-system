@@ -47,14 +47,14 @@ const Backend = {
   // Teachers
   teachers: 'teachers/',
   teachersOverviewDashboard: 'teachers/overview_dashboard/',
-  teachersClassDashboard: 'teachers/class_dashboard',
+  teachersClassDashboard: 'teachers/class_dashboard/',
   teachersMyStudents: 'teachers/my_students/',
   teachersStudentBehaviorRatings: 'teachers/student_behavior_ratings/',
   teachersRateBehavior: 'behavior_ratings/',
-  teachersAttendanceDashboard: 'teachers/attendance_dashboard',
-  teachersMarkAttendance: 'teachers/mark_attendance',
-  teachersBulkMarkAttendance: 'teachers/bulk_mark_attendance',
-  teachersClassAssessments: 'teachers/class_assessments',
+  teachersAttendanceDashboard: 'teachers/attendance_dashboard/',
+  teachersMarkAttendance: 'teachers/mark_attendance/',
+  teachersBulkMarkAttendance: 'teachers/bulk_mark_attendance/',
+  teachersClassAssessments: 'teachers/class_assessments/',
   teacherTasks: 'teacher-tasks/',
   teacherRatings: 'teacher-ratings/',
   teachersPerformanceRatings: 'teacher-ratings/',
@@ -89,6 +89,9 @@ const Backend = {
   objectiveCategories: 'objective_categories/',
   objectiveUnits: 'objective_units/',
   objectiveSubunits: 'objective_subunits/',
+  createObjectiveCategory: 'objective_categories/',
+  createObjectiveUnit: 'objective_units/',
+  createObjectiveSubunit: 'objective_subunits/',
   learningObjectives: 'learning_objectives/',
   lessonPlans: 'lesson_plans/',
   lessonActivities: 'lesson_activities/',
@@ -185,7 +188,9 @@ const Backend = {
 
   // Custom Teacher Actions
   teacherTaskComplete: 'teacher-tasks/{id}/complete/',
-  teacherRankings: 'teacher-ratings/rankings/',
+  teacherRankings: 'teacher-reports/rankings/',
+  teacherAssignmentDetail: 'teacher_assignments/teacher-detail/',
+  classSubjects: 'class_subjects/',
 
   // Custom Student/Parent Actions
   studentMe: 'students/me/',
@@ -265,9 +270,9 @@ const Backend = {
   myNotification: 'my-notifications',
   readNotification: 'read-notification/',
   readAllNotification: 'read-all-notifications',
-  teacherTasks: 'teacher-tasks',
-  teacherReports: 'teacher-reports',
-  teacherPerformance: 'teacher-reports',
+  teacherTasks: 'teacher-tasks/',
+  teacherReports: 'teacher-reports/',
+  teacherPerformance: 'teacher-reports/',
 };
 
 // Debug: Log API configuration on load

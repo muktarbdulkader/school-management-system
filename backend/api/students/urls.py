@@ -13,7 +13,7 @@ router.register(r'health_conditions', HealthConditionsViewSet)
 router.register(r'student_health_records', StudentHealthRecordsViewSet)
 router.register(r'behavior_incidents', BehaviorIncidentsViewSet)
 router.register(r'behavior_ratings', BehaviorRatingsViewSet)
-router.register(r'teacher-ratings', TeacherRatingViewSet)
+router.register(r'parent-teacher-ratings', TeacherRatingViewSet)
 
 urlpatterns = [
     path('', include(router.urls)),

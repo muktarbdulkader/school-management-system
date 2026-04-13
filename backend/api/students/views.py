@@ -1965,29 +1965,45 @@ class BehaviorIncidentsViewSet(viewsets.ModelViewSet):
         })
 
     def create(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
+        serializer = self.get_serializer(data=request.data, context={'request': request})
         serializer.is_valid(raise_exception=True)
         self.perform_create(serializer)
         return Response({'success': True, 'message': 'Behavior incident created', 'status': 201, 'data': serializer.data}, status=201)
 
     def perform_create(self, serializer):
-        branch_id = self.request.data.get('branch_id')
-        if branch_id and not has_model_permission(self.request.user, 'behaviorincidents', 'add', branch_id):
-            raise PermissionDenied("No permission to create behavior incidents.")
+        user = self.request.user
+        # Allow superusers, staff, and teachers to create behavior incidents
+        if not (user.is_superuser or user.is_staff):
+            # Check if user is a teacher
+            from teachers.models import Teacher
+            try:
+                Teacher.objects.get(user=user)
+            except Teacher.DoesNotExist:
+                # Check branch permission for non-teachers
+                branch_id = self.request.data.get('branch_id')
+                if branch_id and not has_model_permission(user, 'behaviorincidents', 'add', branch_id):
+                    raise PermissionDenied("No permission to create behavior incidents in this branch.")
         serializer.save()
 
     def update(self, request, *args, **kwargs):
         partial = kwargs.pop('partial', False)
         instance = self.get_object()
-        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer = self.get_serializer(instance, data=request.data, partial=partial, context={'request': request})
         serializer.is_valid(raise_exception=True)
         self.perform_update(serializer)
         return Response({'success': True, 'message': 'Behavior incident updated', 'status': 200, 'data': serializer.data})
 
     def perform_update(self, serializer):
-        branch_id = self.request.data.get('branch_id')
-        if branch_id and not has_model_permission(self.request.user, 'behaviorincidents', 'change', branch_id):
-            raise PermissionDenied("No permission to update behavior incidents.")
+        user = self.request.user
+        # Allow superusers, staff, and teachers to update behavior incidents
+        if not (user.is_superuser or user.is_staff):
+            from teachers.models import Teacher
+            try:
+                Teacher.objects.get(user=user)
+            except Teacher.DoesNotExist:
+                branch_id = self.request.data.get('branch_id')
+                if branch_id and not has_model_permission(user, 'behaviorincidents', 'change', branch_id):
+                    raise PermissionDenied("No permission to update behavior incidents in this branch.")
         serializer.save()
 
     def destroy(self, request, *args, **kwargs):
@@ -1996,9 +2012,16 @@ class BehaviorIncidentsViewSet(viewsets.ModelViewSet):
         return Response({'success': True, 'message': 'Behavior incident deleted', 'status': 204, 'data': []}, status=204)
 
     def perform_destroy(self, instance):
-        branch_id = self.request.query_params.get('branch_id')
-        if branch_id and not has_model_permission(self.request.user, 'behaviorincidents', 'delete', branch_id):
-            raise PermissionDenied("No permission to delete behavior incidents.")
+        user = self.request.user
+        # Allow superusers, staff, and teachers to delete behavior incidents
+        if not (user.is_superuser or user.is_staff):
+            from teachers.models import Teacher
+            try:
+                Teacher.objects.get(user=user)
+            except Teacher.DoesNotExist:
+                branch_id = self.request.query_params.get('branch_id')
+                if branch_id and not has_model_permission(user, 'behaviorincidents', 'delete', branch_id):
+                    raise PermissionDenied("No permission to delete behavior incidents in this branch.")
         instance.delete()
 
 class BehaviorRatingsViewSet(viewsets.ModelViewSet):

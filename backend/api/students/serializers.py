@@ -266,23 +266,34 @@ class StudentHealthRecordsSerializer(serializers.ModelSerializer):
 class BehaviorIncidentsSerializer(serializers.ModelSerializer):
     student_id = serializers.PrimaryKeyRelatedField(
         queryset=Student.objects.all(),
-        write_only=True
+        write_only=True,
+        required=True,
+        source='student'
     )
     student_details = serializers.SerializerMethodField()
 
     def get_student_details(self, obj):
         return {
-            'id': obj.student_id.id,
-            'user_id': obj.student_id.user.id,
-            'full_name': obj.student_id.user.full_name,
-            'name': obj.student_id.user.full_name,
-            'student_id': obj.student_id.student_id
+            'id': obj.student.id,
+            'user_id': obj.student.user.id,
+            'full_name': obj.student.user.full_name,
+            'name': obj.student.user.full_name,
+            'student_id': obj.student.student_id
         }
     reported_by = serializers.PrimaryKeyRelatedField(
         queryset=User.objects.all(),
-        write_only=True
+        write_only=True,
+        required=False
     )
     reported_by_details = UserSerializer(source='reported_by', read_only=True)
+
+    def create(self, validated_data):
+        # Auto-set reported_by to current user if not provided
+        request = self.context.get('request')
+        if 'reported_by' not in validated_data and request:
+            validated_data['reported_by'] = request.user
+        return super().create(validated_data)
+
     class Meta:
         model = BehaviorIncidents
         fields = '__all__'

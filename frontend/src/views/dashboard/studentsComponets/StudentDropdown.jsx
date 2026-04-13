@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import {
   Box,
   Avatar,
@@ -28,6 +28,8 @@ const StudentDropdown = ({
   const navigate = useNavigate();
   const dispatch = useDispatch();
   const [loading, setLoading] = useState(false);
+  const isMountedRef = React.useRef(true);
+  const hasFetchedRef = React.useRef(false);
 
   // const handleChange = async (event) => {
   //   const studentId = event.target.value;
@@ -64,7 +66,7 @@ const StudentDropdown = ({
   //   }
   // };
 
-  const handleChange = (event) => {
+  const handleChange = useCallback((event) => {
     const relationshipId = event.target.value;
     handleStudentChange(event);
 
@@ -73,7 +75,7 @@ const StudentDropdown = ({
     if (selectedStudent?.student_details?.id) {
       dispatch(setStudentId(selectedStudent.student_details.id));
     }
-  };
+  }, [students, handleStudentChange, dispatch]);
 
   const fetchStudentData = async (studentId) => {
     try {
@@ -116,11 +118,14 @@ const StudentDropdown = ({
       navigate(`/child-profile/${targetId}`);
     }
   };
-  const handleStudentSelectClick = async (studentId) => {
+  const handleStudentSelectClick = useCallback(async (studentId) => {
     const selectedStudent = students.find((s) => s.id === studentId);
     if (!selectedStudent) return;
 
     handleStudentChange({ target: { value: studentId } });
+
+    // Prevent duplicate fetches while already loading
+    if (loading) return;
 
     try {
       setLoading(true);
@@ -128,7 +133,7 @@ const StudentDropdown = ({
         selectedStudent.student_details.id,
       );
 
-      if (onStudentSelect) {
+      if (onStudentSelect && isMountedRef.current) {
         onStudentSelect({
           ...selectedStudent,
           upcoming_assignments: response.upcoming_assignments || [],
@@ -141,15 +146,30 @@ const StudentDropdown = ({
     } catch (error) {
       console.error('Error fetching student data:', error);
     } finally {
-      setLoading(false);
+      if (isMountedRef.current) {
+        setLoading(false);
+      }
     }
-  };
+  }, [students, handleStudentChange, onStudentSelect]);
 
-  const handleOpenClick = (studentId, event) => {
+  const handleOpenClick = useCallback((studentId, event) => {
     event.stopPropagation();
     handleMenuItemClick(studentId);
-  };
+  }, []);
 
+  // Cleanup on unmount to prevent memory leaks
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  // Reset fetch flag when selectedStudentId changes
+  useEffect(() => {
+    hasFetchedRef.current = false;
+  }, [selectedStudentId]);
+
+  // Only fetch when selectedStudentId changes (not students array)
   useEffect(() => {
     const loadInitialStudentData = async () => {
       if (!selectedStudentId || !students.length) return;
@@ -157,13 +177,17 @@ const StudentDropdown = ({
       const selectedStudent = students.find((s) => s.id === selectedStudentId);
       if (!selectedStudent || !selectedStudent.student_details?.id) return;
 
+      // Prevent duplicate fetches for the same student
+      if (hasFetchedRef.current) return;
+      hasFetchedRef.current = true;
+
       try {
         setLoading(true);
         const response = await fetchStudentData(
           selectedStudent.student_details.id,
         );
 
-        if (onStudentSelect) {
+        if (onStudentSelect && isMountedRef.current) {
           onStudentSelect({
             ...selectedStudent,
             upcoming_assignments: response.upcoming_assignments || [],
@@ -176,12 +200,15 @@ const StudentDropdown = ({
       } catch (error) {
         console.error('Initial student fetch error:', error);
       } finally {
-        setLoading(false);
+        if (isMountedRef.current) {
+          setLoading(false);
+        }
       }
     };
 
     loadInitialStudentData();
-  }, [selectedStudentId, students]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedStudentId]);
 
   return (
     <Box sx={{ mb: 3, position: 'relative', ...sx }}>

@@ -17,11 +17,6 @@ import {
   Tooltip,
   IconButton,
   CircularProgress,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  Avatar,
   Grid,
   Paper
 } from '@mui/material';
@@ -36,6 +31,7 @@ import Backend from 'services/backend';
 import { toast } from 'react-hot-toast';
 import TeacherForm from './components/TeacherForm';
 import AssignSubjectDialog from './components/AssignSubjectDialog';
+import TeacherDetailView from './components/TeacherDetailView';
 import { IconBooks } from '@tabler/icons-react';
 
 const TeachersPage = () => {
@@ -277,84 +273,11 @@ const TeachersPage = () => {
         />
 
         {/* View Teacher Details Dialog */}
-        <Dialog open={viewDialogOpen} onClose={handleCloseView} maxWidth="md" fullWidth>
-          <DialogTitle>
-            <Stack direction="row" alignItems="center" spacing={2}>
-              <Avatar sx={{ bgcolor: 'primary.main' }}>
-                {viewingTeacher?.user_details?.full_name?.charAt(0) || 'T'}
-              </Avatar>
-              <Box>
-                <Typography variant="h6">
-                  {viewingTeacher?.user_details?.full_name || 'Teacher Details'}
-                </Typography>
-                <Typography variant="caption" color="text.secondary">
-                  ID: {viewingTeacher?.teacher_id || viewingTeacher?.id}
-                </Typography>
-              </Box>
-            </Stack>
-          </DialogTitle>
-          <DialogContent>
-            {viewingTeacher && (
-              <Grid container spacing={2} sx={{ mt: 1 }}>
-                <Grid item xs={12} md={6}>
-                  <Paper sx={{ p: 2 }}>
-                    <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                      Contact Information
-                    </Typography>
-                    <Typography variant="body2"><strong>Email:</strong> {viewingTeacher.user_details?.email || 'N/A'}</Typography>
-                    <Typography variant="body2"><strong>Phone:</strong> {viewingTeacher.user_details?.phone || 'N/A'}</Typography>
-                    <Typography variant="body2"><strong>Branch:</strong> {viewingTeacher.branch_name || viewingTeacher.branch_details?.name || 'N/A'}</Typography>
-                  </Paper>
-                </Grid>
-                <Grid item xs={12} md={6}>
-                  <Paper sx={{ p: 2 }}>
-                    <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                      Professional Info
-                    </Typography>
-                    <Typography variant="body2"><strong>Specialization:</strong> {viewingTeacher.specialization || viewingTeacher.subject_specialties || 'Not Assigned'}</Typography>
-                    <Typography variant="body2"><strong>Qualification:</strong> {viewingTeacher.qualification || 'N/A'}</Typography>
-                    <Typography variant="body2"><strong>Experience:</strong> {viewingTeacher.years_of_experience ? `${viewingTeacher.years_of_experience} years` : 'N/A'}</Typography>
-                  </Paper>
-                </Grid>
-                <Grid item xs={12}>
-                  <Paper sx={{ p: 2 }}>
-                    <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                      Account Status
-                    </Typography>
-                    <Stack direction="row" spacing={1} alignItems="center">
-                      <Chip
-                        label={viewingTeacher.user_details?.is_active ? 'Active' : 'Inactive'}
-                        color={viewingTeacher.user_details?.is_active ? 'success' : 'default'}
-                        size="small"
-                      />
-                      <Chip
-                        label={viewingTeacher.user_details?.role || 'Teacher'}
-                        color="primary"
-                        variant="outlined"
-                        size="small"
-                      />
-                      <Typography variant="caption" color="text.secondary">
-                        Joined: {viewingTeacher.joining_date ? new Date(viewingTeacher.joining_date).toLocaleDateString() : 'N/A'}
-                      </Typography>
-                    </Stack>
-                  </Paper>
-                </Grid>
-              </Grid>
-            )}
-          </DialogContent>
-          <DialogActions>
-            <Button onClick={handleCloseView}>Close</Button>
-            <Button
-              variant="contained"
-              onClick={() => {
-                handleCloseView();
-                handleEditTeacher(viewingTeacher);
-              }}
-            >
-              Edit Teacher
-            </Button>
-          </DialogActions>
-        </Dialog>
+        <TeacherDetailView
+          open={viewDialogOpen}
+          onClose={handleCloseView}
+          teacherId={viewingTeacher?.id}
+        />
       </DrogaCard>
     </PageContainer>
   );

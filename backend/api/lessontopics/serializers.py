@@ -25,22 +25,23 @@ class ObjectiveCategoriesSerializer(serializers.ModelSerializer):
     subject_id = serializers.PrimaryKeyRelatedField(
         queryset=Subject.objects.all(),
         write_only=True,
-        required=True
+        required=True,
+        source='subject'
     )
     subject_details = SubjectSerializer(source='subject', read_only=True)
     created_by_details = UserSerializer(source='created_by', read_only=True)
 
     class Meta:
         model = ObjectiveCategories
-        fields = ['id', 'subject', 'subject_details', 'name', 'created_by', 'created_by_details']
+        fields = ['id', 'subject_id', 'subject_details', 'name', 'created_by', 'created_by_details']
         read_only_fields = ['id', 'subject_details', 'created_by_details']
 
     def validate_name(self, value):
         """Ensure category name is unique per subject"""
-        if 'subject_id' in self.initial_data:
-            subject = self.initial_data['subject']
+        subject_id = self.initial_data.get('subject_id')
+        if subject_id:
             if ObjectiveCategories.objects.filter(
-                subject_id=subject, 
+                subject_id=subject_id,
                 name__iexact=value
             ).exclude(id=self.instance.id if self.instance else None).exists():
                 raise serializers.ValidationError(

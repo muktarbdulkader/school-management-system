@@ -98,7 +98,15 @@ WSGI_APPLICATION = 'mald_sms.wsgi.application'
 if RENDER:
     import dj_database_url
     DATABASES = {
-        'default': dj_database_url.config(default=os.environ.get('DATABASE_URL'))
+        'default': dj_database_url.config(
+            default=os.environ.get('DATABASE_URL'),
+            conn_max_age=600,  # Keep connections alive for 10 minutes
+            conn_health_checks=True,  # Health check connections before reuse
+        )
+    }
+    # Memory optimizations for Render
+    DATABASES['default']['OPTIONS'] = {
+        'connect_timeout': 10,
     }
 else:
     # LOCAL (SQLite)
@@ -106,6 +114,9 @@ else:
         'default': {
             'ENGINE': 'django.db.backends.sqlite3',
             'NAME': BASE_DIR / 'db.sqlite3',
+            'OPTIONS': {
+                'timeout': 20,
+            }
         }
     }
 
@@ -140,3 +151,34 @@ EMAIL_USE_TLS = True
 EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER")
 EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD")
 DEFAULT_FROM_EMAIL = EMAIL_HOST_USER
+
+# 🧠 Memory Optimizations for Render (512MB limit)
+if RENDER:
+    import gc
+    # Enable garbage collection tuning
+    gc.set_threshold(700, 10, 10)
+    
+    # Limit file upload size to prevent memory exhaustion
+    DATA_UPLOAD_MAX_MEMORY_SIZE = 5242880  # 5MB
+    FILE_UPLOAD_MAX_MEMORY_SIZE = 5242880  # 5MB
+    
+    # Optimize Django's internal caches
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+            'LOCATION': 'unique-snowflake',
+            'OPTIONS': {
+                'MAX_ENTRIES': 100,  # Limit cache size
+                'CULL_FREQUENCY': 3,  # Cull 1/3 of entries when max reached
+            }
+        }
+    }
+    
+    # Disable debug toolbar in production (saves memory)
+    DEBUG_TOOLBAR_CONFIG = {
+        'SHOW_TOOLBAR_CALLBACK': lambda request: False,
+    }
+else:
+    # Local development settings
+    DATA_UPLOAD_MAX_MEMORY_SIZE = 26214400  # 25MB
+    FILE_UPLOAD_MAX_MEMORY_SIZE = 26214400  # 25MB

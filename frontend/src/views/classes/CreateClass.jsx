@@ -25,18 +25,7 @@ import {
   Stepper,
   Step,
   StepLabel,
-  FormHelperText,
-  useMediaQuery,
-  useTheme,
-  MobileStepper,
-  SwipeableDrawer,
-  BottomNavigation,
-  BottomNavigationAction,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  Fab
+  FormHelperText
 } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -48,10 +37,7 @@ import {
   IconCheck,
   IconInfoCircle,
   IconTrash,
-  IconAlertCircle,
-  IconChevronLeft,
-  IconChevronRight,
-  IconMenu2
+  IconAlertCircle
 } from '@tabler/icons-react';
 import PageContainer from 'ui-component/MainPage';
 import DrogaCard from 'ui-component/cards/DrogaCard';
@@ -64,9 +50,6 @@ const steps = ['Select Term', 'Create Class', 'Add Sections', 'Assign Subjects',
 
 function CreateClass() {
   const navigate = useNavigate();
-  const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
-  const isTablet = useMediaQuery(theme.breakpoints.between('sm', 'md'));
 
   // Get user data from Redux store
   const user = useSelector((state) => state?.user?.user);
@@ -75,7 +58,6 @@ function CreateClass() {
   const [loading, setLoading] = useState(false);
   const [branches, setBranches] = useState([]);
   const [selectedBranch, setSelectedBranch] = useState(userBranch || '');
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   // Form state
   const [formData, setFormData] = useState({
@@ -169,7 +151,8 @@ function CreateClass() {
     }, 500);
 
     return () => clearTimeout(timeoutId);
-  }, [formData.gradeNumber, formData.branchId, availableClasses]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formData.gradeNumber, formData.branchId]);
 
   // Validate grade number format
   const validateGradeFormat = (value) => {
@@ -329,27 +312,38 @@ function CreateClass() {
     toast.info(`Removed "${subjectName}" from subjects list`);
   };
 
-  // Add teacher assignment
-  const addTeacherAssignment = (subjectId, teacherId, sectionId = null) => {
-    // Check if assignment already exists
-    const exists = formData.teacherAssignments.some(
-      ta => ta.subjectId === subjectId && ta.teacherId === teacherId && ta.sectionId === sectionId
-    );
+  // Add teacher assignment (supports multiple sections)
+  const addTeacherAssignment = (subjectId, teacherId, sectionIds = []) => {
+    const newAssignments = [];
 
-    if (exists) {
-      toast.warning('This teacher is already assigned to this subject/section');
+    sectionIds.forEach(sectionId => {
+      // Check if assignment already exists
+      const exists = formData.teacherAssignments.some(
+        ta => ta.subjectId === subjectId && ta.teacherId === teacherId && ta.sectionId === sectionId
+      );
+
+      if (!exists) {
+        newAssignments.push({
+          id: Date.now() + Math.random(),
+          subjectId,
+          teacherId,
+          sectionId,
+          isPrimary: true
+        });
+      }
+    });
+
+    if (newAssignments.length === 0) {
+      toast.warning('This teacher is already assigned to the selected section(s)');
       return;
     }
 
     setFormData(prev => ({
       ...prev,
-      teacherAssignments: [
-        ...(prev.teacherAssignments || []),
-        { id: Date.now(), subjectId, teacherId, sectionId, isPrimary: true }
-      ]
+      teacherAssignments: [...(prev.teacherAssignments || []), ...newAssignments]
     }));
 
-    toast.success('✓ Teacher assigned successfully');
+    toast.success(`Teacher assigned to ${sectionIds.length} section(s)`);
   };
 
   // Remove teacher assignment
@@ -529,18 +523,12 @@ function CreateClass() {
         generateSectionsPreview(parseInt(formData.sectionsCount, 10));
       }
       setActiveStep(prev => prev + 1);
-      if (isMobile) {
-        setMobileMenuOpen(false);
-      }
     }
   };
 
   // Handle back step
   const handleBack = () => {
     setActiveStep(prev => prev - 1);
-    if (isMobile) {
-      setMobileMenuOpen(false);
-    }
   };
 
   // Handle form submission
@@ -613,7 +601,12 @@ function CreateClass() {
         });
 
         const subjectData = await subjectResponse.json();
-        if (subjectData.success && subjectData.data) {
+        if (!subjectData.success) {
+          console.error('Subject creation failed:', subjectData);
+          toast.error(`Failed to create subject "${subject.name}": ${subjectData.message || JSON.stringify(subjectData.errors)}`);
+          continue;
+        }
+        if (subjectData.data) {
           const newSubjectId = subjectData.data.id;
 
           // Step 3: Create teacher assignments
@@ -662,116 +655,12 @@ function CreateClass() {
     }
   };
 
-  // Mobile step indicator
-  const MobileStepIndicator = () => (
-    <MobileStepper
-      variant="dots"
-      steps={steps.length}
-      position="static"
-      activeStep={activeStep}
-      sx={{ mb: 2, bgcolor: 'transparent' }}
-      nextButton={null}
-      backButton={null}
-    />
-  );
-
-  // Mobile navigation drawer
-  const MobileStepDrawer = () => (
-    <SwipeableDrawer
-      anchor="bottom"
-      open={mobileMenuOpen}
-      onClose={() => setMobileMenuOpen(false)}
-      onOpen={() => setMobileMenuOpen(true)}
-      sx={{ '& .MuiDrawer-paper': { borderRadius: '16px 16px 0 0', maxHeight: '60vh' } }}
-    >
-      <Box sx={{ p: 2 }}>
-        <Typography variant="h6" gutterBottom align="center">
-          Select Step
-        </Typography>
-        <Divider sx={{ mb: 2 }} />
-        <Stack spacing={1}>
-          {steps.map((label, index) => (
-            <Button
-              key={index}
-              variant={activeStep === index ? 'contained' : 'outlined'}
-              onClick={() => {
-                setActiveStep(index);
-                setMobileMenuOpen(false);
-              }}
-              fullWidth
-              startIcon={index <= activeStep ? <IconCheck size={18} /> : null}
-              sx={{ justifyContent: 'flex-start' }}
-            >
-              {label}
-            </Button>
-          ))}
-        </Stack>
-      </Box>
-    </SwipeableDrawer>
-  );
-
-  // Mobile bottom navigation
-  const MobileBottomNav = () => (
-    <Paper
-      sx={{
-        position: 'fixed',
-        bottom: 0,
-        left: 0,
-        right: 0,
-        zIndex: 1000,
-        borderRadius: 0,
-        borderTop: `1px solid ${theme.palette.divider}`,
-        display: { xs: 'block', sm: 'none' }
-      }}
-      elevation={3}
-    >
-      <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ px: 2, py: 1 }}>
-        <Button
-          variant="outlined"
-          onClick={handleBack}
-          disabled={activeStep === 0 || loading}
-          startIcon={<IconChevronLeft size={18} />}
-          size="small"
-        >
-          Back
-        </Button>
-
-        <Button
-          variant="contained"
-          onClick={activeStep === steps.length - 1 ? handleSubmit : handleNext}
-          disabled={
-            loading ||
-            (activeStep === 1 && (errors.gradeNumber || !formData.gradeNumber)) ||
-            (activeStep === steps.length - 1 && !isGradeAvailable)
-          }
-          endIcon={activeStep === steps.length - 1 ? null : <IconChevronRight size={18} />}
-          size="small"
-        >
-          {activeStep === steps.length - 1 
-            ? (loading ? 'Creating...' : 'Create') 
-            : 'Next'}
-        </Button>
-
-        <IconButton onClick={() => setMobileMenuOpen(true)} size="small">
-          <IconMenu2 size={20} />
-        </IconButton>
-      </Stack>
-    </Paper>
-  );
-
-  // Render step content with mobile optimizations
+  // Render step content
   const renderStepContent = () => {
-    const contentStyles = {
-      overflowX: 'hidden',
-      overflowY: 'auto',
-      maxHeight: isMobile ? 'calc(100vh - 200px)' : 'auto',
-      px: isMobile ? 1 : 0
-    };
-
     switch (activeStep) {
       case 0:
         return (
-          <Box sx={contentStyles}>
+          <Box>
             <Typography variant="h6" gutterBottom>
               Select Term
             </Typography>
@@ -779,7 +668,7 @@ function CreateClass() {
               Choose the academic term for this class setup
             </Typography>
 
-            <FormControl fullWidth sx={{ mb: 3 }} error={!!errors.branchId}>
+            <FormControl fullWidth sx={{ maxWidth: 400, mb: 3 }} error={!!errors.branchId}>
               <InputLabel>Branch *</InputLabel>
               <Select
                 value={formData.branchId}
@@ -796,7 +685,7 @@ function CreateClass() {
               {errors.branchId && <FormHelperText error>{errors.branchId}</FormHelperText>}
             </FormControl>
 
-            <FormControl fullWidth error={!!errors.termId}>
+            <FormControl fullWidth sx={{ maxWidth: 400 }} error={!!errors.termId}>
               <InputLabel>Term *</InputLabel>
               <Select
                 value={formData.termId}
@@ -827,7 +716,7 @@ function CreateClass() {
 
       case 1:
         return (
-          <Box sx={contentStyles}>
+          <Box>
             <Typography variant="h6" gutterBottom>
               Create Class
             </Typography>
@@ -843,7 +732,7 @@ function CreateClass() {
               onChange={handleChange('gradeNumber')}
               error={!!errors.gradeNumber}
               helperText={errors.gradeNumber || 'Enter a number between 1 and 12'}
-              sx={{ mb: 3 }}
+              sx={{ maxWidth: 400, mb: 3 }}
               InputProps={{
                 startAdornment: <IconSchool size={20} style={{ marginRight: 8, color: '#666' }} />
               }}
@@ -853,7 +742,7 @@ function CreateClass() {
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
                 <ActivityIndicator size={16} />
                 <Typography variant="caption" color="text.secondary">
-                  Checking database...
+                  Checking database for existing classes...
                 </Typography>
               </Box>
             )}
@@ -866,15 +755,20 @@ function CreateClass() {
               >
                 <Typography variant="subtitle2" fontWeight={600}>
                   {isGradeAvailable
-                    ? `✓ Grade ${formData.gradeNumber} is available`
-                    : `❌ Grade ${formData.gradeNumber} already exists!`}
+                    ? `✓ Grade ${formData.gradeNumber} is available for this branch`
+                    : `❌ Grade ${formData.gradeNumber} already exists in this branch!`}
                 </Typography>
+                {!isGradeAvailable && (
+                  <Typography variant="body2" sx={{ mt: 1 }}>
+                    Please choose a different grade number. The following grades are already taken:
+                  </Typography>
+                )}
               </Alert>
             )}
 
-            {availableClasses.length > 0 && !isMobile && (
+            {availableClasses.length > 0 && (
               <Alert severity="info" sx={{ mt: 2 }}>
-                <Typography variant="subtitle2">Existing classes:</Typography>
+                <Typography variant="subtitle2">Existing classes in this branch:</Typography>
                 <Stack direction="row" spacing={1} flexWrap="wrap" gap={1} sx={{ mt: 1 }}>
                   {availableClasses.map((cls) => (
                     <Chip
@@ -882,6 +776,7 @@ function CreateClass() {
                       label={`Grade ${cls.grade}`}
                       color={String(cls.grade) === String(formData.gradeNumber) ? "error" : "default"}
                       size="small"
+                      variant={String(cls.grade) === String(formData.gradeNumber) ? "filled" : "outlined"}
                     />
                   ))}
                 </Stack>
@@ -892,7 +787,7 @@ function CreateClass() {
 
       case 2:
         return (
-          <Box sx={contentStyles}>
+          <Box>
             <Typography variant="h6" gutterBottom>
               Add Sections
             </Typography>
@@ -908,7 +803,7 @@ function CreateClass() {
               onChange={handleChange('sectionsCount')}
               error={!!errors.sectionsCount}
               helperText={errors.sectionsCount || 'Enter a number between 1 and 26'}
-              sx={{ mb: 3 }}
+              sx={{ maxWidth: 400, mb: 3 }}
               InputProps={{
                 startAdornment: <IconSection size={20} style={{ marginRight: 8, color: '#666' }} />
               }}
@@ -918,11 +813,11 @@ function CreateClass() {
               <Card variant="outlined">
                 <CardContent>
                   <Typography variant="subtitle2" gutterBottom>
-                    Preview:
+                    Preview - Sections to be created:
                   </Typography>
                   <Stack direction="row" spacing={1} flexWrap="wrap" gap={1}>
                     {generatedSections.map((section, index) => (
-                      <Chip key={index} label={section} color="primary" variant="outlined" size="small" />
+                      <Chip key={index} label={section} color="primary" variant="outlined" icon={<IconCheck size={16} />} />
                     ))}
                   </Stack>
                 </CardContent>
@@ -933,12 +828,12 @@ function CreateClass() {
 
       case 3:
         return (
-          <Box sx={contentStyles}>
+          <Box>
             <Typography variant="h6" gutterBottom>
               Assign Subjects
             </Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-              Select subjects for Grade {formData.gradeNumber}
+              Select subjects from the global list for Grade {formData.gradeNumber}
             </Typography>
 
             <Stack spacing={2}>
@@ -949,16 +844,15 @@ function CreateClass() {
                       <Checkbox
                         checked={subject.selected}
                         onChange={(e) => handleCustomSubjectToggle(index, e.target.checked)}
-                        size={isMobile ? "small" : "medium"}
                       />
                       <Box flex={1}>
-                        <Stack direction={isMobile ? "column" : "row"} spacing={1} alignItems={isMobile ? "flex-start" : "center"} sx={{ mb: 1 }}>
+                        <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
                           <Typography variant="subtitle1" fontWeight={600}>
                             {subject.name}
                           </Typography>
                           <Chip label={subject.code} size="small" color="primary" variant="outlined" sx={{ fontFamily: 'monospace' }} />
                         </Stack>
-                        <Stack direction={isMobile ? "column" : "row"} spacing={2}>
+                        <Stack direction="row" spacing={2}>
                           <TextField
                             fullWidth
                             label="Description"
@@ -972,7 +866,7 @@ function CreateClass() {
                             value={subject.assignment_day}
                             onChange={(e) => handleCustomSubjectChange(index, 'assignment_day', e.target.value)}
                             size="small"
-                            sx={{ minWidth: isMobile ? 'auto' : 150 }}
+                            sx={{ minWidth: 150 }}
                           >
                             <MenuItem value="">None</MenuItem>
                             <MenuItem value="Monday">Monday</MenuItem>
@@ -995,13 +889,12 @@ function CreateClass() {
                 <CardContent>
                   <Stack spacing={2}>
                     <FormControl fullWidth>
-                      <InputLabel>Select Subject *</InputLabel>
+                      <InputLabel>Select Global Subject *</InputLabel>
                       <Select
                         value={selectedGlobalSubject}
                         onChange={(e) => setSelectedGlobalSubject(e.target.value)}
-                        label="Select Subject *"
+                        label="Select Global Subject *"
                         disabled={globalSubjectsLoading}
-                        size={isMobile ? "small" : "medium"}
                       >
                         <MenuItem value="">-- Select a Subject --</MenuItem>
                         {globalSubjects.map((subject) => (
@@ -1012,7 +905,7 @@ function CreateClass() {
                       </Select>
                     </FormControl>
 
-                    <Stack direction={isMobile ? "column" : "row"} spacing={2}>
+                    <Stack direction="row" spacing={2}>
                       <TextField
                         fullWidth
                         label="Subject Code (Optional)"
@@ -1023,7 +916,7 @@ function CreateClass() {
                       />
                       <TextField
                         fullWidth
-                        label="Book Code"
+                        label="Book Code / Reference"
                         value={newBookCode}
                         onChange={(e) => setNewBookCode(e.target.value)}
                         size="small"
@@ -1035,8 +928,7 @@ function CreateClass() {
                       startIcon={<IconPlus size={18} />}
                       onClick={handleAddCustomSubject}
                       disabled={!selectedGlobalSubject}
-                      fullWidth={isMobile}
-                      size={isMobile ? "small" : "medium"}
+                      sx={{ alignSelf: 'flex-start' }}
                     >
                       Add Subject
                     </Button>
@@ -1045,6 +937,13 @@ function CreateClass() {
               </Card>
 
               {errors.subjects && <Alert severity="error">{errors.subjects}</Alert>}
+
+              <Alert severity="info" icon={<IconInfoCircle size={18} />}>
+                <Typography variant="body2">
+                  <strong>Note:</strong> Subjects can be customized with specific codes and book references for this class.
+                  Duplicate subjects are automatically prevented.
+                </Typography>
+              </Alert>
             </Stack>
           </Box>
         );
@@ -1061,7 +960,7 @@ function CreateClass() {
         const selectedSubjects = formData.customSubjects?.filter(s => s.selected) || [];
 
         return (
-          <Box sx={contentStyles}>
+          <Box>
             <Typography variant="h6" gutterBottom>
               Assign Teachers
             </Typography>
@@ -1070,7 +969,7 @@ function CreateClass() {
             </Typography>
 
             {selectedSubjects.length === 0 ? (
-              <Alert severity="warning">Please add subjects first.</Alert>
+              <Alert severity="warning">Please add subjects first in the previous step.</Alert>
             ) : (
               <Stack spacing={3}>
                 {selectedSubjects.map((subject, index) => (
@@ -1080,7 +979,7 @@ function CreateClass() {
                         {subject.name}
                       </Typography>
 
-                      <Stack direction={isMobile ? "column" : "row"} spacing={2} sx={{ mb: 2 }}>
+                      <Stack direction="row" spacing={2} sx={{ mb: 2 }}>
                         <FormControl fullWidth size="small">
                           <InputLabel>Teacher</InputLabel>
                           <Select
@@ -1097,16 +996,44 @@ function CreateClass() {
                           </Select>
                         </FormControl>
 
-                        <FormControl sx={{ minWidth: isMobile ? 'auto' : 150 }} size="small">
-                          <InputLabel>Section</InputLabel>
+                        <FormControl sx={{ minWidth: 200 }} size="small">
+                          <InputLabel>Sections</InputLabel>
                           <Select
-                            value={subject.selectedSection || 'all'}
-                            onChange={(e) => handleCustomSubjectChange(index, 'selectedSection', e.target.value)}
-                            label="Section"
+                            multiple
+                            value={subject.selectedSections || []}
+                            onChange={(e) => {
+                              const value = e.target.value;
+                              // Handle "All Sections" selection
+                              if (value.includes('all')) {
+                                // If "all" is selected, select all section IDs
+                                const allSectionIds = sectionOptions
+                                  .filter(opt => opt.id !== 'all')
+                                  .map(opt => opt.id);
+                                handleCustomSubjectChange(index, 'selectedSections', allSectionIds);
+                              } else {
+                                handleCustomSubjectChange(index, 'selectedSections', value);
+                              }
+                            }}
+                            label="Sections"
+                            renderValue={(selected) => {
+                              if (selected.length === 0) return 'Select Sections';
+                              if (selected.length === sectionOptions.length - 1) return 'All Sections';
+                              const labels = selected.map(id =>
+                                sectionOptions.find(s => s.id === id)?.label || id
+                              );
+                              return labels.join(', ');
+                            }}
                           >
                             {sectionOptions.map((option) => (
                               <MenuItem key={option.id} value={option.id}>
-                                {option.label}
+                                <Checkbox
+                                  checked={
+                                    option.id === 'all'
+                                      ? (subject.selectedSections?.length || 0) === sectionOptions.length - 1
+                                      : subject.selectedSections?.includes(option.id) || false
+                                  }
+                                />
+                                <ListItemText primary={option.label} />
                               </MenuItem>
                             ))}
                           </Select>
@@ -1116,38 +1043,38 @@ function CreateClass() {
                           variant="contained"
                           size="small"
                           onClick={() => {
-                            if (subject.selectedTeacher) {
-                              addTeacherAssignment(subject.id, subject.selectedTeacher, subject.selectedSection);
+                            if (subject.selectedTeacher && subject.selectedSections?.length > 0) {
+                              addTeacherAssignment(subject.id, subject.selectedTeacher, subject.selectedSections);
                               handleCustomSubjectChange(index, 'selectedTeacher', '');
+                              handleCustomSubjectChange(index, 'selectedSections', []);
                             }
                           }}
-                          disabled={!subject.selectedTeacher}
+                          disabled={!subject.selectedTeacher || !(subject.selectedSections?.length > 0)}
                           startIcon={<IconPlus size={16} />}
-                          fullWidth={isMobile}
                         >
                           Assign
                         </Button>
                       </Stack>
 
-                      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-                        {formData.teacherAssignments
-                          .filter(ta => ta.subjectId === subject.id)
-                          .map((ta) => {
-                            const teacher = availableTeachers.find(t => t.id === ta.teacherId);
-                            const sectionLabel = ta.sectionId === 'all'
-                              ? 'All Sections'
-                              : sectionOptions.find(s => s.id === ta.sectionId)?.label || 'Unknown';
-                            return (
-                              <Chip
-                                key={ta.id}
-                                label={`${teacher?.user_details?.full_name || 'Unknown'} (${sectionLabel})`}
-                                onDelete={() => removeTeacherAssignment(ta.id)}
-                                color="primary"
-                                size="small"
-                              />
-                            );
-                          })}
-                      </Box>
+                      {/* Display existing assignments */}
+                      {formData.teacherAssignments
+                        .filter(ta => ta.subjectId === subject.id)
+                        .map((ta) => {
+                          const teacher = availableTeachers.find(t => t.id === ta.teacherId);
+                          const sectionLabel = ta.sectionId === 'all'
+                            ? 'All Sections'
+                            : sectionOptions.find(s => s.id === ta.sectionId)?.label || 'Unknown';
+                          return (
+                            <Chip
+                              key={ta.id}
+                              label={`${teacher?.user_details?.full_name || 'Unknown'} (${sectionLabel})`}
+                              onDelete={() => removeTeacherAssignment(ta.id)}
+                              color="primary"
+                              size="small"
+                              sx={{ mr: 1, mb: 1 }}
+                            />
+                          );
+                        })}
                     </CardContent>
                   </Card>
                 ))}
@@ -1163,7 +1090,7 @@ function CreateClass() {
         const selectedBranch = branches.find(b => b.id === formData.branchId);
 
         return (
-          <Box sx={contentStyles}>
+          <Box>
             <Typography variant="h6" gutterBottom>
               Review & Create
             </Typography>
@@ -1171,7 +1098,10 @@ function CreateClass() {
             {!isGradeAvailable && (
               <Alert severity="error" icon={<IconAlertCircle />} sx={{ mb: 3 }}>
                 <Typography variant="subtitle2" fontWeight={600}>
-                  ❌ Grade {formData.gradeNumber} already exists!
+                  ❌ Cannot create this class - Grade {formData.gradeNumber} already exists in the database!
+                </Typography>
+                <Typography variant="body2">
+                  Please go back and select a different grade number.
                 </Typography>
               </Alert>
             )}
@@ -1181,23 +1111,23 @@ function CreateClass() {
                 <Stack spacing={3}>
                   <Box>
                     <Typography variant="subtitle2" color="text.secondary">Term</Typography>
-                    <Typography variant="body1">{selectedTerm?.name} ({formData.academicYear})</Typography>
+                    <Typography variant="h6">{selectedTerm?.name} ({formData.academicYear})</Typography>
                   </Box>
 
                   <Divider />
 
                   <Box>
                     <Typography variant="subtitle2" color="text.secondary">Branch</Typography>
-                    <Typography variant="body1">{selectedBranch?.name}</Typography>
+                    <Typography variant="h6">{selectedBranch?.name}</Typography>
                   </Box>
 
                   <Divider />
 
                   <Box>
                     <Typography variant="subtitle2" color="text.secondary">Class</Typography>
-                    <Typography variant="body1" color={!isGradeAvailable ? "error" : "primary"}>
+                    <Typography variant="h6" color={!isGradeAvailable ? "error" : "primary"}>
                       Grade {formData.gradeNumber}
-                      {!isGradeAvailable && " ❌ (Already Exists)"}
+                      {!isGradeAvailable && " ❌ (Already Exists in Database)"}
                     </Typography>
                   </Box>
 
@@ -1218,7 +1148,7 @@ function CreateClass() {
                     <Typography variant="subtitle2" color="text.secondary">Subjects ({selectedSubjects.length})</Typography>
                     <Stack spacing={1} sx={{ mt: 1 }}>
                       {selectedSubjects.map((subject) => (
-                        <Stack key={subject.id} direction="row" spacing={1} alignItems="center" flexWrap="wrap">
+                        <Stack key={subject.id} direction="row" spacing={1} alignItems="center">
                           <Chip label={subject.name} color="primary" size="small" />
                           <Chip label={subject.code} size="small" variant="outlined" />
                         </Stack>
@@ -1246,7 +1176,7 @@ function CreateClass() {
 
                   {isGradeAvailable && (
                     <Alert severity="success" icon={<IconCheck size={18} />}>
-                      ✓ Ready to create!
+                      ✓ Grade {formData.gradeNumber} is available. Ready to create the class!
                     </Alert>
                   )}
                 </Stack>
@@ -1263,96 +1193,62 @@ function CreateClass() {
 
   return (
     <PageContainer title="Create Class">
-      <Box 
-        sx={{ 
-          maxWidth: 900, 
-          mx: 'auto',
-          px: { xs: 1, sm: 2, md: 3 },
-          pb: { xs: 8, sm: 3 }
-        }}
-      >
-        {/* Header */}
-        <Stack 
-          direction="row" 
-          alignItems="center" 
-          spacing={2} 
-          sx={{ 
-            mb: { xs: 2, sm: 4 },
-            flexWrap: 'wrap',
-            gap: 1
-          }}
-        >
+      <Box sx={{ maxWidth: 900, mx: 'auto' }}>
+        <Stack direction="row" alignItems="center" spacing={2} sx={{ mb: 4 }}>
           <Button
             variant="outlined"
             startIcon={<IconArrowLeft size={18} />}
             onClick={() => navigate('/classes')}
-            size={isMobile ? "small" : "medium"}
           >
             Back
           </Button>
-          <Typography variant={isMobile ? "h5" : "h4"}>Create New Class</Typography>
+          <Typography variant="h4">Create New Class</Typography>
         </Stack>
 
-        {/* Desktop Stepper */}
-        {!isMobile && (
-          <Stepper activeStep={activeStep} sx={{ mb: 4, overflowX: 'auto' }}>
-            {steps.map((label) => (
-              <Step key={label}>
-                <StepLabel>{label}</StepLabel>
-              </Step>
-            ))}
-          </Stepper>
-        )}
+        <Stepper activeStep={activeStep} sx={{ mb: 4 }}>
+          {steps.map((label) => (
+            <Step key={label}>
+              <StepLabel>{label}</StepLabel>
+            </Step>
+          ))}
+        </Stepper>
 
-        {/* Mobile Step Indicator */}
-        {isMobile && <MobileStepIndicator />}
-
-        {/* Main Content */}
         <DrogaCard>
-          <CardContent sx={{ p: { xs: 2, sm: 3 } }}>
+          <CardContent>
             {renderStepContent()}
 
-            {/* Desktop Navigation Buttons */}
-            {!isMobile && (
-              <Stack direction="row" spacing={2} justifyContent="flex-end" sx={{ mt: 4 }}>
-                {activeStep > 0 && (
-                  <Button variant="outlined" onClick={handleBack} disabled={loading}>
-                    Back
-                  </Button>
-                )}
+            <Stack direction="row" spacing={2} justifyContent="flex-end" sx={{ mt: 4 }}>
+              {activeStep > 0 && (
+                <Button variant="outlined" onClick={handleBack} disabled={loading}>
+                  Back
+                </Button>
+              )}
 
-                {activeStep < steps.length - 1 ? (
-                  <Button
-                    variant="contained"
-                    onClick={handleNext}
-                    disabled={loading || (activeStep === 1 && (errors.gradeNumber || !formData.gradeNumber))}
-                  >
-                    Next
-                  </Button>
-                ) : (
-                  <Button
-                    variant="contained"
-                    color="success"
-                    onClick={handleSubmit}
-                    disabled={loading || !isGradeAvailable}
-                    startIcon={loading ? <ActivityIndicator size={16} /> : <IconPlus size={18} />}
-                  >
-                    {loading ? 'Creating...' : 'Create Class'}
-                  </Button>
-                )}
-              </Stack>
-            )}
+              {activeStep < steps.length - 1 ? (
+                <Button
+                  variant="contained"
+                  onClick={handleNext}
+                  disabled={loading || (activeStep === 1 && (errors.gradeNumber || !formData.gradeNumber))}
+                >
+                  Next
+                </Button>
+              ) : (
+                <Button
+                  variant="contained"
+                  color="success"
+                  onClick={handleSubmit}
+                  disabled={loading || !isGradeAvailable}
+                  startIcon={loading ? <ActivityIndicator size={16} /> : <IconPlus size={18} />}
+                >
+                  {loading ? 'Creating...' : 'Create Class'}
+                </Button>
+              )}
+            </Stack>
           </CardContent>
         </DrogaCard>
       </Box>
-
-      {/* Mobile Bottom Navigation */}
-      {isMobile && <MobileBottomNav />}
-
-      {/* Mobile Step Drawer */}
-      {isMobile && <MobileStepDrawer />}
     </PageContainer>
   );
 }
 
-export default CreateClass;
+export default CreateClass; 

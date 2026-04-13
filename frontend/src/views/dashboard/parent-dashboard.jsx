@@ -163,8 +163,10 @@ export default function ParentDashboard() {
 
   useEffect(() => {
     // Load general dashboard data first to get available students
+    // Only run on mount - not when studentId changes to avoid infinite loop
     loadDashboardData(null);
-  }, [studentId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     fetchStudents();
@@ -700,7 +702,6 @@ export default function ParentDashboard() {
           <Grid item xs={12} lg={8}>
             <Box sx={{ display: 'flex', flexDirection: 'row', gap: 2 }}>
               <StudentDropdown
-                key={students.length}
                 students={students}
                 selectedStudentId={relationshipId}
                 handleStudentChange={handleStudentChange}
