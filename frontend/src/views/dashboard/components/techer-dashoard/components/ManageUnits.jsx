@@ -162,27 +162,7 @@ const ManageUnits = ({
               Create New Category
             </Typography>
             <Grid container spacing={2}>
-              <Grid item xs={12} md={6}>
-                <FormControl fullWidth>
-                  <InputLabel>Subject *</InputLabel>
-                  <Select
-                    value={categoryForm.subject_id}
-                    onChange={(e) =>
-                      setCategoryForm({ ...categoryForm, subject_id: e.target.value })
-                    }
-                    label="Subject *"
-                  >
-                    {subjects.length === 0 && (
-                      <MenuItem disabled>No subjects available</MenuItem>
-                    )}
-                    {subjects.map((subject) => (
-                      <MenuItem key={subject.id} value={subject.id}>
-                        {subject.name}
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-              </Grid>
+              {/* Class must be selected first */}
               <Grid item xs={12} md={6}>
                 <FormControl fullWidth>
                   <InputLabel>Class *</InputLabel>
@@ -190,7 +170,7 @@ const ManageUnits = ({
                     value={categoryForm.class_fk_id}
                     label="Class *"
                     onChange={(e) =>
-                      setCategoryForm({ ...categoryForm, class_fk_id: e.target.value })
+                      setCategoryForm({ ...categoryForm, class_fk_id: e.target.value, subject_id: '' })
                     }
                   >
                     {classes?.map((cls) => (
@@ -201,6 +181,31 @@ const ManageUnits = ({
                     {(!classes || classes.length === 0) && (
                       <MenuItem disabled>No classes available</MenuItem>
                     )}
+                  </Select>
+                </FormControl>
+              </Grid>
+              <Grid item xs={12} md={6}>
+                <FormControl fullWidth>
+                  <InputLabel>Subject *</InputLabel>
+                  <Select
+                    value={categoryForm.subject_id}
+                    onChange={(e) =>
+                      setCategoryForm({ ...categoryForm, subject_id: e.target.value })
+                    }
+                    label="Subject *"
+                    disabled={!categoryForm.class_fk_id}
+                  >
+                    {!categoryForm.class_fk_id && (
+                      <MenuItem disabled>Please select a class first</MenuItem>
+                    )}
+                    {categoryForm.class_fk_id && subjects.length === 0 && (
+                      <MenuItem disabled>No subjects available</MenuItem>
+                    )}
+                    {subjects.map((subject) => (
+                      <MenuItem key={subject.id} value={subject.id}>
+                        {subject.name}
+                      </MenuItem>
+                    ))}
                   </Select>
                 </FormControl>
               </Grid>
@@ -244,7 +249,7 @@ const ManageUnits = ({
                 <ListItem key={cat.id}>
                   <ListItemText
                     primary={cat.name}
-                    secondary={`Subject: ${cat.subject?.name || 'N/A'}`}
+                    secondary={`Subject: ${cat.subject_details?.name || 'N/A'} | Class: ${cat.class_details?.name || cat.class_details?.grade || 'N/A'}`}
                   />
                 </ListItem>
               ))}
@@ -271,7 +276,7 @@ const ManageUnits = ({
                   >
                     {categories.map((cat) => (
                       <MenuItem key={cat.id} value={cat.id}>
-                        {cat.name} ({cat.subject?.name})
+                        {cat.name} ({cat.subject_details?.name || 'N/A'} - Class {cat.class_details?.grade || cat.class_details?.name || 'N/A'})
                       </MenuItem>
                     ))}
                   </Select>

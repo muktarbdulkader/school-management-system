@@ -54,12 +54,12 @@ export default function AttendanceTracker() {
   const theme = useTheme();
   const location = useLocation();
   const navigate = useNavigate();
-  
+
   const user = useSelector((state) => state.user?.user);
   const userRoles = (user?.roles || []).map(r => (typeof r === 'string' ? r : r?.name || '').toLowerCase());
   const isTeacher = userRoles.includes('teacher');
   const isAdmin = userRoles.some(r => ['admin', 'super_admin', 'head_admin', 'ceo', 'staff'].includes(r));
-  
+
   // If user is admin but not teacher, they should only see "Monitoring Mode"
   const isMonitoringOnly = isAdmin && !isTeacher;
   const initialData = location.state || readRedirectPayload();
@@ -72,7 +72,7 @@ export default function AttendanceTracker() {
   const [allClasses, setAllClasses] = useState([]);
   const [availableSections, setAvailableSections] = useState([]);
   const [availableSubjects, setAvailableSubjects] = useState([]);
-  
+
   const {
     students = [],
   } = initialData || {};
@@ -92,7 +92,7 @@ export default function AttendanceTracker() {
       try {
         const token = await GetToken();
         const header = { Authorization: `Bearer ${token}`, accept: 'application/json' };
-        
+
         if (isAdmin) {
           // Admins fetch all classes
           const classesRes = await fetch(`${Backend.api}${Backend.classes}`, { headers: header });
@@ -106,10 +106,10 @@ export default function AttendanceTracker() {
           // Teachers fetch their specific assignments
           const teacherAssignmentsRes = await fetch(`${Backend.auth}${Backend.teachersOverviewDashboard}`, { headers: header });
           const data = await teacherAssignmentsRes.json();
-          
+
           if (data.success && data.data?.subjects?.length > 0) {
             setMyClasses(data.data.subjects);
-            
+
             if (!activeClassId && !activeSubjectId) {
               const firstClass = data.data.subjects[0];
               setActiveClassId(firstClass.class_id);
@@ -124,7 +124,7 @@ export default function AttendanceTracker() {
         console.error('Failed to fetch initial attendance data:', err);
       }
     };
-    
+
     fetchInitialData();
   }, [isAdmin, activeClassId, activeSubjectId]);
 
@@ -165,7 +165,7 @@ export default function AttendanceTracker() {
   useEffect(() => {
     const fetchAttendance = async () => {
       if (!activeClassId || !activeSubjectId) return;
-      
+
       try {
         const token = await GetToken();
         const header = {
@@ -173,26 +173,26 @@ export default function AttendanceTracker() {
           accept: 'application/json',
         };
         const today = new Date().toISOString().split('T')[0];
-        
+
         const actualSectionId = activeSectionId === 'null' || !activeSectionId ? 'null' : activeSectionId;
-        const attendanceApi = `${Backend.api}${Backend.teachersAttendanceDashboard}/${activeClassId}/${actualSectionId}/${activeSubjectId}/?date=${today}`;
-        
+        const attendanceApi = `${Backend.api}${Backend.teachersAttendanceDashboard}${activeClassId}/${actualSectionId}/${activeSubjectId}/?date=${today}`;
+
         console.log('Fetching attendance from:', attendanceApi);
-        
+
         const res = await fetch(attendanceApi, {
           method: 'GET',
           headers: header,
         });
-        
+
         if (!res.ok) {
           console.error('Attendance API failed with status:', res.status);
           toast.error(`Failed to fetch attendance. Status: ${res.status}`);
           return;
         }
-        
+
         const result = await res.json();
         console.log('Fetched attendance API response:', result);
-        
+
         if (result.success && Array.isArray(result?.data?.students)) {
           // Map API records to the shape we use
           const apiStudents = result.data.students.map((rec) => {
@@ -200,7 +200,7 @@ export default function AttendanceTracker() {
             let status = (rec.status ?? '').toString().toLowerCase();
             if (status === 'excused') status = 'permission';
             if (status === 'no permission' || status === 'no_permission') status = 'noPermission';
-            
+
             return {
               id: rec.id ?? rec.student_id ?? rec.user_id,
               name: rec.name ?? rec.full_name ?? '',
@@ -471,10 +471,10 @@ export default function AttendanceTracker() {
       prev.map((s) =>
         String(s.id) === String(studentId)
           ? {
-              ...s,
-              attendance_status: attendance ?? s.attendance_status,
-              comment: comment,
-            }
+            ...s,
+            attendance_status: attendance ?? s.attendance_status,
+            comment: comment,
+          }
           : s,
       ),
     );
@@ -523,9 +523,9 @@ export default function AttendanceTracker() {
               mt: 0.5
             }}
           >
-             {new Date().toISOString().split('T')[0]}
+            {new Date().toISOString().split('T')[0]}
           </Typography>
-          
+
           <Box sx={{ display: 'flex', gap: 2, mb: 1, minWidth: 400, flexWrap: 'wrap' }}>
             {isAdmin ? (
               <>
@@ -990,12 +990,12 @@ export default function AttendanceTracker() {
                           sx={{ width: 40, height: 40, mt: 4 }}
                         />
                         {isMonitoringOnly ? (
-                          <Chip 
-                            label={student.attendance_status?.toUpperCase() || 'NOT MARKED'} 
+                          <Chip
+                            label={student.attendance_status?.toUpperCase() || 'NOT MARKED'}
                             color={
-                              student.attendance_status === 'present' ? 'success' : 
-                              student.attendance_status === 'absent' ? 'error' : 
-                              student.attendance_status === 'late' ? 'warning' : 'default'
+                              student.attendance_status === 'present' ? 'success' :
+                                student.attendance_status === 'absent' ? 'error' :
+                                  student.attendance_status === 'late' ? 'warning' : 'default'
                             }
                             sx={{ mt: 4 }}
                           />

@@ -17,9 +17,15 @@ import {
   Select,
   MenuItem,
   Grid,
-  Paper
+  Paper,
+  IconButton,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Alert
 } from '@mui/material';
-import { IconRefresh, IconPlus, IconClock, IconBook, IconUser, IconSettings } from '@tabler/icons-react';
+import { IconRefresh, IconPlus, IconClock, IconBook, IconUser, IconSettings, IconTrash, IconEdit } from '@tabler/icons-react';
 import PageContainer from 'ui-component/MainPage';
 import DrogaCard from 'ui-component/cards/DrogaCard';
 import ActivityIndicator from 'ui-component/indicators/ActivityIndicator';
@@ -38,6 +44,9 @@ const SchedulePage = () => {
   const [selectedBranch, setSelectedBranch] = useState('all');
   const [branches, setBranches] = useState([]);
   const [formOpen, setFormOpen] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [scheduleToDelete, setScheduleToDelete] = useState(null);
+  const [editingSchedule, setEditingSchedule] = useState(null);
   const [studentInfo, setStudentInfo] = useState(null);
 
   const userData = useSelector((state) => {
@@ -164,6 +173,64 @@ const SchedulePage = () => {
     }
   };
 
+  const handleEdit = (schedule) => {
+    setEditingSchedule(schedule);
+    setFormOpen(true);
+  };
+
+  const handleDeleteClick = (schedule) => {
+    setScheduleToDelete(schedule);
+    setDeleteDialogOpen(true);
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!scheduleToDelete) return;
+    if (!scheduleToDelete.id) {
+      console.error('Schedule to delete has no ID:', scheduleToDelete);
+      toast.error('Cannot delete: Invalid schedule ID');
+      setDeleteDialogOpen(false);
+      return;
+    }
+
+    try {
+      const token = await GetToken();
+      const deleteUrl = `${Backend.api}schedule_slots/${scheduleToDelete.id}/`;
+      console.log('Deleting schedule at URL:', deleteUrl, 'scheduleToDelete:', scheduleToDelete);
+      const response = await fetch(deleteUrl, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (response.ok) {
+        toast.success('Schedule deleted successfully');
+        fetchSchedules();
+      } else {
+        const errorText = await response.text();
+        console.error('Failed to delete schedule:', errorText);
+        toast.error('Failed to delete schedule');
+      }
+    } catch (error) {
+      console.error('Error deleting schedule:', error);
+      toast.error('Failed to delete schedule');
+    } finally {
+      setDeleteDialogOpen(false);
+      setScheduleToDelete(null);
+    }
+  };
+
+  const handleDeleteCancel = () => {
+    setDeleteDialogOpen(false);
+    setScheduleToDelete(null);
+  };
+
+  const handleFormClose = () => {
+    setFormOpen(false);
+    setEditingSchedule(null);
+  };
+
   const filteredSchedules = selectedDay === 'all'
     ? schedules
     : schedules.filter(s => s.day_of_week === selectedDay);
@@ -177,6 +244,63 @@ const SchedulePage = () => {
   const getCurrentDaySchedule = () => {
     const today = new Date().toLocaleDateString('en-US', { weekday: 'long' });
     return schedulesByDay[today] || [];
+  };
+
+  // Detect conflicts in schedule
+  const detectConflicts = () => {
+    const conflicts = [];
+    schedules.forEach(schedule => {
+      // Check for duplicate period in same class/section/day
+      const sameSlot = schedules.filter(s =>
+        s.id !== schedule.id &&
+        s.day_of_week === schedule.day_of_week &&
+        s.class_details?.id === schedule.class_details?.id &&
+        s.section_details?.id === schedule.section_details?.id &&
+        s.period_number === schedule.period_number
+      );
+      if (sameSlot.length > 0) {
+        conflicts.push({
+          type: 'period_conflict',
+          schedule: schedule,
+          conflictingWith: sameSlot,
+          message: `Period ${schedule.period_number} on ${schedule.day_of_week} has multiple classes for Class ${schedule.class_details?.grade} Section ${schedule.section_details?.name}`
+        });
+      }
+
+      // Check for teacher conflict
+      if (schedule.teacher_details?.id) {
+        const teacherConflict = schedules.filter(s =>
+          s.id !== schedule.id &&
+          s.day_of_week === schedule.day_of_week &&
+          s.teacher_details?.id === schedule.teacher_details?.id &&
+          s.period_number === schedule.period_number
+        );
+        if (teacherConflict.length > 0) {
+          conflicts.push({
+            type: 'teacher_conflict',
+            schedule: schedule,
+            conflictingWith: teacherConflict,
+            message: `${schedule.teacher_details?.teacher_details?.user_details?.full_name} is assigned to multiple classes at Period ${schedule.period_number} on ${schedule.day_of_week}`
+          });
+        }
+      }
+    });
+    return conflicts;
+  };
+
+  const conflicts = detectConflicts();
+  const uniqueConflicts = conflicts.filter((conflict, index, self) =>
+    index === self.findIndex(c => c.message === conflict.message)
+  );
+
+  // Schedule statistics
+  const scheduleStats = {
+    total: schedules.length,
+    byDay: daysOfWeek.map(day => ({
+      day,
+      count: schedules.filter(s => s.day_of_week === day).length
+    })).filter(d => d.count > 0),
+    conflicts: uniqueConflicts.length
   };
 
   return (
@@ -198,6 +322,64 @@ const SchedulePage = () => {
               <Typography variant="h4">{studentInfo.section?.name || 'Not Assigned'}</Typography>
             </Grid>
           </Grid>
+        </DrogaCard>
+      )}
+
+      {/* Schedule Statistics & Conflicts - For Admins */}
+      {isAdmin && (
+        <DrogaCard sx={{ mb: 3 }}>
+          <Grid container spacing={3}>
+            <Grid item xs={12} sm={4}>
+              <Stack direction="row" alignItems="center" spacing={1}>
+                <Box sx={{ p: 1, bgcolor: 'primary.light', borderRadius: 1 }}>
+                  <IconBook size={20} color="primary" />
+                </Box>
+                <Box>
+                  <Typography variant="h4">{scheduleStats.total}</Typography>
+                  <Typography variant="body2" color="text.secondary">Total Schedules</Typography>
+                </Box>
+              </Stack>
+            </Grid>
+            <Grid item xs={12} sm={4}>
+              <Stack direction="row" alignItems="center" spacing={1}>
+                <Box sx={{ p: 1, bgcolor: 'success.light', borderRadius: 1 }}>
+                  <IconClock size={20} color="success" />
+                </Box>
+                <Box>
+                  <Typography variant="h4">{scheduleStats.byDay.length}</Typography>
+                  <Typography variant="body2" color="text.secondary">Active Days</Typography>
+                </Box>
+              </Stack>
+            </Grid>
+            <Grid item xs={12} sm={4}>
+              <Stack direction="row" alignItems="center" spacing={1}>
+                <Box sx={{ p: 1, bgcolor: uniqueConflicts.length > 0 ? 'error.light' : 'success.light', borderRadius: 1 }}>
+                  <IconUser size={20} color={uniqueConflicts.length > 0 ? 'error' : 'success'} />
+                </Box>
+                <Box>
+                  <Typography variant="h4" color={uniqueConflicts.length > 0 ? 'error' : 'inherit'}>
+                    {uniqueConflicts.length}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    {uniqueConflicts.length > 0 ? 'Conflicts Detected' : 'No Conflicts'}
+                  </Typography>
+                </Box>
+              </Stack>
+            </Grid>
+          </Grid>
+
+          {/* Conflict Alerts */}
+          {uniqueConflicts.length > 0 && (
+            <Box mt={2}>
+              {uniqueConflicts.map((conflict, idx) => (
+                <Alert key={idx} severity="error" sx={{ mb: 1 }}>
+                  <Typography variant="body2">
+                    <strong>Conflict {idx + 1}:</strong> {conflict.message}
+                  </Typography>
+                </Alert>
+              ))}
+            </Box>
+          )}
         </DrogaCard>
       )}
 
@@ -376,7 +558,24 @@ const SchedulePage = () => {
                       </TableCell>
                       {canCreateSchedule && (
                         <TableCell align="right">
-                          <Button size="small">Edit</Button>
+                          <Stack direction="row" spacing={1} justifyContent="flex-end">
+                            <IconButton
+                              size="small"
+                              color="primary"
+                              onClick={() => handleEdit(schedule)}
+                              title="Edit Schedule"
+                            >
+                              <IconEdit size={18} />
+                            </IconButton>
+                            <IconButton
+                              size="small"
+                              color="error"
+                              onClick={() => handleDeleteClick(schedule)}
+                              title="Delete Schedule"
+                            >
+                              <IconTrash size={18} />
+                            </IconButton>
+                          </Stack>
                         </TableCell>
                       )}
                     </TableRow>
@@ -391,10 +590,43 @@ const SchedulePage = () => {
       {canCreateSchedule && (
         <ScheduleForm
           open={formOpen}
-          onClose={() => setFormOpen(false)}
+          onClose={handleFormClose}
           onSuccess={fetchSchedules}
+          editingSchedule={editingSchedule}
         />
       )}
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={deleteDialogOpen} onClose={handleDeleteCancel}>
+        <DialogTitle>Delete Schedule</DialogTitle>
+        <DialogContent>
+          <Typography>
+            Are you sure you want to delete this schedule?
+          </Typography>
+          {scheduleToDelete && (
+            <Box mt={2}>
+              <Typography variant="body2" color="text.secondary">
+                <strong>Day:</strong> {scheduleToDelete.day_of_week}
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                <strong>Period:</strong> {scheduleToDelete.period_number}
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                <strong>Subject:</strong> {scheduleToDelete.subject_details?.name || 'Free Period'}
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                <strong>Class:</strong> {scheduleToDelete.class_details?.grade}
+              </Typography>
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleDeleteCancel}>Cancel</Button>
+          <Button onClick={handleDeleteConfirm} color="error" variant="contained">
+            Delete
+          </Button>
+        </DialogActions>
+      </Dialog>
     </PageContainer>
   );
 };

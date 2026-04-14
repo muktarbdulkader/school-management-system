@@ -115,8 +115,20 @@ class TermsViewSet(viewsets.ModelViewSet):
         # Filter by branch access
         if not user.is_superuser:
             from users.models import UserBranchAccess
-            accessible_branches = UserBranchAccess.objects.filter(user=user).values_list('branch_id', flat=True)
-            queryset = queryset.filter(branch_id__in=accessible_branches)
+            accessible_branches = list(UserBranchAccess.objects.filter(user=user).values_list('branch_id', flat=True))
+            
+            # Also allow teachers to see terms for branches where they have assignments
+            from teachers.models import Teacher, TeacherAssignment
+            teacher = Teacher.objects.filter(user=user).first()
+            if teacher:
+                teacher_branch_ids = list(TeacherAssignment.objects.filter(teacher=teacher).values_list('branch_id', flat=True).distinct())
+                accessible_branches = list(set(accessible_branches + teacher_branch_ids))
+            
+            if accessible_branches:
+                queryset = queryset.filter(branch_id__in=accessible_branches)
+            else:
+                # If no branch access and not a teacher, return empty
+                queryset = queryset.none()
 
         if branch_id:
             if not user.is_superuser and not UserBranchAccess.objects.filter(user=user, branch_id=branch_id).exists():

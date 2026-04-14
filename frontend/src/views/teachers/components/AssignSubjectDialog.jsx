@@ -104,7 +104,8 @@ const AssignSubjectDialog = ({ open, onClose, teacherId, onAssignmentSuccess }) 
         const classSubjectsData = data.data || data.results || [];
         const classSubjects = {};
         classSubjectsData.forEach(mapping => {
-          const classId = mapping.class_fk || mapping.class_id;
+          // class_fk is write_only in serializer, use class_details instead
+          const classId = mapping.class_fk || mapping.class_id || mapping.class_details?.id;
           if (classId) {
             if (!classSubjects[classId]) {
               classSubjects[classId] = [];

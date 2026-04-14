@@ -267,9 +267,10 @@ class BehaviorIncidentsSerializer(serializers.ModelSerializer):
     student_id = serializers.PrimaryKeyRelatedField(
         queryset=Student.objects.all(),
         write_only=True,
-        required=True,
+        required=False,
         source='student'
     )
+    student = serializers.CharField(write_only=True, required=False)
     student_details = serializers.SerializerMethodField()
 
     def get_student_details(self, obj):
@@ -287,6 +288,43 @@ class BehaviorIncidentsSerializer(serializers.ModelSerializer):
     )
     reported_by_details = UserSerializer(source='reported_by', read_only=True)
 
+    def validate(self, data):
+        # Handle student field - can be UUID or string representation
+        # Note: With source='student', the PrimaryKeyRelatedField populates data['student']
+        if 'student' in data and data['student'] and not isinstance(data['student'], Student):
+            student_value = data['student']
+            # If it's a display string like "kasim (STU-2026-0003)", try to find by student_id
+            if isinstance(student_value, str) and '(' in student_value and ')' in student_value:
+                try:
+                    student_id_str = student_value.split('(')[1].split(')')[0]
+                    student = Student.objects.filter(student_id=student_id_str).first()
+                    if student:
+                        data['student'] = student
+                    else:
+                        raise serializers.ValidationError({"student": f"Student with ID {student_id_str} not found"})
+                except (IndexError, Student.DoesNotExist):
+                    raise serializers.ValidationError({"student": "Invalid student format"})
+            # If it's a UUID string
+            elif isinstance(student_value, str):
+                try:
+                    import uuid
+                    student_uuid = uuid.UUID(student_value)
+                    student = Student.objects.filter(id=student_uuid).first()
+                    if student:
+                        data['student'] = student
+                    else:
+                        raise serializers.ValidationError({"student": f"Student with ID {student_value} not found"})
+                except ValueError:
+                    raise serializers.ValidationError({"student": "Invalid student UUID format"})
+
+        if 'student' not in data or data['student'] is None:
+            raise serializers.ValidationError({"student": "This field is required."})
+        if 'description' not in data or not data['description']:
+            raise serializers.ValidationError({"description": "This field is required."})
+        if 'incident_date' not in data or not data['incident_date']:
+            raise serializers.ValidationError({"incident_date": "This field is required."})
+        return data
+
     def create(self, validated_data):
         # Auto-set reported_by to current user if not provided
         request = self.context.get('request')
@@ -296,7 +334,8 @@ class BehaviorIncidentsSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = BehaviorIncidents
-        fields = '__all__'
+        fields = ['id', 'student_id', 'student', 'student_details', 'description', 'incident_date', 'reported_by', 'reported_by_details']
+        read_only_fields = ['id', 'student_details', 'reported_by_details']
 
 class BehaviorRatingsSerializer(serializers.ModelSerializer):
     student_id = serializers.PrimaryKeyRelatedField(

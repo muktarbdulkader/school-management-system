@@ -56,7 +56,7 @@ const Backend = {
   teachersAttendanceDashboard: 'teachers/attendance_dashboard/',
   teachersMarkAttendance: 'teachers/mark_attendance/',
   teachersBulkMarkAttendance: 'teachers/bulk_mark_attendance/',
-  teachersClassAssessments: 'teachers/class_assessments/',
+  teachersClassAssessments: 'teachers/class_assessments',
   teacherTasks: 'teacher-tasks/',
   teacherRatings: 'teacher-ratings/',
   teachersPerformanceRatings: 'teacher-ratings/',

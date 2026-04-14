@@ -36,8 +36,33 @@ class ObjectiveCategoriesViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         user = self.request.user
         branch_id = self.request.query_params.get('branch_id')
+        
+        # Superusers see all
+        if user.is_superuser:
+            if branch_id:
+                return self.queryset.filter(class_fk__branch_id=branch_id)
+            return self.queryset.all()
+        
+        # Check if user is a teacher
+        from teachers.models import Teacher, TeacherAssignment
+        try:
+            teacher = Teacher.objects.get(user=user)
+            # Teachers can see categories for their assigned classes/subjects
+            teacher_assignments = TeacherAssignment.objects.filter(teacher=teacher)
+            class_ids = teacher_assignments.values_list('class_fk_id', flat=True).distinct()
+            subject_ids = teacher_assignments.values_list('subject_id', flat=True).distinct()
+            
+            return self.queryset.filter(
+                Q(class_fk_id__in=class_ids) | Q(subject_id__in=subject_ids) |
+                Q(created_by=user) | Q(created_by__isnull=True)
+            ).distinct()
+        except Teacher.DoesNotExist:
+            pass
+        
+        # Admin/Staff with branch permission
         if branch_id and not has_model_permission(user, 'objectivescategories', 'view', branch_id):
             raise PermissionDenied("No permission to view categories.")
+        
         # Show both global and user-created categories
         return self.queryset.filter(Q(created_by=user) | Q(created_by__isnull=True))
 
@@ -130,8 +155,33 @@ class ObjectiveUnitsViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         user = self.request.user
         branch_id = self.request.query_params.get('branch_id')
+        
+        # Superusers see all
+        if user.is_superuser:
+            if branch_id:
+                return self.queryset.filter(category_id__class_fk__branch_id=branch_id)
+            return self.queryset.all()
+        
+        # Check if user is a teacher
+        from teachers.models import Teacher, TeacherAssignment
+        try:
+            teacher = Teacher.objects.get(user=user)
+            # Teachers can see units for their assigned classes/subjects
+            teacher_assignments = TeacherAssignment.objects.filter(teacher=teacher)
+            class_ids = teacher_assignments.values_list('class_fk_id', flat=True).distinct()
+            subject_ids = teacher_assignments.values_list('subject_id', flat=True).distinct()
+            
+            return self.queryset.filter(
+                Q(category_id__class_fk_id__in=class_ids) | Q(category_id__subject_id__in=subject_ids) |
+                Q(created_by=user) | Q(created_by__isnull=True)
+            ).distinct()
+        except Teacher.DoesNotExist:
+            pass
+        
+        # Admin/Staff with branch permission
         if branch_id and not has_model_permission(user, 'objectiveunits', 'view', branch_id):
             raise PermissionDenied("No permission to view units.")
+        
         # Show both global and user-created units
         return self.queryset.filter(Q(created_by=user) | Q(created_by__isnull=True))
 
@@ -152,8 +202,7 @@ class ObjectiveUnitsViewSet(viewsets.ModelViewSet):
             return Response({'success': False, 'message': 'Invalid IDs', 'status': 400})
 
         units = ObjectiveUnits.objects.filter(
-            Q(category_id__subject_id=subject_id) &
-            (Q(created_by=request.user) | Q(created_by__isnull=True))
+            category_id__subject_id=subject_id
         ).select_related('category_id')
 
         # Compute progress and group units
@@ -169,10 +218,7 @@ class ObjectiveUnitsViewSet(viewsets.ModelViewSet):
             is_completed = unit_prog.is_completed if unit_prog else False
             is_current = unit_prog.is_current if unit_prog else False
 
-            subunits = ObjectiveSubunits.objects.filter(
-                unit_id=unit,
-                created_by__isnull=True
-            ).union(ObjectiveSubunits.objects.filter(unit_id=unit, created_by=request.user))
+            subunits = ObjectiveSubunits.objects.filter(unit_id=unit)
 
             subunits_data = []
             completed_subs = 0
@@ -354,8 +400,33 @@ class ObjectiveSubunitsViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         user = self.request.user
         branch_id = self.request.query_params.get('branch_id')
+        
+        # Superusers see all
+        if user.is_superuser:
+            if branch_id:
+                return self.queryset.filter(unit_id__category_id__class_fk__branch_id=branch_id)
+            return self.queryset.all()
+        
+        # Check if user is a teacher
+        from teachers.models import Teacher, TeacherAssignment
+        try:
+            teacher = Teacher.objects.get(user=user)
+            # Teachers can see subunits for their assigned classes/subjects
+            teacher_assignments = TeacherAssignment.objects.filter(teacher=teacher)
+            class_ids = teacher_assignments.values_list('class_fk_id', flat=True).distinct()
+            subject_ids = teacher_assignments.values_list('subject_id', flat=True).distinct()
+            
+            return self.queryset.filter(
+                Q(unit_id__category_id__class_fk_id__in=class_ids) | Q(unit_id__category_id__subject_id__in=subject_ids) |
+                Q(created_by=user) | Q(created_by__isnull=True)
+            ).distinct()
+        except Teacher.DoesNotExist:
+            pass
+        
+        # Admin/Staff with branch permission
         if branch_id and not has_model_permission(user, 'objectivesubunits', 'view', branch_id):
             raise PermissionDenied("No permission to view subunits.")
+        
         # Show both global and user-created subunits
         return self.queryset.filter(Q(created_by=user) | Q(created_by__isnull=True))
 
@@ -1133,9 +1204,9 @@ class AssignmentsViewSet(viewsets.ModelViewSet):
         # Auto-lookup teacher_assignment_id if not provided
         data = request.data.copy()
         if not data.get('teacher_assignment_id'):
-            from teachers.models import TeacherAssignment
+            from teachers.models import Teacher, TeacherAssignment
             try:
-                teacher = user.teacher_profile
+                teacher = Teacher.objects.get(user=user)
                 subject_id = data.get('subject_id')
                 class_id = data.get('class_id')
                 section_id = data.get('section')

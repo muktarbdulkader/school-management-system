@@ -16,6 +16,7 @@ import { toast } from 'react-toastify';
 import DrogaFormModal from 'ui-component/modal/DrogaFormModal';
 
 const initialLessonDetails = {
+  class_id: '',
   subject_id: '',
   unit_id: '',
   subunit_id: '',
@@ -55,6 +56,7 @@ const AddDailyLesson = ({
   groupSections,
   learningObjectives,
   terms,
+  categories,
 }) => {
   const [lessonDetails, setLessonDetails] = useState(initialLessonDetails);
 
@@ -64,6 +66,67 @@ const AddDailyLesson = ({
       ...prev,
       [name]: value,
     }));
+  };
+
+  // Handle class change - resets subject, unit, subunit and sets learner_group_id
+  const handleClassChange = (event) => {
+    const { value } = event.target;
+    setLessonDetails((prev) => ({
+      ...prev,
+      class_id: value,
+      learner_group_id: value,
+      subject_id: '',
+      unit_id: '',
+      subunit_id: '',
+    }));
+  };
+
+  // Handle subject change - resets unit, subunit
+  const handleSubjectChange = (event) => {
+    const { value } = event.target;
+    setLessonDetails((prev) => ({
+      ...prev,
+      subject_id: value,
+      unit_id: '',
+      subunit_id: '',
+    }));
+  };
+
+  // Get subjects available for selected class (from categories)
+  const getSubjectsForClass = () => {
+    if (!lessonDetails.class_id) return [];
+    if (!categories || categories.length === 0) return [];
+
+    // Normalize class_id to string for comparison
+    const selectedClassId = String(lessonDetails.class_id);
+
+    // Find categories for this class
+    const classCategories = categories.filter(cat => {
+      const catClassId = cat.class_details?.id || cat.class_fk_id;
+      return String(catClassId) === selectedClassId;
+    });
+
+    // Extract unique subjects from those categories
+    const subjectIds = [...new Set(classCategories.map(cat => cat.subject_details?.id || cat.subject_id).filter(Boolean))];
+
+    return subjects.filter(sub => subjectIds.includes(sub.id));
+  };
+
+  // Get units for selected class and subject
+  const getUnitsForClassAndSubject = () => {
+    if (!lessonDetails.class_id || !lessonDetails.subject_id) return [];
+
+    // Normalize IDs to strings for comparison
+    const selectedClassId = String(lessonDetails.class_id);
+    const selectedSubjectId = String(lessonDetails.subject_id);
+
+    return units.filter(unit => {
+      const category = categories?.find(cat => cat.id === unit.category_id || cat.id === unit.category_details?.id);
+      if (!category) return false;
+      const catClassId = String(category.class_details?.id || category.class_fk_id);
+      const catSubjectId = String(category.subject_details?.id || category.subject_id);
+      return catClassId === selectedClassId && catSubjectId === selectedSubjectId;
+    });
   };
 
   const handleActivityChange = (index, event) => {
@@ -119,20 +182,46 @@ const AddDailyLesson = ({
           <Divider sx={{ mb: 2 }} />
         </Grid>
 
+        {/* Class must be selected first */}
+        <Grid item xs={12} md={6}>
+          <FormControl fullWidth required>
+            <InputLabel>Class</InputLabel>
+            <Select
+              name="class_id"
+              value={lessonDetails.class_id}
+              onChange={handleClassChange}
+              label="Class"
+            >
+              {learnerGroups.map((group) => (
+                <MenuItem key={group.id} value={group.id}>
+                  {group.name || `Class ${group.grade}`}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        </Grid>
+
         <Grid item xs={12} md={6}>
           <FormControl fullWidth required>
             <InputLabel>Subject</InputLabel>
             <Select
               name="subject_id"
               value={lessonDetails.subject_id}
-              onChange={handleChange}
+              onChange={handleSubjectChange}
               label="Subject"
+              disabled={!lessonDetails.class_id}
             >
-              {subjects.map((subject) => (
+              {!lessonDetails.class_id && (
+                <MenuItem disabled>Please select a class first</MenuItem>
+              )}
+              {lessonDetails.class_id && getSubjectsForClass().map((subject) => (
                 <MenuItem key={subject.id} value={subject.id}>
                   {subject.name}
                 </MenuItem>
               ))}
+              {lessonDetails.class_id && getSubjectsForClass().length === 0 && (
+                <MenuItem disabled>No subjects available for this class</MenuItem>
+              )}
             </Select>
           </FormControl>
         </Grid>
@@ -145,12 +234,19 @@ const AddDailyLesson = ({
               value={lessonDetails.unit_id}
               onChange={handleChange}
               label="Unit"
+              disabled={!lessonDetails.class_id || !lessonDetails.subject_id}
             >
-              {units.map((unit) => (
+              {(!lessonDetails.class_id || !lessonDetails.subject_id) && (
+                <MenuItem disabled>Please select class and subject first</MenuItem>
+              )}
+              {getUnitsForClassAndSubject().map((unit) => (
                 <MenuItem key={unit.id} value={unit.id}>
                   {unit.name}
                 </MenuItem>
               ))}
+              {lessonDetails.class_id && lessonDetails.subject_id && getUnitsForClassAndSubject().length === 0 && (
+                <MenuItem disabled>No units available - create a unit first</MenuItem>
+              )}
             </Select>
           </FormControl>
         </Grid>
@@ -185,30 +281,12 @@ const AddDailyLesson = ({
           />
         </Grid>
 
-        {/* Class Information */}
+        {/* Section Information */}
         <Grid item xs={12} sx={{ mt: 2 }}>
           <Typography variant="h6" gutterBottom>
-            Class Information
+            Section Information
           </Typography>
           <Divider sx={{ mb: 2 }} />
-        </Grid>
-
-        <Grid item xs={12} md={6}>
-          <FormControl fullWidth required>
-            <InputLabel>Learner Group</InputLabel>
-            <Select
-              name="learner_group_id"
-              value={lessonDetails.learner_group_id}
-              onChange={handleChange}
-              label="Learner Group"
-            >
-              {learnerGroups.map((group) => (
-                <MenuItem key={group.id} value={group.id}>
-                  {group.grade}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
         </Grid>
 
         <Grid item xs={12} md={6}>
@@ -433,6 +511,7 @@ AddDailyLesson.propTypes = {
   groupSections: PropTypes.array.isRequired,
   learningObjectives: PropTypes.array.isRequired,
   terms: PropTypes.array.isRequired,
+  categories: PropTypes.array,
 };
 
 export default AddDailyLesson;

@@ -15,7 +15,7 @@ import { useSelector } from 'react-redux';
 import Backend from 'services/backend';
 import GetToken from 'utils/auth-token';
 
-const ScheduleForm = ({ open, onClose, onSuccess }) => {
+const ScheduleForm = ({ open, onClose, onSuccess, editingSchedule }) => {
   const [formData, setFormData] = useState({
     day_of_week: 'Monday',
     period_number: 1,
@@ -76,6 +76,38 @@ const ScheduleForm = ({ open, onClose, onSuccess }) => {
     console.log('ScheduleForm - isSuperAdmin:', isSuperAdmin);
     console.log('ScheduleForm - canSelectBranch:', canSelectBranch);
   }, [userData]);
+
+  // Populate form when editing
+  useEffect(() => {
+    if (editingSchedule) {
+      setFormData({
+        day_of_week: editingSchedule.day_of_week || 'Monday',
+        period_number: editingSchedule.period_number || 1,
+        start_time: editingSchedule.start_time || '',
+        end_time: editingSchedule.end_time || '',
+        branch_id: editingSchedule.branch_details?.id || '',
+        class_id: editingSchedule.class_details?.id || '',
+        section_id: editingSchedule.section_details?.id || '',
+        subject_id: editingSchedule.subject_details?.id || '',
+        teacher_id: editingSchedule.teacher_details?.id || '',
+        slot_type_id: editingSchedule.slot_type?.id || ''
+      });
+    } else {
+      // Reset form for new entry
+      setFormData({
+        day_of_week: 'Monday',
+        period_number: 1,
+        start_time: '',
+        end_time: '',
+        branch_id: '',
+        class_id: '',
+        section_id: '',
+        subject_id: '',
+        teacher_id: '',
+        slot_type_id: ''
+      });
+    }
+  }, [editingSchedule]);
 
   const fetchFormData = async () => {
     try {
@@ -288,10 +320,16 @@ const ScheduleForm = ({ open, onClose, onSuccess }) => {
         return;
       }
 
-      // If no conflicts, proceed with creation
-      console.log('Creating schedule slot with payload:', payload);
-      const response = await fetch(`${Backend.api}${Backend.scheduleSlots}`, {
-        method: 'POST',
+      // If no conflicts, proceed with creation or update
+      const isEditing = !!editingSchedule;
+      const url = isEditing
+        ? `${Backend.api}schedule_slots/${editingSchedule.id}/`
+        : `${Backend.api}${Backend.scheduleSlots}`;
+      const method = isEditing ? 'PUT' : 'POST';
+
+      console.log(`${isEditing ? 'Updating' : 'Creating'} schedule slot with payload:`, payload);
+      const response = await fetch(url, {
+        method: method,
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
@@ -302,7 +340,7 @@ const ScheduleForm = ({ open, onClose, onSuccess }) => {
       console.log('Response status:', response.status);
 
       if (response.ok) {
-        toast.success('Schedule created successfully');
+        toast.success(isEditing ? 'Schedule updated successfully' : 'Schedule created successfully');
         // Small delay to ensure DB transaction completes
         setTimeout(() => {
           onSuccess();
@@ -310,19 +348,27 @@ const ScheduleForm = ({ open, onClose, onSuccess }) => {
         handleClose();
       } else {
         const error = await response.json();
-        console.error('Schedule creation error:', error);
+        console.error('Schedule save error:', error);
+        let errorMsg = '';
         if (error.errors && typeof error.errors === 'object') {
-          const errorMessages = Object.entries(error.errors)
+          errorMsg = Object.entries(error.errors)
             .map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(', ') : value}`)
             .join('\n');
-          setValidationError(errorMessages || error.message);
-        } else {
-          setValidationError(error.message || 'Failed to create schedule');
         }
+        if (!errorMsg && error.message) {
+          errorMsg = typeof error.message === 'string' ? error.message : JSON.stringify(error.message);
+        }
+        if (!errorMsg && error.detail) {
+          errorMsg = typeof error.detail === 'string' ? error.detail : JSON.stringify(error.detail);
+        }
+        if (!errorMsg) {
+          errorMsg = isEditing ? 'Failed to update schedule' : 'Failed to create schedule';
+        }
+        setValidationError(errorMsg);
       }
     } catch (error) {
-      console.error('Error creating schedule:', error);
-      setValidationError('Failed to create schedule. Please try again.');
+      console.error('Error saving schedule:', error);
+      setValidationError(editingSchedule ? 'Failed to update schedule. Please try again.' : 'Failed to create schedule. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -352,7 +398,7 @@ const ScheduleForm = ({ open, onClose, onSuccess }) => {
   return (
     <Dialog open={open} onClose={handleClose} maxWidth="md" fullWidth>
       <form onSubmit={handleSubmit}>
-        <DialogTitle>Add Schedule Slot</DialogTitle>
+        <DialogTitle>{editingSchedule ? 'Edit Schedule Slot' : 'Add Schedule Slot'}</DialogTitle>
         <DialogContent>
           <Grid container spacing={2} sx={{ mt: 0.5 }}>
             <Grid item xs={12} sm={6}>

@@ -221,11 +221,11 @@ export default function TeacherDashboardPage() {
       const responseData = await response.json();
 
       if (responseData.success) {
-        // Extract unique classes from teacher assignments
+        // Extract unique classes from teacher assignments using class_details
         const uniqueClasses = [...new Map(responseData.data
-          .filter(item => item.class_fk)
+          .filter(item => item.class_details)
           .map(item => {
-            const classData = item.class_fk;
+            const classData = item.class_details;
             return [classData.id, classData];
           })
         ).values()];
@@ -1107,6 +1107,7 @@ export default function TeacherDashboardPage() {
         onSubmit={handleLessonSubmit}
         isAdding={isAddingLesson}
         subjects={subjects}
+        categories={categories}
         units={units}
         subunits={subunits}
         learnerGroups={learnerGroups}

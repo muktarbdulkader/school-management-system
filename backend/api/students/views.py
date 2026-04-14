@@ -1297,7 +1297,23 @@ class ParentStudentViewSet(viewsets.ModelViewSet):
             except (Student.DoesNotExist, ValidationError, ValueError):
                 # Fallback to student_id code
                 student = Student.objects.get(student_id=student_id)
-            if not ParentStudent.objects.filter(parent__user=user, student=student).exists():
+            is_parent = ParentStudent.objects.filter(parent__user=user, student=student).exists()
+            
+            # Check if user is a teacher of this student
+            is_teacher = False
+            try:
+                from teachers.models import Teacher, TeacherAssignment
+                teacher = Teacher.objects.get(user=user)
+                # Check if teacher is assigned to this student's class/section
+                is_teacher = TeacherAssignment.objects.filter(
+                    teacher=teacher,
+                    class_fk=student.grade,
+                    section=student.section
+                ).exists()
+            except Teacher.DoesNotExist:
+                pass
+            
+            if not (is_parent or is_teacher or user.is_staff):
                 raise PermissionDenied("You do not have permission to view this student's attendance details.")
         except Student.DoesNotExist:
             return Response({
@@ -1345,8 +1361,22 @@ class ParentStudentViewSet(viewsets.ModelViewSet):
 
             is_own = student.user == user
             is_parent = ParentStudent.objects.filter(parent__user=user, student=student).exists()
+            
+            # Check if user is a teacher of this student
+            is_teacher = False
+            try:
+                from teachers.models import Teacher, TeacherAssignment
+                teacher = Teacher.objects.get(user=user)
+                # Check if teacher is assigned to this student's class/section
+                is_teacher = TeacherAssignment.objects.filter(
+                    teacher=teacher,
+                    class_fk=student.grade,
+                    section=student.section
+                ).exists()
+            except Teacher.DoesNotExist:
+                pass
 
-            if not (is_own or is_parent or user.is_staff):
+            if not (is_own or is_parent or is_teacher or user.is_staff):
                 raise PermissionDenied("You do not have permission to view this student's academic progress.")
         except Student.DoesNotExist:
             return Response({
@@ -1452,8 +1482,22 @@ class ParentStudentViewSet(viewsets.ModelViewSet):
                 student = Student.objects.get(student_id=student_id)
             is_own = student.user == user
             is_parent = ParentStudent.objects.filter(parent__user=user, student=student).exists()
+            
+            # Check if user is a teacher of this student
+            is_teacher = False
+            try:
+                from teachers.models import Teacher, TeacherAssignment
+                teacher = Teacher.objects.get(user=user)
+                # Check if teacher is assigned to this student's class/section
+                is_teacher = TeacherAssignment.objects.filter(
+                    teacher=teacher,
+                    class_fk=student.grade,
+                    section=student.section
+                ).exists()
+            except Teacher.DoesNotExist:
+                pass
 
-            if not (is_own or is_parent or user.is_staff):
+            if not (is_own or is_parent or is_teacher or user.is_staff):
                 raise PermissionDenied("You do not have permission to view this student's assignment dashboard.")
         except Student.DoesNotExist:
             return Response({
@@ -2107,9 +2151,16 @@ class BehaviorRatingsViewSet(viewsets.ModelViewSet):
         user = self.request.user
         branch_id = self.request.data.get('branch_id')
         try:
-            # Check permissions
-            if branch_id and not has_model_permission(user, 'behavratings', 'add', branch_id):
-                raise PermissionDenied("No permission to create behavior ratings in this branch.")
+            # Allow superusers, staff, and teachers to create behavior ratings
+            if not (user.is_superuser or user.is_staff):
+                # Check if user is a teacher
+                from teachers.models import Teacher
+                try:
+                    Teacher.objects.get(user=user)
+                except Teacher.DoesNotExist:
+                    # Check branch permission for non-teachers
+                    if branch_id and not has_model_permission(user, 'behavratings', 'add', branch_id):
+                        raise PermissionDenied("No permission to create behavior ratings in this branch.")
             serializer.save(rated_by=user)
         except Exception as e:
             return Response({
@@ -2118,12 +2169,6 @@ class BehaviorRatingsViewSet(viewsets.ModelViewSet):
                 'status': 500,
                 'errors': str(e)
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-        # Check permissions
-        if branch_id and not has_model_permission(user, 'behavratings', 'add', branch_id):
-            raise PermissionDenied("No permission to create behavior ratings in this branch.")
-
-        serializer.save(rated_by=user)
 
     def update(self, request, *args, **kwargs):
         partial = kwargs.pop('partial', False)
@@ -2134,9 +2179,16 @@ class BehaviorRatingsViewSet(viewsets.ModelViewSet):
         return Response({'success': True, 'message': 'Behavior rating updated', 'status': 200, 'data': serializer.data})
 
     def perform_update(self, serializer):
+        user = self.request.user
         branch_id = self.request.data.get('branch_id')
-        if branch_id and not has_model_permission(self.request.user, 'behavratings', 'change', branch_id):
-            raise PermissionDenied("No permission to update behavior ratings.")
+        # Allow superusers, staff, and teachers to update behavior ratings
+        if not (user.is_superuser or user.is_staff):
+            from teachers.models import Teacher
+            try:
+                Teacher.objects.get(user=user)
+            except Teacher.DoesNotExist:
+                if branch_id and not has_model_permission(user, 'behavratings', 'change', branch_id):
+                    raise PermissionDenied("No permission to update behavior ratings.")
         serializer.save()
 
     def destroy(self, request, *args, **kwargs):
@@ -2145,9 +2197,16 @@ class BehaviorRatingsViewSet(viewsets.ModelViewSet):
         return Response({'success': True, 'message': 'Behavior rating deleted', 'status': 204, 'data': []}, status=204)
 
     def perform_destroy(self, instance):
+        user = self.request.user
         branch_id = self.request.query_params.get('branch_id')
-        if branch_id and not has_model_permission(self.request.user, 'behavratings', 'delete', branch_id):
-            raise PermissionDenied("No permission to delete behavior ratings.")
+        # Allow superusers, staff, and teachers to delete behavior ratings
+        if not (user.is_superuser or user.is_staff):
+            from teachers.models import Teacher
+            try:
+                Teacher.objects.get(user=user)
+            except Teacher.DoesNotExist:
+                if branch_id and not has_model_permission(user, 'behavratings', 'delete', branch_id):
+                    raise PermissionDenied("No permission to delete behavior ratings.")
         instance.delete()
 
 
