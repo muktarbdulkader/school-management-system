@@ -121,7 +121,7 @@ class TermsViewSet(viewsets.ModelViewSet):
             from teachers.models import Teacher, TeacherAssignment
             teacher = Teacher.objects.filter(user=user).first()
             if teacher:
-                teacher_branch_ids = list(TeacherAssignment.objects.filter(teacher=teacher).values_list('branch_id', flat=True).distinct())
+                teacher_branch_ids = list(TeacherAssignment.objects.filter(teacher=teacher).values_list('class_fk__branch_id', flat=True).distinct())
                 accessible_branches = list(set(accessible_branches + teacher_branch_ids))
             
             if accessible_branches:

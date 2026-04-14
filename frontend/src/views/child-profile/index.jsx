@@ -37,8 +37,8 @@ export default function ChildProfilePage() {
       try {
         setLoading(true);
         const token = await GetToken();
-        // Use generic students endpoint - works for teachers, parents, and admins
-        const endpoint = Backend.studentsDetail.replace('{id}', studentId);
+        // Use parent dashboard endpoint - works for parents to view their child's data
+        const endpoint = Backend.parentStudentDashboard.replace('{student_id}', studentId);
         const apiUrl = `${Backend.api}${endpoint}`;
 
         const response = await fetch(apiUrl, {
@@ -53,8 +53,45 @@ export default function ChildProfilePage() {
         }
 
         const data = await response.json();
-        if (data.success) {
-          setDashboardData(data.data);
+        if (data.success && data.data) {
+          // Transform the data to match the expected structure for tab components
+          const studentData = data.data.student || {};
+          const transformedData = {
+            // For header component
+            student: {
+              id: studentData.id,
+              name: studentData.full_name,
+              full_name: studentData.full_name,
+              grade: studentData.grade,
+              section: studentData.section,
+              gender: studentData.gender,
+              email: studentData.email,
+            },
+            // For overview-tab compatibility
+            profile: {
+              grade: studentData.grade,
+              section: studentData.section,
+            },
+            grade: studentData.grade,
+            section: studentData.section,
+            // Attendance with summary structure
+            attendance: data.data.attendance,
+            attendance_percentage: data.data.attendance?.summary?.percentage || 0,
+            // Other data
+            schedule: data.data.schedule || [],
+            assignments: data.data.assignments || [],
+            announcements: data.data.announcements || [],
+            exams: data.data.exams || [],
+            exam_results: data.data.exam_results || [],
+            progress: data.data.progress || {},
+            enrolled_subjects_count: data.data.enrolled_subjects_count || 0,
+            all_students: data.data.all_students || [],
+            // Behavior ratings placeholder (if available from other source)
+            behavior_ratings: {
+              average_rating: data.data.progress?.overall_average || 0,
+            },
+          };
+          setDashboardData(transformedData);
         } else {
           throw new Error(data.message || 'No data available');
         }
@@ -196,7 +233,7 @@ export default function ChildProfilePage() {
                 fontWeight="bold"
                 sx={{ mb: 1 }}
               >
-                {dashboardData.student?.name || 'Child Profile'}
+                {dashboardData.student?.full_name || dashboardData.student?.name || 'Child Profile'}
               </Typography>
               <Typography
                 variant="body1"

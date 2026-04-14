@@ -345,7 +345,7 @@ export default function AttendanceTracker() {
         });
 
         const actualSectionId = activeSectionId === 'null' || !activeSectionId ? 'null' : activeSectionId;
-        const individualApi = `${Backend.auth}${Backend.teachersMarkAttendance}/${activeClassId}/${actualSectionId}/${activeSubjectId}/`;
+        const individualApi = `${Backend.auth}${Backend.teachersMarkAttendance}${activeClassId}/${actualSectionId}/${activeSubjectId}/`;
 
         const payload = {
           attendance: attendanceData,
@@ -372,7 +372,7 @@ export default function AttendanceTracker() {
       } else {
         // Use bulk API for multiple students
         const actualSectionId = activeSectionId === 'null' || !activeSectionId ? 'null' : activeSectionId;
-        const bulkApi = `${Backend.auth}${Backend.teachersBulkMarkAttendance}/${activeClassId}/${actualSectionId}/${activeSubjectId}/`;
+        const bulkApi = `${Backend.auth}${Backend.teachersBulkMarkAttendance}${activeClassId}/${actualSectionId}/${activeSubjectId}/`;
 
         // Prepare attendance data for bulk submission
         const attendanceData = markedStudents.map((student) => {
