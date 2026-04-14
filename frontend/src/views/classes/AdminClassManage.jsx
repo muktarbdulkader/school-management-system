@@ -151,11 +151,11 @@ function AdminClassManage() {
         toast.success('Class deleted successfully');
         setDeleteDialogOpen(false);
         setSelectedClass(null);
-        fetchClasses();
-        // Navigate back if we were on this class
-        if (classId) {
-          navigate('/classes/manage');
-        }
+        setClassDetails(null);
+        setSections([]);
+        setSubjects([]);
+        // Navigate to classes list after delete
+        navigate('/classes');
       } else {
         const data = await response.json();
         toast.error(data.message || 'Failed to delete class');

@@ -122,7 +122,7 @@ const StudentDashboard = () => {
       if (!profileRes.ok) throw new Error('Failed to fetch profile');
       const profileData = await profileRes.json();
       const studentId = profileData.data?.id || profileData.id;
-      
+
       // 2. Fetch consolidated dashboard data
       const dashboardRes = await fetch(`${Backend.api}parent_students/dashboard/${studentId}/`, {
         headers: { Authorization: `Bearer ${token}` }
@@ -140,9 +140,9 @@ const StudentDashboard = () => {
       setExamResults(data.exam_results || []);
       setAssignmentGrades(data.assignment_grades || []);
       setTeachers((data.teachers || []).slice(0, 6));
-      
+
       setStats({
-        enrolled_subjects: data.schedule?.length || 0,
+        enrolled_subjects: data.enrolled_subjects_count || 0,
         total_assignments: data.upcoming_assignments?.length || 0,
         pending_assignments: (data.upcoming_assignments || []).filter(a => !a.is_submitted).length,
         announcements: data.announcements?.length || 0,
@@ -324,7 +324,7 @@ const StudentDashboard = () => {
                             {assignment.title}
                           </Typography>
                           <Typography variant="caption" color="text.secondary">
-                            {assignment.subject_id?.name || 'N/A'}
+                            {assignment.subject_details?.name || 'N/A'}
                           </Typography>
                         </Box>
                         <Box sx={{ textAlign: 'right' }}>
@@ -388,12 +388,12 @@ const StudentDashboard = () => {
 
         {/* Daily Lesson Plans - Added as per SRS Section 2 */}
         <Grid item xs={12}>
-           <DailyLessonPlans lessonPlans={lessonPlans} />
+          <DailyLessonPlans lessonPlans={lessonPlans} />
         </Grid>
 
         {/* Exams and Results */}
         <Grid item xs={12}>
-           <ExamsAndResults exams={exams} results={examResults} assignments={assignmentGrades} />
+          <ExamsAndResults exams={exams} results={examResults} assignments={assignmentGrades} />
         </Grid>
 
         {/* Quick Actions */}

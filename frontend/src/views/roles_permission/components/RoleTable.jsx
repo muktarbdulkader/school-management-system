@@ -123,7 +123,7 @@ const RoleTable = ({ searchQuery }) => {
 
     // Fetch all permissions from the backend
     const token = localStorage.getItem('token');
-    const Api = `${Backend.auth}role_permissions/permissions/`; // Fixed: correct endpoint for listing all permissions
+    const Api = `${Backend.auth}role_permissions/available/`; // Correct endpoint for listing all permissions
     const header = {
       Authorization: `Bearer ${token}`,
       accept: 'application/json',
@@ -206,7 +206,7 @@ const RoleTable = ({ searchQuery }) => {
     // Prepare the payload with role name and selected permissions
     const payload = {
       name: editedRole.name,
-      permissions: selectedPermissions // Send the updated list of permissions
+      permission_ids: selectedPermissions // Send the updated list of permission IDs
     };
 
     fetch(Api, {

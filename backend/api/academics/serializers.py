@@ -259,6 +259,20 @@ class ClassDetailSerializer(serializers.ModelSerializer):
 
         return courses_data
 
+class GlobalSubjectSerializer(serializers.ModelSerializer):
+    """Serializer for GlobalSubject - central repository of subject names"""
+
+    class Meta:
+        model = GlobalSubject
+        fields = ['id', 'name', 'description', 'is_active', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'created_at', 'updated_at']
+
+    def validate_name(self, value):
+        """Ensure subject name is unique and not empty"""
+        if not value or not value.strip():
+            raise serializers.ValidationError("Subject name is required")
+        return value.strip()
+
 class SubjectsSerializer(serializers.ModelSerializer):
     course_type = serializers.PrimaryKeyRelatedField(queryset=CourseType.objects.all(), write_only=True, required=False, allow_null=True)
     course_type_details = CourseTypeSerializer(source='course_type', read_only=True)
@@ -268,22 +282,18 @@ class SubjectsSerializer(serializers.ModelSerializer):
     section_details = SectionsSerializer(source='section', read_only=True)
     branch = serializers.PrimaryKeyRelatedField(queryset=Branch.objects.all(), write_only=True, required=False, allow_null=True)
     branch_details = BranchSerializer(source='branch', read_only=True)
-    # Link to GlobalSubject - the template subject this was created from
     global_subject = serializers.PrimaryKeyRelatedField(queryset=GlobalSubject.objects.all(), write_only=True, required=False, allow_null=True)
-    global_subject_details = serializers.SerializerMethodField(read_only=True)
+    global_subject_details = GlobalSubjectSerializer(source='global_subject', read_only=True)
 
     class Meta:
         model = Subject
-        fields = [
-            'id', 'name', 'code', 'description',
-            'course_type', 'course_type_details', 'assignment_day',
-            'class_grade', 'class_grade_details',
-            'section', 'section_details',
-            'branch', 'branch_details',
-            'global_subject',  # Write-only input
-            'global_subject_details',  # Read-only output
-            'created_at'
-        ]
+        fields = ['id', 'name', 'code', 'description', 'assignment_day',
+                  'course_type', 'course_type_details',
+                  'class_grade', 'class_grade_details',
+                  'section', 'section_details',
+                  'branch', 'branch_details',
+                  'global_subject', 'global_subject_details',
+                  'created_at']
 
     def get_global_subject_details(self, obj):
         """Return global subject details if linked"""
@@ -420,29 +430,47 @@ class StudentSubjectSerializer(serializers.ModelSerializer):
     student_details = serializers.CharField(source='student', read_only=True)
     subject = serializers.PrimaryKeyRelatedField(queryset=Subject.objects.all(), write_only=True)
     subject_details = SubjectsSerializer(source='subject', read_only=True)
+    teacher_assignment_details = serializers.SerializerMethodField()
 
     class Meta:
         model = StudentSubject
-        fields = ['id', 'student', 'student_details', 'subject', 'subject_details', 'enrolled_on']
+        fields = ['id', 'student', 'student_details', 'subject', 'subject_details', 'enrolled_on', 'teacher_assignment_details']
+
+    def get_teacher_assignment_details(self, obj):
+        """Get teacher assignment for this student-subject combination"""
+        from teachers.models import TeacherAssignment
+        try:
+            student = obj.student
+            subject = obj.subject
+            # Find teacher assignment for this class/section/subject
+            assignment = TeacherAssignment.objects.filter(
+                class_fk=student.grade,
+                section=student.section,
+                subject=subject,
+                is_active=True
+            ).select_related('teacher', 'teacher__user').first()
+
+            if assignment:
+                return {
+                    'id': str(assignment.id),
+                    'teacher_id': str(assignment.teacher.id),
+                    'teacher_details': {
+                        'id': str(assignment.teacher.id),
+                        'user': {
+                            'id': str(assignment.teacher.user.id),
+                            'full_name': assignment.teacher.user.full_name
+                        }
+                    }
+                }
+        except Exception as e:
+            # Log error but don't fail
+            print(f"[StudentSubjectSerializer] Error getting teacher assignment: {e}")
+        return None
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Global Subject Management Serializers (New)
 # ─────────────────────────────────────────────────────────────────────────────
-
-class GlobalSubjectSerializer(serializers.ModelSerializer):
-    """Serializer for GlobalSubject - central repository of subject names"""
-    
-    class Meta:
-        model = GlobalSubject
-        fields = ['id', 'name', 'description', 'is_active', 'created_at', 'updated_at']
-        read_only_fields = ['id', 'created_at', 'updated_at']
-
-    def validate_name(self, value):
-        """Ensure subject name is unique and not empty"""
-        if not value or not value.strip():
-            raise serializers.ValidationError("Subject name is required")
-        return value.strip()
 
 
 class ClassSubjectDetailSerializer(serializers.ModelSerializer):

@@ -29,23 +29,32 @@ class ObjectiveCategoriesSerializer(serializers.ModelSerializer):
         source='subject'
     )
     subject_details = SubjectSerializer(source='subject', read_only=True)
+    class_fk_id = serializers.PrimaryKeyRelatedField(
+        queryset=Class.objects.all(),
+        write_only=True,
+        required=True,
+        source='class_fk'
+    )
+    class_details = ClassSerializer(source='class_fk', read_only=True)
     created_by_details = UserSerializer(source='created_by', read_only=True)
 
     class Meta:
         model = ObjectiveCategories
-        fields = ['id', 'subject_id', 'subject_details', 'name', 'created_by', 'created_by_details']
-        read_only_fields = ['id', 'subject_details', 'created_by_details']
+        fields = ['id', 'subject_id', 'subject_details', 'class_fk_id', 'class_details', 'name', 'created_by', 'created_by_details']
+        read_only_fields = ['id', 'subject_details', 'class_details', 'created_by_details']
 
     def validate_name(self, value):
-        """Ensure category name is unique per subject"""
+        """Ensure category name is unique per subject and class"""
         subject_id = self.initial_data.get('subject_id')
-        if subject_id:
+        class_fk_id = self.initial_data.get('class_fk_id')
+        if subject_id and class_fk_id:
             if ObjectiveCategories.objects.filter(
                 subject_id=subject_id,
+                class_fk_id=class_fk_id,
                 name__iexact=value
             ).exclude(id=self.instance.id if self.instance else None).exists():
                 raise serializers.ValidationError(
-                    f"Category '{value}' already exists for this subject."
+                    f"Category '{value}' already exists for this subject and class."
                 )
         return value
 
@@ -56,7 +65,7 @@ class ObjectiveUnitsSerializer(serializers.ModelSerializer):
         write_only=True,
         required=True
     )
-    category_details = ObjectiveCategoriesSerializer(source='category_id', read_only=True)
+    category_details = ObjectiveCategoriesSerializer(source='category', read_only=True)
     created_by_details = UserSerializer(source='created_by', read_only=True)
 
     class Meta:
@@ -84,7 +93,7 @@ class ObjectiveSubunitsSerializer(serializers.ModelSerializer):
         write_only=True,
         required=True
     )
-    unit_details = ObjectiveUnitsSerializer(source='unit_id', read_only=True)
+    unit_details = ObjectiveUnitsSerializer(source='unit', read_only=True)
     created_by_details = UserSerializer(source='created_by', read_only=True)
 
     class Meta:
@@ -112,14 +121,14 @@ class LearningObjectivesSerializer(serializers.ModelSerializer):
         write_only=True,
         required=True
     )
-    unit_details = ObjectiveUnitsSerializer(source='unit_id', read_only=True)
+    unit_details = ObjectiveUnitsSerializer(source='unit', read_only=True)
     subunit_id = serializers.PrimaryKeyRelatedField(
         queryset=ObjectiveSubunits.objects.all(),
         write_only=True,
         allow_null=True,
         required=False
     )
-    subunit_details = ObjectiveSubunitsSerializer(source='subunit_id', read_only=True)
+    subunit_details = ObjectiveSubunitsSerializer(source='subunit', read_only=True)
     subunit_relationships = serializers.SerializerMethodField()
 
     class Meta:
@@ -130,11 +139,11 @@ class LearningObjectivesSerializer(serializers.ModelSerializer):
 
     def get_subunit_relationships(self, obj):
         """Optimized method to get subunit relationships"""
-        if obj.subunit_id:
+        if obj.subunit:
             try:
                 subunit = ObjectiveSubunits.objects.select_related(
-                    'unit_id__category_id'
-                ).get(id=obj.subunit_id.id)
+                    'unit__category'
+                ).get(id=obj.subunit.id)
                 return [{
                     'subunit_details': ObjectiveSubunitsSerializer(subunit).data,
                     'order': getattr(obj, 'subunit_order', 0)
@@ -150,28 +159,28 @@ class LessonPlansSerializer(serializers.ModelSerializer):
         write_only=True,
         required=True
     )
-    subject_details = SubjectSerializer(source='subject_id', read_only=True)
+    subject_details = SubjectSerializer(source='subject', read_only=True)
     unit_id = serializers.PrimaryKeyRelatedField(
         queryset=ObjectiveUnits.objects.all(),
         write_only=True,
         allow_null=True,
         required=False
     )
-    unit_details = ObjectiveUnitsSerializer(source='unit_id', read_only=True)
+    unit_details = ObjectiveUnitsSerializer(source='unit', read_only=True)
     subunit_id = serializers.PrimaryKeyRelatedField(
         queryset=ObjectiveSubunits.objects.all(),
         write_only=True,
         allow_null=True,
         required=False
     )
-    subunit_details = ObjectiveSubunitsSerializer(source='subunit_id', read_only=True)
+    subunit_details = ObjectiveSubunitsSerializer(source='subunit', read_only=True)
     learner_group_id = serializers.PrimaryKeyRelatedField(
         queryset=Class.objects.all(),
         write_only=True,
         allow_null=True,
         required=False
     )
-    learner_group_details = ClassSerializer(source='learner_group_id', read_only=True)
+    learner_group_details = ClassSerializer(source='learner_group', read_only=True)
     learning_objectives = serializers.PrimaryKeyRelatedField(
         queryset=LearningObjectives.objects.all(),
         many=True,
@@ -194,7 +203,7 @@ class LessonPlansSerializer(serializers.ModelSerializer):
         write_only=True,
         required=True
     )
-    term_details = TermsSerializer(source='term_id', read_only=True)
+    term_details = TermsSerializer(source='term', read_only=True)
 
     class Meta:
         model = LessonPlans
@@ -225,7 +234,7 @@ class LessonActivitiesSerializer(serializers.ModelSerializer):
         write_only=True,
         required=True
     )
-    lesson_plan_details = serializers.StringRelatedField(source='lesson_plan_id', read_only=True)
+    lesson_plan_details = serializers.StringRelatedField(source='lesson_plan', read_only=True)
 
     class Meta:
         model = LessonActivities
@@ -244,7 +253,7 @@ class LessonPlanEvaluationsSerializer(serializers.ModelSerializer):
         write_only=True,
         required=True
     )
-    lesson_plan_details = serializers.StringRelatedField(source='lesson_plan_id', read_only=True)
+    lesson_plan_details = serializers.StringRelatedField(source='lesson_plan', read_only=True)
     section = serializers.PrimaryKeyRelatedField(
         queryset=Section.objects.all(),
         write_only=True,
@@ -270,19 +279,19 @@ class LessonPlanObjectivesSerializer(serializers.ModelSerializer):
         write_only=True,
         required=True
     )
-    lesson_plan_details = serializers.StringRelatedField(source='lesson_plan_id', read_only=True)
+    lesson_plan_details = serializers.StringRelatedField(source='lesson_plan', read_only=True)
     objective_id = serializers.PrimaryKeyRelatedField(
         queryset=LearningObjectives.objects.all(),
         write_only=True,
         required=True
     )
-    objective_details = LearningObjectivesSerializer(source='objective_id', read_only=True)
+    objective_details = LearningObjectivesSerializer(source='objective', read_only=True)
     student_id = serializers.PrimaryKeyRelatedField(
         queryset=Student.objects.all(),
         write_only=True,
         required=True
     )
-    student_details = StudentSerializer(source='student_id', read_only=True)
+    student_details = StudentSerializer(source='student', read_only=True)
 
     class Meta:
         model = LessonPlanObjectives
@@ -514,7 +523,7 @@ class StudentAssignmentsSerializer(serializers.ModelSerializer):
         write_only=True,
         required=True
     )
-    student_details = StudentSerializer(source='student_id', read_only=True)
+    student_details = StudentSerializer(source='student', read_only=True)
 
     def get_assignment_details(self, obj):
         """Get assignment details with optimization"""
@@ -522,7 +531,7 @@ class StudentAssignmentsSerializer(serializers.ModelSerializer):
             'id': obj.assignment_id.id,
             'title': obj.assignment_id.title,
             'description': obj.assignment_id.description,
-            'subject': SubjectSerializer(obj.assignment_id.subject_id).data,
+            'subject': SubjectSerializer(obj.assignment_id.teacher_assignment.subject).data if obj.assignment_id.teacher_assignment and obj.assignment_id.teacher_assignment.subject else None,
             'due_date': obj.assignment_id.due_date,
             'is_group_assignment': obj.assignment_id.is_group_assignment,
             'group_name': obj.assignment_id.group_name

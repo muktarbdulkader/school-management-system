@@ -1966,8 +1966,22 @@ class BehaviorIncidentsViewSet(viewsets.ModelViewSet):
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data, context={'request': request})
-        serializer.is_valid(raise_exception=True)
-        self.perform_create(serializer)
+        if not serializer.is_valid():
+            return Response({
+                'success': False,
+                'message': 'Validation error',
+                'status': 400,
+                'errors': serializer.errors
+            }, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            self.perform_create(serializer)
+        except Exception as e:
+            return Response({
+                'success': False,
+                'message': 'An error occurred',
+                'status': 500,
+                'errors': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         return Response({'success': True, 'message': 'Behavior incident created', 'status': 201, 'data': serializer.data}, status=201)
 
     def perform_create(self, serializer):
@@ -2068,13 +2082,42 @@ class BehaviorRatingsViewSet(viewsets.ModelViewSet):
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        self.perform_create(serializer)
+        try:
+            serializer.is_valid(raise_exception=True)
+        except serializers.ValidationError as e:
+            return Response({
+                'success': False,
+                'message': 'Validation error',
+                'status': 400,
+                'errors': e.detail
+            }, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            return Response({
+                'success': False,
+                'message': 'An error occurred',
+                'status': 500,
+                'errors': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        result = self.perform_create(serializer)
+        if result is not None:
+            return result
         return Response({'success': True, 'message': 'Behavior rating created', 'status': 201, 'data': serializer.data}, status=201)
 
     def perform_create(self, serializer):
         user = self.request.user
         branch_id = self.request.data.get('branch_id')
+        try:
+            # Check permissions
+            if branch_id and not has_model_permission(user, 'behavratings', 'add', branch_id):
+                raise PermissionDenied("No permission to create behavior ratings in this branch.")
+            serializer.save(rated_by=user)
+        except Exception as e:
+            return Response({
+                'success': False,
+                'message': 'An error occurred',
+                'status': 500,
+                'errors': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
         # Check permissions
         if branch_id and not has_model_permission(user, 'behavratings', 'add', branch_id):

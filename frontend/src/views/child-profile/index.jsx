@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { useSelector } from 'react-redux';
 import {
   Box,
   Container,
@@ -10,18 +11,20 @@ import {
   Tab,
   useMediaQuery,
 } from '@mui/material';
-import OverviewTab from './overview-tab';
-import AcademicTab from './academic-tab';
-import AttendanceBehaviorTab from './attendance-behavior-tab';
 import Backend from 'services/backend';
 import GetToken from 'utils/auth-token';
 import { toast } from 'react-toastify';
+import OverviewTab from './overview-tab';
+import AcademicTab from './academic-tab';
+import AttendanceBehaviorTab from './attendance-behavior-tab';
 
 const PageContainer = ({ children }) => <>{children}</>;
 
 export default function ChildProfilePage() {
   const { studentId } = useParams();
   const navigate = useNavigate();
+  const user = useSelector((state) => state?.user?.user);
+  const userRole = user?.role?.toLowerCase() || 'parent';
   const [dashboardData, setDashboardData] = useState(null);
   const [academicData, setAcademicData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -34,7 +37,9 @@ export default function ChildProfilePage() {
       try {
         setLoading(true);
         const token = await GetToken();
-        const apiUrl = `${Backend.auth}${Backend.parentStudentsDashboard}${studentId}/`;
+        // Use generic students endpoint - works for teachers, parents, and admins
+        const endpoint = Backend.studentsDetail.replace('{id}', studentId);
+        const apiUrl = `${Backend.api}${endpoint}`;
 
         const response = await fetch(apiUrl, {
           headers: {

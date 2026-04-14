@@ -1,19 +1,16 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useSelector } from 'react-redux';
 import {
   Box,
   Typography,
   Button,
-  Paper,
   Stack,
-  Grid,
   TextField,
   Chip,
   FormControl,
   InputLabel,
   Select,
   MenuItem,
-  OutlinedInput,
   Checkbox,
   ListItemText,
   Divider,
@@ -21,18 +18,19 @@ import {
   Card,
   CardContent,
   IconButton,
-  Tooltip,
   Stepper,
   Step,
   StepLabel,
-  FormHelperText
+  FormHelperText,
+  useMediaQuery,
+  useTheme,
+  CircularProgress
 } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
 import {
   IconArrowLeft,
   IconPlus,
   IconSchool,
-  IconBooks,
   IconSection,
   IconCheck,
   IconInfoCircle,
@@ -48,16 +46,40 @@ import ActivityIndicator from 'ui-component/indicators/ActivityIndicator';
 
 const steps = ['Select Term', 'Create Class', 'Add Sections', 'Assign Subjects', 'Assign Teachers', 'Review & Create'];
 
+// Constants
+const MAX_SECTIONS = 26;
+const MIN_GRADE = 1;
+const MAX_GRADE = 12;
+const DAYS_OF_WEEK = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+
 function CreateClass() {
   const navigate = useNavigate();
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('md'));
 
   // Get user data from Redux store
   const user = useSelector((state) => state?.user?.user);
   const userBranch = user?.branch || user?.branch_id || null;
+
+  // State
   const [activeStep, setActiveStep] = useState(0);
   const [loading, setLoading] = useState(false);
   const [branches, setBranches] = useState([]);
-  const [selectedBranch, setSelectedBranch] = useState(userBranch || '');
+  const [availableTerms, setAvailableTerms] = useState([]);
+  const [availableClasses, setAvailableClasses] = useState([]);
+  const [availableTeachers, setAvailableTeachers] = useState([]);
+  const [globalSubjects, setGlobalSubjects] = useState([]);
+  const [globalSubjectsLoading, setGlobalSubjectsLoading] = useState(false);
+  const [availableSubjects, setAvailableSubjects] = useState([]);
+  const [checkingDuplicate, setCheckingDuplicate] = useState(false);
+  const [isGradeAvailable, setIsGradeAvailable] = useState(true);
+  const [errors, setErrors] = useState({});
+  const [generatedSections, setGeneratedSections] = useState([]);
+
+  // Subject assignment state
+  const [selectedGlobalSubject, setSelectedGlobalSubject] = useState('');
+  const [newSubjectCode, setNewSubjectCode] = useState('');
+  const [newBookCode, setNewBookCode] = useState('');
 
   // Form state
   const [formData, setFormData] = useState({
@@ -70,92 +92,11 @@ function CreateClass() {
     teacherAssignments: []
   });
 
-  // Available data from API
-  const [availableTerms, setAvailableTerms] = useState([]);
-  const [availableClasses, setAvailableClasses] = useState([]);
-  const [availableTeachers, setAvailableTeachers] = useState([]);
-  const [globalSubjects, setGlobalSubjects] = useState([]);
-  const [globalSubjectsLoading, setGlobalSubjectsLoading] = useState(false);
-  const [checkingDuplicate, setCheckingDuplicate] = useState(false);
-  const [isGradeAvailable, setIsGradeAvailable] = useState(true);
+  // Debounce ref for duplicate checking
+  const duplicateCheckTimeout = useRef(null);
 
-  // Subject assignment state
-  const [selectedGlobalSubject, setSelectedGlobalSubject] = useState('');
-  const [newSubjectCode, setNewSubjectCode] = useState('');
-  const [newBookCode, setNewBookCode] = useState('');
-
-  // Validation errors
-  const [errors, setErrors] = useState({});
-
-  // Generated sections preview
-  const [generatedSections, setGeneratedSections] = useState([]);
-
-  // Check if class already exists from database
-  const checkDuplicateClassInDatabase = async (gradeNumber, branchId) => {
-    if (!gradeNumber || !branchId) return false;
-
-    setCheckingDuplicate(true);
-    try {
-      const token = await GetToken();
-      const response = await fetch(`${Backend.api}classes/check-duplicate/?grade=${gradeNumber}&branch_id=${branchId}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        return data.exists || false;
-      }
-
-      // Fallback: Check locally fetched data
-      const exists = availableClasses.some(c =>
-        String(c.grade) === String(gradeNumber) &&
-        String(c.branch) === String(branchId)
-      );
-      return exists;
-    } catch (error) {
-      console.error('Error checking duplicate:', error);
-      // Fallback to local check
-      const exists = availableClasses.some(c =>
-        String(c.grade) === String(gradeNumber) &&
-        String(c.branch) === String(branchId)
-      );
-      return exists;
-    } finally {
-      setCheckingDuplicate(false);
-    }
-  };
-
-  // Real-time check when grade number or branch changes
-  useEffect(() => {
-    const checkAvailability = async () => {
-      if (formData.gradeNumber && formData.branchId) {
-        const exists = await checkDuplicateClassInDatabase(formData.gradeNumber, formData.branchId);
-        setIsGradeAvailable(!exists);
-
-        if (exists) {
-          setErrors(prev => ({
-            ...prev,
-            gradeNumber: `❌ Grade ${formData.gradeNumber} already exists in this branch! Please choose a different grade.`
-          }));
-        } else {
-          setErrors(prev => ({ ...prev, gradeNumber: null }));
-        }
-      } else {
-        setIsGradeAvailable(true);
-      }
-    };
-
-    // Debounce the check to avoid too many API calls
-    const timeoutId = setTimeout(() => {
-      checkAvailability();
-    }, 500);
-
-    return () => clearTimeout(timeoutId);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [formData.gradeNumber, formData.branchId]);
-
-  // Validate grade number format
-  const validateGradeFormat = (value) => {
+  // Helper Functions
+  const validateGradeFormat = useCallback((value) => {
     if (!value) return { valid: false, message: 'Grade number is required' };
     if (/^0+\d+$/.test(value)) {
       return { valid: false, message: 'Grade cannot have leading zeros (e.g., "01"). Use "1" instead.' };
@@ -167,62 +108,19 @@ function CreateClass() {
     if (isNaN(num)) {
       return { valid: false, message: 'Please enter a valid number' };
     }
-    if (num < 1 || num > 12) {
-      return { valid: false, message: 'Grade must be between 1 and 12' };
+    if (num < MIN_GRADE || num > MAX_GRADE) {
+      return { valid: false, message: `Grade must be between ${MIN_GRADE} and ${MAX_GRADE}` };
     }
-    return { valid: true };
-  };
+    return { valid: true, value: num };
+  }, []);
 
-  // Handle input changes
-  const handleChange = (field) => (event) => {
-    const value = event.target.value;
-
-    if (field === 'gradeNumber') {
-      const validation = validateGradeFormat(value);
-      if (!validation.valid) {
-        setErrors(prev => ({ ...prev, gradeNumber: validation.message }));
-        setFormData(prev => ({ ...prev, [field]: value }));
-        return;
-      }
-
-      // Remove leading zeros
-      const correctedValue = value.replace(/^0+/, '');
-      setFormData(prev => ({ ...prev, [field]: correctedValue }));
-    } else {
-      setFormData(prev => ({ ...prev, [field]: value }));
-      if (errors[field]) {
-        setErrors(prev => ({ ...prev, [field]: null }));
-      }
-    }
-
-    // Auto-generate sections when sectionsCount changes
-    if (field === 'sectionsCount' && value) {
-      const count = parseInt(value, 10);
-      if (count > 0 && count <= 26) {
-        generateSectionsPreview(count);
-      } else {
-        setGeneratedSections([]);
-      }
-    }
-  };
-
-  // Generate unique subject code
-  const generateSubjectCode = (subjectName, gradeNumber) => {
+  const generateSubjectCode = useCallback((subjectName, gradeNumber) => {
     const baseCode = subjectName.toUpperCase().replace(/\s+/g, '').substring(0, 6);
     const timestamp = Date.now().toString(36).slice(-3).toUpperCase();
     return `${baseCode}_G${gradeNumber}_${timestamp}`;
-  };
+  }, []);
 
-  // Check if subject already exists
-  const isSubjectDuplicate = (subjectName) => {
-    const existingSubjects = formData.customSubjects || [];
-    return existingSubjects.some(
-      s => s.name.toLowerCase().trim() === subjectName.toLowerCase().trim()
-    );
-  };
-
-  // Validate subject code format
-  const validateSubjectCode = (code) => {
+  const validateSubjectCode = useCallback((code) => {
     if (!code) return { valid: true };
     if (/\b0+\d+\b/.test(code)) {
       return { valid: false, message: 'Subject code cannot have leading zeros (e.g., "01"). Use "1" instead.' };
@@ -231,197 +129,19 @@ function CreateClass() {
       return { valid: false, message: 'Subject code cannot contain negative numbers' };
     }
     return { valid: true };
-  };
+  }, []);
 
-  // Handle adding custom subject
-  const handleAddCustomSubject = () => {
-    const subjectName = selectedGlobalSubject
-      ? globalSubjects.find(s => s.id === selectedGlobalSubject)?.name
-      : null;
-
-    if (!subjectName) {
-      toast.error('Please select a subject from the dropdown');
-      return;
-    }
-
-    if (isSubjectDuplicate(subjectName)) {
-      toast.error(`❌ Subject "${subjectName}" is already assigned to this class`);
-      return;
-    }
-
-    const codeValidation = validateSubjectCode(newSubjectCode);
-    if (!codeValidation.valid) {
-      toast.error(codeValidation.message);
-      return;
-    }
-
-    const code = newSubjectCode.trim() || generateSubjectCode(subjectName, formData.gradeNumber);
-
-    setFormData(prev => ({
-      ...prev,
-      customSubjects: [
-        ...(prev.customSubjects || []),
-        {
-          id: Date.now(),
-          name: subjectName,
-          selected: true,
-          code: code,
-          book_code: newBookCode.trim(),
-          description: `Subject for Grade ${formData.gradeNumber}`,
-          assignment_day: '',
-          global_subject_id: selectedGlobalSubject,
-          selectedTeacher: '',
-          selectedSection: 'all'
-        }
-      ]
-    }));
-
-    // Clear input fields
-    setSelectedGlobalSubject('');
-    setNewSubjectCode('');
-    setNewBookCode('');
-
-    toast.success(`✓ Subject "${subjectName}" added successfully`);
-  };
-
-  // Handle custom subject field change
-  const handleCustomSubjectChange = (index, field, value) => {
-    setFormData(prev => {
-      const updated = [...(prev.customSubjects || [])];
-      updated[index] = { ...updated[index], [field]: value };
-      return { ...prev, customSubjects: updated };
-    });
-  };
-
-  // Handle custom subject checkbox toggle
-  const handleCustomSubjectToggle = (index, checked) => {
-    setFormData(prev => {
-      const updated = [...(prev.customSubjects || [])];
-      updated[index] = { ...updated[index], selected: checked };
-      return { ...prev, customSubjects: updated };
-    });
-  };
-
-  // Remove custom subject
-  const removeCustomSubject = (index) => {
-    const subjectName = formData.customSubjects[index].name;
-    setFormData(prev => ({
-      ...prev,
-      customSubjects: prev.customSubjects.filter((_, i) => i !== index)
-    }));
-    toast.info(`Removed "${subjectName}" from subjects list`);
-  };
-
-  // Add teacher assignment (supports multiple sections)
-  const addTeacherAssignment = (subjectId, teacherId, sectionIds = []) => {
-    const newAssignments = [];
-
-    sectionIds.forEach(sectionId => {
-      // Check if assignment already exists
-      const exists = formData.teacherAssignments.some(
-        ta => ta.subjectId === subjectId && ta.teacherId === teacherId && ta.sectionId === sectionId
-      );
-
-      if (!exists) {
-        newAssignments.push({
-          id: Date.now() + Math.random(),
-          subjectId,
-          teacherId,
-          sectionId,
-          isPrimary: true
-        });
-      }
-    });
-
-    if (newAssignments.length === 0) {
-      toast.warning('This teacher is already assigned to the selected section(s)');
-      return;
-    }
-
-    setFormData(prev => ({
-      ...prev,
-      teacherAssignments: [...(prev.teacherAssignments || []), ...newAssignments]
-    }));
-
-    toast.success(`Teacher assigned to ${sectionIds.length} section(s)`);
-  };
-
-  // Remove teacher assignment
-  const removeTeacherAssignment = (id) => {
-    setFormData(prev => ({
-      ...prev,
-      teacherAssignments: prev.teacherAssignments.filter(ta => ta.id !== id)
-    }));
-  };
-
-  // Generate section names preview
-  const generateSectionsPreview = (count) => {
-    const grade = formData.gradeNumber || '?';
+  const generateSectionsPreview = useCallback((count, gradeNumber) => {
+    const grade = gradeNumber || '?';
     const sections = [];
-    for (let i = 0; i < count; i++) {
+    for (let i = 0; i < Math.min(count, MAX_SECTIONS); i++) {
       const letter = String.fromCharCode(65 + i);
       sections.push(`${grade}${letter}`);
     }
-    setGeneratedSections(sections);
-  };
-
-  // Validate current step
-  const validateStep = () => {
-    const newErrors = {};
-
-    if (activeStep === 0) {
-      if (!formData.branchId) {
-        newErrors.branchId = 'Please select a branch';
-      }
-      if (!formData.termId) {
-        newErrors.termId = 'Please select a term';
-      }
-    }
-
-    if (activeStep === 1) {
-      if (!formData.gradeNumber) {
-        newErrors.gradeNumber = 'Please enter a grade number';
-      } else if (!isGradeAvailable) {
-        newErrors.gradeNumber = `❌ Grade ${formData.gradeNumber} already exists in this branch! Please choose a different grade.`;
-      } else {
-        const validation = validateGradeFormat(formData.gradeNumber);
-        if (!validation.valid) {
-          newErrors.gradeNumber = validation.message;
-        }
-      }
-    }
-
-    if (activeStep === 2) {
-      if (!formData.sectionsCount || formData.sectionsCount < 1 || formData.sectionsCount > 26) {
-        newErrors.sectionsCount = 'Please enter a valid number of sections (1-26)';
-      }
-    }
-
-    if (activeStep === 3) {
-      const selectedSubjects = formData.customSubjects?.filter(s => s.selected) || [];
-      if (selectedSubjects.length === 0) {
-        newErrors.subjects = 'Please add and select at least one subject';
-      }
-    }
-
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
-  };
-
-  // Fetch data on mount
-  useEffect(() => {
-    fetchBranches();
-    fetchGlobalSubjects();
+    return sections;
   }, []);
 
-  useEffect(() => {
-    if (formData.branchId) {
-      fetchTerms(formData.branchId);
-      fetchClasses(formData.branchId);
-      fetchTeachers(formData.branchId);
-    }
-  }, [formData.branchId]);
-
+  // API Functions
   const fetchBranches = async () => {
     try {
       const token = await GetToken();
@@ -437,6 +157,7 @@ function CreateClass() {
       }
     } catch (error) {
       console.error('Error fetching branches:', error);
+      toast.error('Failed to load branches');
     }
   };
 
@@ -511,28 +232,329 @@ function CreateClass() {
       }
     } catch (error) {
       console.error('Error fetching global subjects:', error);
+      toast.error('Failed to load global subjects');
     } finally {
       setGlobalSubjectsLoading(false);
     }
   };
 
-  // Handle next step
-  const handleNext = () => {
-    if (validateStep()) {
-      if (activeStep === 2 && formData.sectionsCount) {
-        generateSectionsPreview(parseInt(formData.sectionsCount, 10));
+  const fetchSubjects = async () => {
+    try {
+      const token = await GetToken();
+      const response = await fetch(`${Backend.api}subjects/`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success && data.data) {
+          setAvailableSubjects(data.data || []);
+        }
       }
-      setActiveStep(prev => prev + 1);
+    } catch (error) {
+      console.error('Error fetching subjects:', error);
     }
   };
 
-  // Handle back step
-  const handleBack = () => {
-    setActiveStep(prev => prev - 1);
-  };
+  const checkDuplicateClassInDatabase = useCallback(async (gradeNumber, branchId) => {
+    if (!gradeNumber || !branchId) return false;
 
-  // Handle form submission
-  const handleSubmit = async () => {
+    setCheckingDuplicate(true);
+    try {
+      const token = await GetToken();
+      const response = await fetch(`${Backend.api}classes/check-duplicate/?grade=${gradeNumber}&branch_id=${branchId}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        return data.exists || false;
+      }
+
+      // Fallback: Check locally fetched data
+      const exists = availableClasses.some(c =>
+        String(c.grade) === String(gradeNumber) &&
+        String(c.branch) === String(branchId)
+      );
+      return exists;
+    } catch (error) {
+      console.error('Error checking duplicate:', error);
+      const exists = availableClasses.some(c =>
+        String(c.grade) === String(gradeNumber) &&
+        String(c.branch) === String(branchId)
+      );
+      return exists;
+    } finally {
+      setCheckingDuplicate(false);
+    }
+  }, [availableClasses]);
+
+  // Effects
+  useEffect(() => {
+    fetchBranches();
+    fetchGlobalSubjects();
+    fetchSubjects();
+  }, []);
+
+  useEffect(() => {
+    if (formData.branchId) {
+      fetchTerms(formData.branchId);
+      fetchClasses(formData.branchId);
+      fetchTeachers(formData.branchId);
+    }
+  }, [formData.branchId]);
+
+  // Real-time duplicate check with debounce
+  useEffect(() => {
+    if (duplicateCheckTimeout.current) {
+      clearTimeout(duplicateCheckTimeout.current);
+    }
+
+    if (formData.gradeNumber && formData.branchId) {
+      duplicateCheckTimeout.current = setTimeout(async () => {
+        const exists = await checkDuplicateClassInDatabase(formData.gradeNumber, formData.branchId);
+        setIsGradeAvailable(!exists);
+
+        if (exists) {
+          setErrors(prev => ({
+            ...prev,
+            gradeNumber: `❌ Grade ${formData.gradeNumber} already exists in this branch! Please choose a different grade.`
+          }));
+        } else {
+          setErrors(prev => ({ ...prev, gradeNumber: null }));
+        }
+      }, 500);
+    } else {
+      setIsGradeAvailable(true);
+    }
+
+    return () => {
+      if (duplicateCheckTimeout.current) {
+        clearTimeout(duplicateCheckTimeout.current);
+      }
+    };
+  }, [formData.gradeNumber, formData.branchId, checkDuplicateClassInDatabase]);
+
+  // Generate sections preview when sectionsCount changes
+  useEffect(() => {
+    if (formData.sectionsCount && formData.gradeNumber) {
+      const count = parseInt(formData.sectionsCount, 10);
+      if (count > 0 && count <= MAX_SECTIONS) {
+        const sections = generateSectionsPreview(count, formData.gradeNumber);
+        setGeneratedSections(sections);
+      } else {
+        setGeneratedSections([]);
+      }
+    } else {
+      setGeneratedSections([]);
+    }
+  }, [formData.sectionsCount, formData.gradeNumber, generateSectionsPreview]);
+
+  // Event Handlers
+  const handleChange = useCallback((field) => (event) => {
+    const value = event.target.value;
+
+    if (field === 'gradeNumber') {
+      const validation = validateGradeFormat(value);
+      if (!validation.valid) {
+        setErrors(prev => ({ ...prev, gradeNumber: validation.message }));
+        setFormData(prev => ({ ...prev, [field]: value }));
+        return;
+      }
+
+      // Remove leading zeros
+      const correctedValue = value.replace(/^0+/, '');
+      setFormData(prev => ({ ...prev, [field]: correctedValue }));
+      setErrors(prev => ({ ...prev, gradeNumber: null }));
+    } else {
+      setFormData(prev => ({ ...prev, [field]: value }));
+      if (errors[field]) {
+        setErrors(prev => ({ ...prev, [field]: null }));
+      }
+    }
+  }, [validateGradeFormat, errors]);
+
+  const handleTermChange = useCallback((event) => {
+    const termId = event.target.value;
+    const selectedTerm = availableTerms.find(t => t.id === termId);
+    setFormData(prev => ({
+      ...prev,
+      termId: termId,
+      academicYear: selectedTerm?.academic_year || ''
+    }));
+    if (errors.termId) {
+      setErrors(prev => ({ ...prev, termId: null }));
+    }
+  }, [availableTerms, errors.termId]);
+
+  const handleAddCustomSubject = useCallback(() => {
+    const globalSubject = globalSubjects.find(s => s.id === selectedGlobalSubject);
+    const subjectName = globalSubject?.name;
+
+    if (!subjectName) {
+      toast.error('Please select a subject from the dropdown');
+      return;
+    }
+
+    // Check for duplicate subject name in current class
+    const existingSubjects = formData.customSubjects || [];
+    if (existingSubjects.some(s => s.name.toLowerCase().trim() === subjectName.toLowerCase().trim())) {
+      toast.error(`❌ Subject "${subjectName}" is already added to this class`);
+      return;
+    }
+
+    const codeValidation = validateSubjectCode(newSubjectCode);
+    if (!codeValidation.valid) {
+      toast.error(codeValidation.message);
+      return;
+    }
+
+    // Generate code if not provided
+    const subjectCode = newSubjectCode.trim() || generateSubjectCode(subjectName, formData.gradeNumber);
+
+    setFormData(prev => ({
+      ...prev,
+      customSubjects: [
+        ...(prev.customSubjects || []),
+        {
+          id: Date.now(),
+          name: subjectName,
+          selected: true,
+          code: subjectCode,
+          book_code: newBookCode.trim(),
+          description: `Subject for Grade ${formData.gradeNumber}`,
+          assignment_day: '',
+          global_subject_id: selectedGlobalSubject,
+          selectedTeacher: '',
+          selectedSections: []
+        }
+      ]
+    }));
+
+    // Clear input fields
+    setSelectedGlobalSubject('');
+    setNewSubjectCode('');
+    setNewBookCode('');
+
+    toast.success(`✓ Subject "${subjectName}" added successfully`);
+  }, [selectedGlobalSubject, globalSubjects, formData.customSubjects, formData.gradeNumber, newSubjectCode, newBookCode, validateSubjectCode, generateSubjectCode]);
+
+  const handleCustomSubjectChange = useCallback((index, field, value) => {
+    setFormData(prev => {
+      const updated = [...(prev.customSubjects || [])];
+      updated[index] = { ...updated[index], [field]: value };
+      return { ...prev, customSubjects: updated };
+    });
+  }, []);
+
+  const handleCustomSubjectToggle = useCallback((index, checked) => {
+    setFormData(prev => {
+      const updated = [...(prev.customSubjects || [])];
+      updated[index] = { ...updated[index], selected: checked };
+      return { ...prev, customSubjects: updated };
+    });
+  }, []);
+
+  const removeCustomSubject = useCallback((index) => {
+    const subjectName = formData.customSubjects[index].name;
+    setFormData(prev => ({
+      ...prev,
+      customSubjects: prev.customSubjects.filter((_, i) => i !== index)
+    }));
+    toast.info(`Removed "${subjectName}" from subjects list`);
+  }, [formData.customSubjects]);
+
+  const addTeacherAssignment = useCallback((subjectId, teacherId, sectionIds = []) => {
+    const newAssignments = [];
+
+    sectionIds.forEach(sectionId => {
+      const exists = formData.teacherAssignments.some(
+        ta => ta.subjectId === subjectId && ta.teacherId === teacherId && ta.sectionId === sectionId
+      );
+
+      if (!exists) {
+        newAssignments.push({
+          id: Date.now() + Math.random(),
+          subjectId,
+          teacherId,
+          sectionId,
+          isPrimary: true
+        });
+      }
+    });
+
+    if (newAssignments.length === 0) {
+      toast.warning('This teacher is already assigned to the selected section(s)');
+      return;
+    }
+
+    setFormData(prev => ({
+      ...prev,
+      teacherAssignments: [...(prev.teacherAssignments || []), ...newAssignments]
+    }));
+
+    toast.success(`Teacher assigned to ${sectionIds.length} section(s)`);
+  }, [formData.teacherAssignments]);
+
+  const removeTeacherAssignment = useCallback((id) => {
+    setFormData(prev => ({
+      ...prev,
+      teacherAssignments: prev.teacherAssignments.filter(ta => ta.id !== id)
+    }));
+  }, []);
+
+  const validateStep = useCallback(() => {
+    const newErrors = {};
+
+    if (activeStep === 0) {
+      if (!formData.branchId) {
+        newErrors.branchId = 'Please select a branch';
+      }
+      if (!formData.termId) {
+        newErrors.termId = 'Please select a term';
+      }
+    }
+
+    if (activeStep === 1) {
+      if (!formData.gradeNumber) {
+        newErrors.gradeNumber = 'Please enter a grade number';
+      } else if (!isGradeAvailable) {
+        newErrors.gradeNumber = `❌ Grade ${formData.gradeNumber} already exists in this branch! Please choose a different grade.`;
+      } else {
+        const validation = validateGradeFormat(formData.gradeNumber);
+        if (!validation.valid) {
+          newErrors.gradeNumber = validation.message;
+        }
+      }
+    }
+
+    if (activeStep === 2) {
+      if (!formData.sectionsCount || formData.sectionsCount < 1 || formData.sectionsCount > MAX_SECTIONS) {
+        newErrors.sectionsCount = `Please enter a valid number of sections (1-${MAX_SECTIONS})`;
+      }
+    }
+
+    if (activeStep === 3) {
+      const selectedSubjects = formData.customSubjects?.filter(s => s.selected) || [];
+      if (selectedSubjects.length === 0) {
+        newErrors.subjects = 'Please add and select at least one subject';
+      }
+    }
+
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  }, [activeStep, formData, isGradeAvailable, validateGradeFormat]);
+
+  const handleNext = useCallback(() => {
+    if (validateStep()) {
+      setActiveStep(prev => prev + 1);
+    }
+  }, [validateStep]);
+
+  const handleBack = useCallback(() => {
+    setActiveStep(prev => prev - 1);
+  }, []);
+
+  const handleSubmit = useCallback(async () => {
     // Final duplicate check before submission
     if (!isGradeAvailable) {
       toast.error(`❌ Grade ${formData.gradeNumber} already exists in this branch! Cannot create duplicate class.`);
@@ -581,15 +603,38 @@ function CreateClass() {
 
       // Step 2: Create subjects and link to class
       for (const subject of selectedSubjects) {
+        if (!subject.name || !subject.code) {
+          console.error('Subject missing required fields:', subject);
+          toast.error(`Cannot create subject: missing name or code`);
+          continue;
+        }
+
         const subjectPayload = {
           name: subject.name,
           code: subject.code,
-          description: subject.description,
+          description: subject.description || '',
           assignment_day: subject.assignment_day || null,
           branch: formData.branchId,
           class_grade: newClassId,
-          global_subject: subject.global_subject_id
+          section: null
         };
+
+        if (subject.global_subject_id) {
+          subjectPayload.global_subject = subject.global_subject_id;
+        }
+
+        // Check for duplicate code
+        const isDuplicateCode = availableSubjects.some(s =>
+          s.code === subjectPayload.code &&
+          s.branch === subjectPayload.branch &&
+          s.class_grade === subjectPayload.class_grade
+        );
+
+        if (isDuplicateCode) {
+          const timestamp = Date.now().toString(36).slice(-3).toUpperCase();
+          subjectPayload.code = `${subjectPayload.code}_${timestamp}`;
+          console.log('Duplicate code detected, using new code:', subjectPayload.code);
+        }
 
         const subjectResponse = await fetch(`${Backend.api}subjects/`, {
           method: 'POST',
@@ -603,9 +648,10 @@ function CreateClass() {
         const subjectData = await subjectResponse.json();
         if (!subjectData.success) {
           console.error('Subject creation failed:', subjectData);
-          toast.error(`Failed to create subject "${subject.name}": ${subjectData.message || JSON.stringify(subjectData.errors)}`);
+          toast.error(`Failed to create subject "${subject.name}": ${subjectData.message || 'Unknown error'}`);
           continue;
         }
+
         if (subjectData.data) {
           const newSubjectId = subjectData.data.id;
 
@@ -653,9 +699,9 @@ function CreateClass() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [formData, isGradeAvailable, validateStep, availableSubjects, navigate]);
 
-  // Render step content
+  // Render Functions
   const renderStepContent = () => {
     switch (activeStep) {
       case 0:
@@ -668,7 +714,7 @@ function CreateClass() {
               Choose the academic term for this class setup
             </Typography>
 
-            <FormControl fullWidth sx={{ maxWidth: 400, mb: 3 }} error={!!errors.branchId}>
+            <FormControl fullWidth sx={{ maxWidth: isMobile ? '100%' : 400, mb: 3 }} error={!!errors.branchId}>
               <InputLabel>Branch *</InputLabel>
               <Select
                 value={formData.branchId}
@@ -685,23 +731,16 @@ function CreateClass() {
               {errors.branchId && <FormHelperText error>{errors.branchId}</FormHelperText>}
             </FormControl>
 
-            <FormControl fullWidth sx={{ maxWidth: 400 }} error={!!errors.termId}>
+            <FormControl fullWidth sx={{ maxWidth: isMobile ? '100%' : 400 }} error={!!errors.termId}>
               <InputLabel>Term *</InputLabel>
               <Select
                 value={formData.termId}
-                onChange={(e) => {
-                  const selectedTerm = availableTerms.find(t => t.id === e.target.value);
-                  setFormData(prev => ({
-                    ...prev,
-                    termId: e.target.value,
-                    academicYear: selectedTerm?.academic_year || ''
-                  }));
-                }}
+                onChange={handleTermChange}
                 label="Term *"
                 disabled={!formData.branchId || availableTerms.length === 0}
               >
                 <MenuItem value="">
-                  {!formData.branchId ? 'Select Branch First' : 'Select Term'}
+                  {!formData.branchId ? 'Select Branch First' : availableTerms.length === 0 ? 'No terms available' : 'Select Term'}
                 </MenuItem>
                 {availableTerms.map((term) => (
                   <MenuItem key={term.id} value={term.id}>
@@ -731,8 +770,8 @@ function CreateClass() {
               value={formData.gradeNumber}
               onChange={handleChange('gradeNumber')}
               error={!!errors.gradeNumber}
-              helperText={errors.gradeNumber || 'Enter a number between 1 and 12'}
-              sx={{ maxWidth: 400, mb: 3 }}
+              helperText={errors.gradeNumber || `Enter a number between ${MIN_GRADE} and ${MAX_GRADE}`}
+              sx={{ maxWidth: isMobile ? '100%' : 400, mb: 3 }}
               InputProps={{
                 startAdornment: <IconSchool size={20} style={{ marginRight: 8, color: '#666' }} />
               }}
@@ -740,7 +779,7 @@ function CreateClass() {
 
             {checkingDuplicate && (
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
-                <ActivityIndicator size={16} />
+                <CircularProgress size={16} />
                 <Typography variant="caption" color="text.secondary">
                   Checking database for existing classes...
                 </Typography>
@@ -758,11 +797,6 @@ function CreateClass() {
                     ? `✓ Grade ${formData.gradeNumber} is available for this branch`
                     : `❌ Grade ${formData.gradeNumber} already exists in this branch!`}
                 </Typography>
-                {!isGradeAvailable && (
-                  <Typography variant="body2" sx={{ mt: 1 }}>
-                    Please choose a different grade number. The following grades are already taken:
-                  </Typography>
-                )}
               </Alert>
             )}
 
@@ -792,7 +826,7 @@ function CreateClass() {
               Add Sections
             </Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-              Enter the number of sections for Grade {formData.gradeNumber}
+              Enter the number of sections for Grade {formData.gradeNumber || '?'}
             </Typography>
 
             <TextField
@@ -802,8 +836,8 @@ function CreateClass() {
               value={formData.sectionsCount}
               onChange={handleChange('sectionsCount')}
               error={!!errors.sectionsCount}
-              helperText={errors.sectionsCount || 'Enter a number between 1 and 26'}
-              sx={{ maxWidth: 400, mb: 3 }}
+              helperText={errors.sectionsCount || `Enter a number between 1 and ${MAX_SECTIONS}`}
+              sx={{ maxWidth: isMobile ? '100%' : 400, mb: 3 }}
               InputProps={{
                 startAdornment: <IconSection size={20} style={{ marginRight: 8, color: '#666' }} />
               }}
@@ -840,19 +874,19 @@ function CreateClass() {
               {formData.customSubjects?.map((subject, index) => (
                 <Card key={subject.id} variant="outlined" sx={{ bgcolor: subject.selected ? 'background.paper' : 'action.hover' }}>
                   <CardContent>
-                    <Stack direction="row" spacing={2} alignItems="flex-start">
+                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems="flex-start">
                       <Checkbox
                         checked={subject.selected}
                         onChange={(e) => handleCustomSubjectToggle(index, e.target.checked)}
                       />
                       <Box flex={1}>
-                        <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
+                        <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1, flexWrap: 'wrap', gap: 1 }}>
                           <Typography variant="subtitle1" fontWeight={600}>
                             {subject.name}
                           </Typography>
                           <Chip label={subject.code} size="small" color="primary" variant="outlined" sx={{ fontFamily: 'monospace' }} />
                         </Stack>
-                        <Stack direction="row" spacing={2}>
+                        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
                           <TextField
                             fullWidth
                             label="Description"
@@ -869,11 +903,9 @@ function CreateClass() {
                             sx={{ minWidth: 150 }}
                           >
                             <MenuItem value="">None</MenuItem>
-                            <MenuItem value="Monday">Monday</MenuItem>
-                            <MenuItem value="Tuesday">Tuesday</MenuItem>
-                            <MenuItem value="Wednesday">Wednesday</MenuItem>
-                            <MenuItem value="Thursday">Thursday</MenuItem>
-                            <MenuItem value="Friday">Friday</MenuItem>
+                            {DAYS_OF_WEEK.map(day => (
+                              <MenuItem key={day} value={day}>{day}</MenuItem>
+                            ))}
                           </TextField>
                         </Stack>
                       </Box>
@@ -889,23 +921,23 @@ function CreateClass() {
                 <CardContent>
                   <Stack spacing={2}>
                     <FormControl fullWidth>
-                      <InputLabel>Select Global Subject *</InputLabel>
+                      <InputLabel>Select Subject *</InputLabel>
                       <Select
                         value={selectedGlobalSubject}
                         onChange={(e) => setSelectedGlobalSubject(e.target.value)}
-                        label="Select Global Subject *"
+                        label="Select Subject *"
                         disabled={globalSubjectsLoading}
                       >
                         <MenuItem value="">-- Select a Subject --</MenuItem>
                         {globalSubjects.map((subject) => (
-                          <MenuItem key={subject.id} value={subject.id}>
+                          <MenuItem key={`global-${subject.id}`} value={subject.id}>
                             {subject.name}
                           </MenuItem>
                         ))}
                       </Select>
                     </FormControl>
 
-                    <Stack direction="row" spacing={2}>
+                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
                       <TextField
                         fullWidth
                         label="Subject Code (Optional)"
@@ -979,7 +1011,7 @@ function CreateClass() {
                         {subject.name}
                       </Typography>
 
-                      <Stack direction="row" spacing={2} sx={{ mb: 2 }}>
+                      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ mb: 2 }}>
                         <FormControl fullWidth size="small">
                           <InputLabel>Teacher</InputLabel>
                           <Select
@@ -1003,9 +1035,7 @@ function CreateClass() {
                             value={subject.selectedSections || []}
                             onChange={(e) => {
                               const value = e.target.value;
-                              // Handle "All Sections" selection
                               if (value.includes('all')) {
-                                // If "all" is selected, select all section IDs
                                 const allSectionIds = sectionOptions
                                   .filter(opt => opt.id !== 'all')
                                   .map(opt => opt.id);
@@ -1056,7 +1086,6 @@ function CreateClass() {
                         </Button>
                       </Stack>
 
-                      {/* Display existing assignments */}
                       {formData.teacherAssignments
                         .filter(ta => ta.subjectId === subject.id)
                         .map((ta) => {
@@ -1193,19 +1222,32 @@ function CreateClass() {
 
   return (
     <PageContainer title="Create Class">
-      <Box sx={{ maxWidth: 900, mx: 'auto' }}>
-        <Stack direction="row" alignItems="center" spacing={2} sx={{ mb: 4 }}>
+      <Box sx={{ maxWidth: 1200, mx: 'auto', px: { xs: 2, sm: 3 } }}>
+        <Stack
+          direction={isMobile ? 'column' : 'row'}
+          spacing={2}
+          alignItems={isMobile ? 'flex-start' : 'center'}
+          sx={{ mb: 4 }}
+        >
           <Button
             variant="outlined"
             startIcon={<IconArrowLeft size={18} />}
             onClick={() => navigate('/classes')}
+            fullWidth={isMobile}
+            disabled={loading}
           >
             Back
           </Button>
-          <Typography variant="h4">Create New Class</Typography>
+          <Typography variant={isMobile ? 'h5' : 'h4'} component="h1">
+            Create New Class
+          </Typography>
         </Stack>
 
-        <Stepper activeStep={activeStep} sx={{ mb: 4 }}>
+        <Stepper
+          activeStep={activeStep}
+          orientation={isMobile ? 'vertical' : 'horizontal'}
+          sx={{ mb: 4, overflowX: 'auto' }}
+        >
           {steps.map((label) => (
             <Step key={label}>
               <StepLabel>{label}</StepLabel>
@@ -1217,9 +1259,19 @@ function CreateClass() {
           <CardContent>
             {renderStepContent()}
 
-            <Stack direction="row" spacing={2} justifyContent="flex-end" sx={{ mt: 4 }}>
+            <Stack
+              direction={isMobile ? 'column-reverse' : 'row'}
+              spacing={2}
+              justifyContent="flex-end"
+              sx={{ mt: 4 }}
+            >
               {activeStep > 0 && (
-                <Button variant="outlined" onClick={handleBack} disabled={loading}>
+                <Button
+                  variant="outlined"
+                  onClick={handleBack}
+                  disabled={loading}
+                  fullWidth={isMobile}
+                >
                   Back
                 </Button>
               )}
@@ -1228,7 +1280,8 @@ function CreateClass() {
                 <Button
                   variant="contained"
                   onClick={handleNext}
-                  disabled={loading || (activeStep === 1 && (errors.gradeNumber || !formData.gradeNumber))}
+                  disabled={loading || (activeStep === 1 && (!!errors.gradeNumber || !formData.gradeNumber))}
+                  fullWidth={isMobile}
                 >
                   Next
                 </Button>
@@ -1238,6 +1291,7 @@ function CreateClass() {
                   color="success"
                   onClick={handleSubmit}
                   disabled={loading || !isGradeAvailable}
+                  fullWidth={isMobile}
                   startIcon={loading ? <ActivityIndicator size={16} /> : <IconPlus size={18} />}
                 >
                   {loading ? 'Creating...' : 'Create Class'}
@@ -1251,4 +1305,4 @@ function CreateClass() {
   );
 }
 
-export default CreateClass; 
+export default CreateClass;

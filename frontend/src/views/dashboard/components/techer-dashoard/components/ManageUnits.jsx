@@ -34,6 +34,7 @@ const ManageUnits = ({
   categories,
   units,
   subunits,
+  classes,
   onCategoryCreated,
   onUnitCreated,
   onSubunitCreated,
@@ -52,7 +53,7 @@ const ManageUnits = ({
   // Form states
   const [categoryForm, setCategoryForm] = useState({
     subject_id: '',
-    class_id: '',
+    class_fk_id: '',
     name: '',
   });
 
@@ -67,15 +68,15 @@ const ManageUnits = ({
   });
 
   const handleCreateCategory = async () => {
-    if (!categoryForm.subject_id || !categoryForm.name) {
-      toast.error('Please fill all required fields');
+    if (!categoryForm.subject_id || !categoryForm.class_fk_id || !categoryForm.name) {
+      toast.error('Please fill all required fields (Subject, Class, and Name)');
       return;
     }
     setLoading(true);
     try {
       const result = await onCategoryCreated(categoryForm);
       if (result.success) {
-        setCategoryForm({ subject_id: '', class_id: '', name: '' });
+        setCategoryForm({ subject_id: '', class_fk_id: '', name: '' });
         toast.success('Category created successfully');
       } else {
         toast.error(result.message || 'Failed to create category');
@@ -183,6 +184,27 @@ const ManageUnits = ({
                 </FormControl>
               </Grid>
               <Grid item xs={12} md={6}>
+                <FormControl fullWidth>
+                  <InputLabel>Class *</InputLabel>
+                  <Select
+                    value={categoryForm.class_fk_id}
+                    label="Class *"
+                    onChange={(e) =>
+                      setCategoryForm({ ...categoryForm, class_fk_id: e.target.value })
+                    }
+                  >
+                    {classes?.map((cls) => (
+                      <MenuItem key={cls.id} value={cls.id}>
+                        {cls.name || `Class ${cls.grade}`}
+                      </MenuItem>
+                    ))}
+                    {(!classes || classes.length === 0) && (
+                      <MenuItem disabled>No classes available</MenuItem>
+                    )}
+                  </Select>
+                </FormControl>
+              </Grid>
+              <Grid item xs={12}>
                 <TextField
                   fullWidth
                   label="Category Name *"
@@ -393,6 +415,7 @@ ManageUnits.propTypes = {
   categories: PropTypes.array.isRequired,
   units: PropTypes.array.isRequired,
   subunits: PropTypes.array.isRequired,
+  classes: PropTypes.array,
   onCategoryCreated: PropTypes.func.isRequired,
   onUnitCreated: PropTypes.func.isRequired,
   onSubunitCreated: PropTypes.func.isRequired,

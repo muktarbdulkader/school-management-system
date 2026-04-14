@@ -776,21 +776,8 @@ class SubjectsViewSet(viewsets.ModelViewSet):
                 return Response({
                     'success': False,
                     'message': 'Validation failed',
-                    'errors': serializer.errors
-                }, status=status.HTTP_400_BAD_REQUEST)
-
-            try:
-                self.perform_create(serializer)
-            except IntegrityError as e:
-                print(f"[SubjectCreate] Integrity error: {str(e)}")
-                return Response({
-                    'success': False,
-                    'message': 'A subject with this code already exists for the selected class/section/branch combination.',
-                    'errors': {'code': ['Subject with this code already exists.']}
-                }, status=status.HTTP_400_BAD_REQUEST)
-            headers = self.get_success_headers(serializer.data)
+                })
             return Response({
-                'success': True,
                 'message': 'Subject created successfully',
                 'data': serializer.data
             }, status=status.HTTP_201_CREATED, headers=headers)

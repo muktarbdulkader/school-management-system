@@ -1120,7 +1120,7 @@ class AssignmentsViewSet(viewsets.ModelViewSet):
 
     def create(self, request, *args, **kwargs):
         user = request.user
-        
+
         # Only teachers and administrative users can create assignments
         if not (is_teacher(user) or self.is_administrative_user(user)):
             return Response({
@@ -1130,8 +1130,47 @@ class AssignmentsViewSet(viewsets.ModelViewSet):
                 'data': {}
             }, status=403)
 
+        # Auto-lookup teacher_assignment_id if not provided
+        data = request.data.copy()
+        if not data.get('teacher_assignment_id'):
+            from teachers.models import TeacherAssignment
+            try:
+                teacher = user.teacher_profile
+                subject_id = data.get('subject_id')
+                class_id = data.get('class_id')
+                section_id = data.get('section')
+
+                # Build query for teacher assignment lookup
+                query = {
+                    'teacher': teacher,
+                    'class_fk': class_id,
+                    'subject': subject_id,
+                    'is_active': True
+                }
+                if section_id:
+                    query['section'] = section_id
+
+                teacher_assignment = TeacherAssignment.objects.filter(**query).first()
+                if not teacher_assignment:
+                    return Response({
+                        'success': False,
+                        'message': 'No teacher assignment found for this class/subject/section combination.',
+                        'status': 400,
+                        'data': {}
+                    }, status=400)
+
+                data['teacher_assignment_id'] = str(teacher_assignment.id)
+            except Exception as e:
+                print(f"[AssignmentsCreate] Error looking up teacher assignment: {e}")
+                return Response({
+                    'success': False,
+                    'message': 'Could not determine teacher assignment. Please provide teacher_assignment_id.',
+                    'status': 400,
+                    'data': {}
+                }, status=400)
+
         try:
-            serializer = self.get_serializer(data=request.data)
+            serializer = self.get_serializer(data=data)
             if serializer.is_valid():
                 instance = serializer.save(assigned_by=user)
                 

@@ -302,18 +302,19 @@ class BehaviorRatingsSerializer(serializers.ModelSerializer):
     student_id = serializers.PrimaryKeyRelatedField(
         queryset=Student.objects.all(),
         write_only=True,
-        required=False
+        required=False,
+        source='student'
     )
     student = serializers.CharField(write_only=True, required=False)
     student_details = serializers.SerializerMethodField()
 
     def get_student_details(self, obj):
         return {
-            'id': obj.student_id.id,
-            'user_id': obj.student_id.user.id,
-            'full_name': obj.student_id.user.full_name,
-            'name': obj.student_id.user.full_name,
-            'student_id': obj.student_id.student_id
+            'id': obj.student.id,
+            'user_id': obj.student.user.id,
+            'full_name': obj.student.user.full_name,
+            'name': obj.student.user.full_name,
+            'student_id': obj.student.student_id
         }
     rated_by = serializers.PrimaryKeyRelatedField(
         queryset=User.objects.all(),
@@ -327,11 +328,11 @@ class BehaviorRatingsSerializer(serializers.ModelSerializer):
     incident = serializers.SerializerMethodField()
 
     def get_incident(self, obj):
-        return BehaviorIncidentsSerializer(obj.student_id.behavior_incidents.filter(incident_date=obj.rated_on).first()).data if obj.student_id.behavior_incidents.filter(incident_date=obj.rated_on).exists() else None
+        return BehaviorIncidentsSerializer(obj.student.behavior_incidents.filter(incident_date=obj.rated_on).first()).data if obj.student.behavior_incidents.filter(incident_date=obj.rated_on).exists() else None
 
     class Meta:
         model = BehaviorRatings
-        fields = ['id', 'student_id', 'student_details', 'rated_by', 'rated_by_details', 'category', 'rating', 'notes', 'rated_on', 'incident']
+        fields = ['id', 'student_id', 'student', 'student_details', 'rated_by', 'rated_by_details', 'category', 'rating', 'notes', 'rated_on', 'incident']
         read_only_fields = ['id', 'student_details', 'rated_by_details', 'incident']
 
     def validate(self, data):
@@ -341,7 +342,8 @@ class BehaviorRatingsSerializer(serializers.ModelSerializer):
             data['rated_on'] = timezone.now().date()
 
         # Handle student field - can be UUID or string representation
-        if 'student' in data and data['student'] and 'student_id' not in data:
+        # Note: With source='student', the PrimaryKeyRelatedField populates data['student']
+        if 'student' in data and data['student'] and not isinstance(data['student'], Student):
             student_value = data['student']
             # If it's a display string like "kasim (STU-2026-0003)", try to find by student_id
             if isinstance(student_value, str) and '(' in student_value and ')' in student_value:
@@ -349,7 +351,7 @@ class BehaviorRatingsSerializer(serializers.ModelSerializer):
                     student_id_str = student_value.split('(')[1].split(')')[0]
                     student = Student.objects.filter(student_id=student_id_str).first()
                     if student:
-                        data['student_id'] = student
+                        data['student'] = student
                     else:
                         raise serializers.ValidationError({"student": f"Student with ID {student_id_str} not found"})
                 except (IndexError, Student.DoesNotExist):
@@ -361,14 +363,14 @@ class BehaviorRatingsSerializer(serializers.ModelSerializer):
                     student_uuid = uuid.UUID(student_value)
                     student = Student.objects.filter(id=student_uuid).first()
                     if student:
-                        data['student_id'] = student
+                        data['student'] = student
                     else:
                         raise serializers.ValidationError({"student": f"Student with ID {student_value} not found"})
                 except ValueError:
                     raise serializers.ValidationError({"student": "Invalid student UUID format"})
 
-        if 'student_id' not in data or data['student_id'] is None:
-            raise serializers.ValidationError({"student_id": "This field is required."})
+        if 'student' not in data or data['student'] is None:
+            raise serializers.ValidationError({"student": "This field is required."})
         if 'category' not in data or not data['category']:
             raise serializers.ValidationError({"category": "This field is required."})
         if 'rating' not in data or data['rating'] is None:

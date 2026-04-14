@@ -550,7 +550,7 @@ function SubjectsPage() {
               <Grid item xs={12} sm={6} md={2.4}>
                 <Paper sx={{ p: 2, textAlign: 'center' }}>
                   <Typography variant="h3" color="success.main">
-                    {subjects.filter(s => s.course_type_details?.name === 'Core').length}
+                    {subjects.filter(s => s.course_type_details?.name?.toLowerCase() === 'core').length}
                   </Typography>
                   <Typography variant="body2" color="text.secondary">Core</Typography>
                 </Paper>
@@ -558,7 +558,7 @@ function SubjectsPage() {
               <Grid item xs={12} sm={6} md={2.4}>
                 <Paper sx={{ p: 2, textAlign: 'center' }}>
                   <Typography variant="h3" color="warning.main">
-                    {subjects.filter(s => s.course_type_details?.name === 'Elective').length}
+                    {subjects.filter(s => s.course_type_details?.name?.toLowerCase() === 'elective').length}
                   </Typography>
                   <Typography variant="body2" color="text.secondary">Elective</Typography>
                 </Paper>
@@ -676,9 +676,9 @@ function SubjectsPage() {
                               label={subject.course_type_details?.name || subject.course_type || 'Standard'}
                               size="small"
                               color={
-                                subject.course_type_details?.name === 'Core' || subject.course_type === 'Core'
+                                subject.course_type_details?.name?.toLowerCase() === 'core' || subject.course_type?.toLowerCase() === 'core'
                                   ? 'primary'
-                                  : subject.course_type_details?.name === 'Elective' || subject.course_type === 'Elective'
+                                  : subject.course_type_details?.name?.toLowerCase() === 'elective' || subject.course_type?.toLowerCase() === 'elective'
                                     ? 'warning'
                                     : 'default'
                               }

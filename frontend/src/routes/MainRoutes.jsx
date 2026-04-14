@@ -124,6 +124,7 @@ const TeachersPage = Loadable(lazy(() => import('views/teachers')));
 const AddTeacherPage = Loadable(lazy(() => import('views/teachers/AddTeacher')));
 const ParentsPage = Loadable(lazy(() => import('views/parents')));
 const SchedulePage = Loadable(lazy(() => import('views/schedule')));
+const SlotTypesPage = Loadable(lazy(() => import('views/schedule/SlotTypes')));
 const AnnouncementsPage = Loadable(lazy(() => import('views/announcements')));
 const AssignmentsPage = Loadable(lazy(() => import('views/assignments')));
 const BehaviorPage = Loadable(lazy(() => import('views/behavior')));
@@ -273,6 +274,14 @@ const MainRoutes = {
       element: (
         <Protected>
           <SchedulePage />
+        </Protected>
+      ),
+    },
+    {
+      path: 'schedule/slot-types',
+      element: (
+        <Protected>
+          <SlotTypesPage />
         </Protected>
       ),
     },

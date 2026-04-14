@@ -39,10 +39,15 @@ class UserProfileSerializer(serializers.ModelSerializer):
 
 class RoleSerializer(serializers.ModelSerializer):
     permissions = serializers.SerializerMethodField()
+    permission_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        write_only=True,
+        required=False
+    )
 
     class Meta:
         model = Role
-        fields = ['id', 'name', 'description', 'permissions']
+        fields = ['id', 'name', 'description', 'permissions', 'permission_ids']
 
     def get_permissions(self, obj):
         # Use prefetched rolepermission_set (avoids N+1 queries)
@@ -57,6 +62,45 @@ class RoleSerializer(serializers.ModelSerializer):
             }
             for rp in obj.rolepermission_set.all()
         ]
+
+    def update(self, instance, validated_data):
+        permission_ids = validated_data.pop('permission_ids', None)
+        role = super().update(instance, validated_data)
+
+        if permission_ids is not None:
+            from django.contrib.auth.models import Permission
+            from django.contrib.contenttypes.models import ContentType
+
+            # Get current permissions for this role
+            current_permissions = set(
+                RolePermission.objects.filter(role=role).values_list('permission_id', flat=True)
+            )
+            new_permissions = set(permission_ids)
+
+            # Permissions to add
+            to_add = new_permissions - current_permissions
+            # Permissions to remove
+            to_remove = current_permissions - new_permissions
+
+            # Remove permissions
+            if to_remove:
+                RolePermission.objects.filter(role=role, permission_id__in=to_remove).delete()
+
+            # Add new permissions
+            for perm_id in to_add:
+                try:
+                    permission = Permission.objects.get(id=perm_id)
+                    # Get content type from permission
+                    content_type = permission.content_type
+                    RolePermission.objects.get_or_create(
+                        role=role,
+                        content_type=content_type,
+                        permission=permission
+                    )
+                except Permission.DoesNotExist:
+                    continue
+
+        return role
 
 class UserRoleSerializer(serializers.ModelSerializer):
     user = UserSerializer(read_only=True)

@@ -34,9 +34,9 @@ const ExamsAndResults = ({ exams, results, assignments }) => {
                             <Typography variant="subtitle1" fontWeight="600" noWrap sx={{ maxWidth: '60%' }}>
                               {exam.name}
                             </Typography>
-                            <Chip 
-                              label={exam.type} 
-                              size="small" 
+                            <Chip
+                              label={exam.type}
+                              size="small"
                               sx={{ fontSize: '0.65rem', height: 20 }}
                             />
                           </Box>
@@ -47,8 +47,13 @@ const ExamsAndResults = ({ exams, results, assignments }) => {
                               Subject: {exam.subject}
                             </Typography>
                             <Typography variant="caption" color="text.secondary" display="block">
-                              {new Date(exam.start_date).toLocaleDateString()}
+                              Date: {new Date(exam.start_date).toLocaleDateString()}
                             </Typography>
+                            {(exam.start_time || exam.end_time) && (
+                              <Typography variant="caption" color="primary" display="block" fontWeight="500">
+                                Time: {exam.start_time || 'N/A'} - {exam.end_time || 'N/A'}
+                              </Typography>
+                            )}
                           </Box>
                         }
                       />
@@ -88,7 +93,7 @@ const ExamsAndResults = ({ exams, results, assignments }) => {
                         primary={
                           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                             <Typography variant="subtitle1" fontWeight="600" noWrap sx={{ maxWidth: '70%' }}>
-                              {result.subject_id_name || result.subject_id?.name || 'Subject'}
+                              {result.subject_details?.name || result.subject_id_name || result.subject?.name || 'Subject'}
                             </Typography>
                             <Typography variant="h5" color={result.score >= (result.max_score / 2) ? 'success.main' : 'error.main'}>
                               {result.score}
@@ -139,7 +144,7 @@ const ExamsAndResults = ({ exams, results, assignments }) => {
                         primary={
                           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                             <Typography variant="subtitle1" fontWeight="600" noWrap sx={{ maxWidth: '70%' }}>
-                              {ass.assignment_id_name || ass.assignment_id?.title || 'Assignment'}
+                              {ass.assignment_details?.title || 'Assignment'}
                             </Typography>
                             <Typography variant="h5" color="primary">
                               {ass.grade}%
@@ -149,7 +154,7 @@ const ExamsAndResults = ({ exams, results, assignments }) => {
                         secondary={
                           <Box sx={{ mt: 0.2 }}>
                             <Typography variant="caption" color="text.secondary">
-                              {ass.assignment_id?.subject_id?.name || 'Subject'}
+                              {ass.assignment_details?.subject?.name || 'Subject'}
                             </Typography>
                           </Box>
                         }

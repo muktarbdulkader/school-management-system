@@ -84,7 +84,7 @@ export default function AssignmentsDashboard({
   const theme = useTheme();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
-  const [add, setAdd] = useState();
+  const [add, setAdd] = useState(false);
   const [isAddingAssignments, setIsAddingAssignments] = useState(false);
 
   const [search, setSearch] = useState('');
@@ -136,26 +136,26 @@ export default function AssignmentsDashboard({
 
       if (responseData.success) {
         const teacherSubjects = responseData.data?.subjects || [];
-        
+
         // Extract unique classes
         const uniqueClasses = [...new Map(teacherSubjects.map(item => [item.class_id, {
           id: item.class_id,
           grade: item.class_name
         }])).values()];
-        
+
         // Extract unique sections
         const uniqueSections = [...new Map(teacherSubjects.map(item => [item.section_id, {
           id: item.section_id,
           name: item.section_name
         }])).values()].filter(s => s.id);
-        
+
         // Extract unique subjects
         const uniqueSubjects = [...new Map(teacherSubjects.map(item => [item.id, {
           id: item.id,
           name: item.name,
           code: item.code
         }])).values()];
-        
+
         setTeacherSubjects(teacherSubjects);
         setClasses(uniqueClasses);
         setSections(uniqueSections);

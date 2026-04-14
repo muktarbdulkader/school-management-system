@@ -34,18 +34,18 @@ const MySubjects = () => {
       const response = await fetch(`${Backend.api}${Backend.studentMe}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      
+
       if (response.ok) {
         const data = await response.json();
         console.log('Student info response:', data);
-        
+
         // Handle different response structures
         const studentData = data.data || data;
         console.log('Parsed student data:', studentData);
         console.log('User:', studentData.user);
         console.log('Grade:', studentData.grade);
         console.log('Section:', studentData.section);
-        
+
         setStudentInfo(studentData);
       } else {
         console.error('Failed to fetch student info:', await response.text());
@@ -67,7 +67,7 @@ const MySubjects = () => {
         console.log('Enrolled subjects response:', data);
         const subjectsData = data.data || data.results || [];
         setSubjects(subjectsData);
-        
+
         if (subjectsData.length === 0) {
           toast.info('You are not enrolled in any subjects yet. Please contact your administrator.');
         }
@@ -166,35 +166,36 @@ const MySubjects = () => {
                           <IconBook size={24} />
                         </Avatar>
                         <Box sx={{ flex: 1 }}>
-                          <Typography variant="h4" gutterBottom>
-                            {subject.name || 'Unknown Subject'}
+                          <Typography variant="h6" fontWeight="600">
+                            {enrollment.subject_details?.name || enrollment.global_subject_details?.name || enrollment.subject?.name || 'Unknown Subject'}
                           </Typography>
                           <Chip
-                            label={subject.code || 'N/A'}
                             size="small"
+                            label={enrollment.subject_details?.code || enrollment.subject?.code || 'N/A'}
                             color="primary"
                             variant="outlined"
+                            sx={{ mt: 0.5 }}
                           />
                         </Box>
                       </Box>
 
                       {/* Subject Description */}
-                      {subject.description && (
+                      {(enrollment.subject_details?.description || enrollment.description) && (
                         <Typography variant="body2" color="text.secondary">
-                          {subject.description}
+                          {enrollment.subject_details?.description || enrollment.description}
                         </Typography>
                       )}
 
                       {/* Course Type */}
-                      {subject.course_type && (
+                      {(enrollment.subject_details?.course_type_details || enrollment.course_type_details) && (
                         <Box>
                           <Chip
-                            label={subject.course_type.name || 'Core'}
+                            label={(enrollment.subject_details?.course_type_details?.name || enrollment.course_type_details?.name) || 'Core'}
                             size="small"
                             color={
-                              subject.course_type.name === 'Core' ? 'success' :
-                              subject.course_type.name === 'Elective' ? 'info' :
-                              'warning'
+                              (enrollment.subject_details?.course_type_details?.name || enrollment.course_type_details?.name) === 'Core' ? 'success' :
+                                (enrollment.subject_details?.course_type_details?.name || enrollment.course_type_details?.name) === 'Elective' ? 'info' :
+                                  'warning'
                             }
                           />
                         </Box>
@@ -202,16 +203,20 @@ const MySubjects = () => {
 
                       {/* Teacher Information */}
                       <Box sx={{ pt: 1, borderTop: 1, borderColor: 'divider' }}>
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                          <Avatar sx={{ bgcolor: 'secondary.main', width: 32, height: 32 }}>
-                            <IconUser size={18} />
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 1 }}>
+                          <Avatar sx={{ width: 24, height: 24, bgcolor: 'secondary.main' }}>
+                            <IconUser fontSize="small" />
                           </Avatar>
                           <Box>
-                            <Typography variant="caption" color="text.secondary" display="block">
+                            <Typography variant="caption" color="text.secondary">
                               Teacher
                             </Typography>
-                            <Typography variant="body2" fontWeight="medium">
-                              {teacherName}
+                            <Typography variant="body2" fontWeight="500">
+                              {enrollment.teacher_assignment_details?.teacher_details?.user?.full_name ||
+                                enrollment.teacher_assignment_details?.teacher_details?.full_name ||
+                                enrollment.teacher_details?.user?.full_name ||
+                                enrollment.teacher_details?.name ||
+                                'Not assigned'}
                             </Typography>
                             {teacherDetails?.email && (
                               <Typography variant="caption" color="text.secondary">

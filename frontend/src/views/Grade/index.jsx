@@ -77,6 +77,9 @@ export default function GradeBookPage() {
     exam_type: 'Quiz',
     start_date: '',
     end_date: '',
+    start_time: '',
+    end_time: '',
+    max_score: 100,
     description: '',
   });
 
@@ -499,6 +502,9 @@ export default function GradeBookPage() {
         exam_type: examForm.exam_type,
         start_date: examForm.start_date,
         end_date: examForm.end_date,
+        start_time: examForm.start_time || null,
+        end_time: examForm.end_time || null,
+        max_score: examForm.max_score || 100,
         description: examForm.description || '',
         term_id: term,
         subject_id: subject,
@@ -522,7 +528,7 @@ export default function GradeBookPage() {
       if (response.ok && data.success) {
         toast.success('Assessment created successfully!');
         setOpenExamDialog(false);
-        setExamForm({ name: '', exam_type: 'Quiz', start_date: '', end_date: '', description: '' });
+        setExamForm({ name: '', exam_type: 'Quiz', start_date: '', end_date: '', start_time: '', end_time: '', max_score: 100, description: '' });
         fetchStudentsAndGrades();
       } else {
         const errorMsg = data.message || data.error || 'Failed to create assessment';
@@ -884,6 +890,32 @@ export default function GradeBookPage() {
               onChange={(e) => setExamForm({ ...examForm, end_date: e.target.value })}
               InputLabelProps={{ shrink: true }}
               fullWidth
+            />
+            <Box sx={{ display: 'flex', gap: 2 }}>
+              <TextField
+                label="Start Time"
+                type="time"
+                value={examForm.start_time}
+                onChange={(e) => setExamForm({ ...examForm, start_time: e.target.value })}
+                InputLabelProps={{ shrink: true }}
+                fullWidth
+              />
+              <TextField
+                label="End Time"
+                type="time"
+                value={examForm.end_time}
+                onChange={(e) => setExamForm({ ...examForm, end_time: e.target.value })}
+                InputLabelProps={{ shrink: true }}
+                fullWidth
+              />
+            </Box>
+            <TextField
+              label="Maximum Score"
+              type="number"
+              value={examForm.max_score}
+              onChange={(e) => setExamForm({ ...examForm, max_score: parseInt(e.target.value) || 100 })}
+              fullWidth
+              inputProps={{ min: 1 }}
             />
             <TextField
               label="Description"

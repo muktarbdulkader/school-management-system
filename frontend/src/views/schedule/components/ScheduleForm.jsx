@@ -6,11 +6,12 @@ import {
   DialogActions,
   Button,
   TextField,
-  Stack,
   MenuItem,
-  Grid
+  Grid,
+  Alert
 } from '@mui/material';
 import { toast } from 'react-hot-toast';
+import { useSelector } from 'react-redux';
 import Backend from 'services/backend';
 import GetToken from 'utils/auth-token';
 
@@ -20,16 +21,46 @@ const ScheduleForm = ({ open, onClose, onSuccess }) => {
     period_number: 1,
     start_time: '',
     end_time: '',
+    branch_id: '',
     class_id: '',
     section_id: '',
     subject_id: '',
-    teacher_id: ''
+    teacher_id: '',
+    slot_type_id: ''
   });
   const [loading, setLoading] = useState(false);
   const [classes, setClasses] = useState([]);
   const [sections, setSections] = useState([]);
+  const [allSections, setAllSections] = useState([]);
   const [subjects, setSubjects] = useState([]);
+  const [allSubjects, setAllSubjects] = useState([]);
   const [teachers, setTeachers] = useState([]);
+  const [allTeachers, setAllTeachers] = useState([]);
+  const [teacherAssignments, setTeacherAssignments] = useState([]);
+  const [slotTypes, setSlotTypes] = useState([]);
+  const [branches, setBranches] = useState([]);
+  const [validationError, setValidationError] = useState(null);
+
+  // Get user data from Redux like the main schedule page
+  const userData = useSelector((state) => {
+    try {
+      return state?.user?.user || state?.auth?.user || {};
+    } catch (error) {
+      console.error('Error accessing user data:', error);
+      return {};
+    }
+  });
+
+  const userRoles = userData.roles || userData.user_roles || [];
+  const isSuperUser = userData.is_superuser || userData.is_super_user;
+
+  // Check for superadmin role
+  const hasSuperAdminRole = userRoles.some(r => {
+    const roleName = (typeof r === 'string' ? r : (r.role?.name || r.name || '')).toLowerCase();
+    return roleName.includes('super_admin') || roleName.includes('superadmin');
+  });
+  const isSuperAdmin = isSuperUser || hasSuperAdminRole;
+  const canSelectBranch = isSuperUser || hasSuperAdminRole;
 
   const daysOfWeek = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
@@ -39,17 +70,33 @@ const ScheduleForm = ({ open, onClose, onSuccess }) => {
     }
   }, [open]);
 
+  // Log user role for debugging
+  useEffect(() => {
+    console.log('ScheduleForm - Redux userData:', userData);
+    console.log('ScheduleForm - isSuperAdmin:', isSuperAdmin);
+    console.log('ScheduleForm - canSelectBranch:', canSelectBranch);
+  }, [userData]);
+
   const fetchFormData = async () => {
     try {
       const token = await GetToken();
       const headers = { Authorization: `Bearer ${token}` };
 
-      const [classesRes, sectionsRes, subjectsRes, teachersRes] = await Promise.all([
+      // Build fetch list based on user role
+      const fetchList = [
         fetch(`${Backend.api}${Backend.classes}`, { headers }),
         fetch(`${Backend.api}${Backend.sections}`, { headers }),
         fetch(`${Backend.api}${Backend.subjects}`, { headers }),
-        fetch(`${Backend.api}${Backend.teachers}`, { headers })
-      ]);
+        fetch(`${Backend.api}${Backend.teacherAssignments}`, { headers }),
+        fetch(`${Backend.api}${Backend.slotTypes}`, { headers })
+      ];
+
+      // Only fetch branches for super admin
+      if (isSuperAdmin) {
+        fetchList.push(fetch(`${Backend.api}${Backend.branches}`, { headers }));
+      }
+
+      const [classesRes, sectionsRes, subjectsRes, assignmentsRes, slotTypesRes, branchesRes] = await Promise.all(fetchList);
 
       if (classesRes.ok) {
         const data = await classesRes.json();
@@ -57,15 +104,44 @@ const ScheduleForm = ({ open, onClose, onSuccess }) => {
       }
       if (sectionsRes.ok) {
         const data = await sectionsRes.json();
+        setAllSections(data.data || data.results || []);
         setSections(data.data || data.results || []);
       }
       if (subjectsRes.ok) {
         const data = await subjectsRes.json();
-        setSubjects(data.data || data.results || []);
+        const subjectsList = data.data || data.results || [];
+        setSubjects(subjectsList);
+        setAllSubjects(subjectsList);
       }
-      if (teachersRes.ok) {
-        const data = await teachersRes.json();
-        setTeachers(data.data || data.results || []);
+      if (assignmentsRes.ok) {
+        const data = await assignmentsRes.json();
+        const assignments = data.data || data.results || [];
+        setTeacherAssignments(assignments);
+
+        // Extract unique teachers from assignments
+        const uniqueTeachers = [];
+        const teacherIds = new Set();
+        assignments.forEach(assignment => {
+          if (assignment.teacher_details && !teacherIds.has(assignment.teacher_details.id)) {
+            teacherIds.add(assignment.teacher_details.id);
+            uniqueTeachers.push(assignment.teacher_details);
+          }
+        });
+        setAllTeachers(uniqueTeachers);
+        setTeachers(uniqueTeachers);
+      }
+      if (slotTypesRes && slotTypesRes.ok) {
+        const data = await slotTypesRes.json();
+        const types = data.data || data.results || [];
+        setSlotTypes(types);
+        // Set default slot type if available
+        if (types.length > 0 && !formData.slot_type_id) {
+          setFormData(prev => ({ ...prev, slot_type_id: types[0].id }));
+        }
+      }
+      if (branchesRes && branchesRes.ok) {
+        const data = await branchesRes.json();
+        setBranches(data.data || data.results || []);
       }
     } catch (error) {
       console.error('Error fetching form data:', error);
@@ -74,40 +150,179 @@ const ScheduleForm = ({ open, onClose, onSuccess }) => {
 
   const handleChange = (e) => {
     const { name, value } = e.target;
+
+    // Clear validation error when user changes fields
+    setValidationError(null);
+
+    // Handle class selection - filter sections and teachers
+    if (name === 'class_id') {
+      const selectedClassId = value;
+
+      // Filter sections that belong to this class (using class_details since class_fk is write-only)
+      const filteredSections = allSections.filter(section => {
+        const sectionClassId = section.class_details?.id || section.class_fk;
+        return sectionClassId === selectedClassId;
+      });
+      setSections(filteredSections);
+
+      // Filter teachers that have assignments for this class (using class_details since class_fk is write-only)
+      const teacherIdsForClass = new Set();
+      const filteredAssignments = teacherAssignments.filter(assignment => {
+        const assignmentClassId = assignment.class_details?.id || assignment.class_fk;
+        return assignmentClassId === selectedClassId;
+      });
+
+      filteredAssignments.forEach(assignment => {
+        if (assignment.teacher_details) {
+          teacherIdsForClass.add(assignment.teacher_details.id);
+        }
+      });
+
+      const filteredTeachers = allTeachers.filter(teacher =>
+        teacherIdsForClass.has(teacher.id)
+      );
+      setTeachers(filteredTeachers);
+
+      // Reset dependent fields
+      setFormData(prev => ({
+        ...prev,
+        class_id: value,
+        section_id: '',
+        teacher_id: '',
+        subject_id: ''
+      }));
+      return;
+    }
+
+    // Handle teacher selection - filter subjects based on teacher's assignments for selected class
+    if (name === 'teacher_id') {
+      const selectedTeacherId = value;
+      const selectedClassId = formData.class_id;
+
+      if (selectedClassId && selectedTeacherId) {
+        // Get subjects this teacher teaches for the selected class
+        const teacherClassSubjects = teacherAssignments.filter(assignment => {
+          const assignmentTeacherId = assignment.teacher_details?.id || assignment.teacher;
+          const assignmentClassId = assignment.class_details?.id || assignment.class_fk;
+          return assignmentTeacherId === selectedTeacherId && assignmentClassId === selectedClassId;
+        });
+
+        // Extract unique subjects
+        const uniqueSubjectIds = new Set();
+        const filteredSubjects = [];
+        teacherClassSubjects.forEach(assignment => {
+          if (assignment.subject_details && !uniqueSubjectIds.has(assignment.subject_details.id)) {
+            uniqueSubjectIds.add(assignment.subject_details.id);
+            filteredSubjects.push(assignment.subject_details);
+          }
+        });
+
+        // If no subjects found from assignments, show all subjects
+        if (filteredSubjects.length === 0) {
+          setSubjects(allSubjects);
+        } else {
+          setSubjects(filteredSubjects);
+        }
+      }
+
+      setFormData(prev => ({
+        ...prev,
+        teacher_id: value,
+        subject_id: ''
+      }));
+      return;
+    }
+
+    // Default case
     setFormData(prev => ({ ...prev, [name]: value }));
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    
-    if (!formData.start_time || !formData.end_time || !formData.class_id || !formData.section_id) {
-      toast.error('Please fill in all required fields');
+    setValidationError(null);
+
+    if (!formData.start_time || !formData.end_time || !formData.class_id || !formData.section_id || !formData.teacher_id || !formData.slot_type_id) {
+      toast.error('Please fill in all required fields including slot type');
       return;
     }
 
     setLoading(true);
     try {
       const token = await GetToken();
+
+      // Build payload - include branch_id only for super admin
+      const payload = {
+        class_id: formData.class_id,
+        section_id: formData.section_id,
+        subject_id: formData.subject_id,
+        teacher_id: formData.teacher_id,
+        slot_type: formData.slot_type_id,
+        day_of_week: formData.day_of_week,
+        period_number: parseInt(formData.period_number) || 1,
+        start_time: formData.start_time,
+        end_time: formData.end_time,
+        term: null  // Explicitly set term as null since model allows null
+      };
+
+      // Add branch_id for super admin if selected
+      if (isSuperAdmin && formData.branch_id) {
+        payload.branch_id = formData.branch_id;
+      }
+
+      // First validate for conflicts
+      const validateResponse = await fetch(`${Backend.api}schedule_slots/validate/`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(payload)
+      });
+
+      const validateData = await validateResponse.json();
+
+      if (validateData.conflicts && validateData.conflicts.length > 0) {
+        const conflictMessages = validateData.conflicts.join('\n');
+        setValidationError(conflictMessages);
+        setLoading(false);
+        return;
+      }
+
+      // If no conflicts, proceed with creation
+      console.log('Creating schedule slot with payload:', payload);
       const response = await fetch(`${Backend.api}${Backend.scheduleSlots}`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify(formData)
+        body: JSON.stringify(payload)
       });
+
+      console.log('Response status:', response.status);
 
       if (response.ok) {
         toast.success('Schedule created successfully');
-        onSuccess();
+        // Small delay to ensure DB transaction completes
+        setTimeout(() => {
+          onSuccess();
+        }, 300);
         handleClose();
       } else {
         const error = await response.json();
-        toast.error(error.message || 'Failed to create schedule');
+        console.error('Schedule creation error:', error);
+        if (error.errors && typeof error.errors === 'object') {
+          const errorMessages = Object.entries(error.errors)
+            .map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(', ') : value}`)
+            .join('\n');
+          setValidationError(errorMessages || error.message);
+        } else {
+          setValidationError(error.message || 'Failed to create schedule');
+        }
       }
     } catch (error) {
       console.error('Error creating schedule:', error);
-      toast.error('Failed to create schedule');
+      setValidationError('Failed to create schedule. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -119,11 +334,18 @@ const ScheduleForm = ({ open, onClose, onSuccess }) => {
       period_number: 1,
       start_time: '',
       end_time: '',
+      branch_id: '',
       class_id: '',
       section_id: '',
       subject_id: '',
-      teacher_id: ''
+      teacher_id: '',
+      slot_type_id: slotTypes.length > 0 ? slotTypes[0].id : ''
     });
+    // Reset filtered lists
+    setSections(allSections);
+    setTeachers(allTeachers);
+    setSubjects(allSubjects);
+    setValidationError(null);
     onClose();
   };
 
@@ -188,12 +410,56 @@ const ScheduleForm = ({ open, onClose, onSuccess }) => {
               <TextField
                 fullWidth
                 select
-                label="Class"
+                label="Slot Type *"
+                name="slot_type_id"
+                value={formData.slot_type_id}
+                onChange={handleChange}
+                required
+              >
+                <MenuItem value="">
+                  <em>Select Slot Type</em>
+                </MenuItem>
+                {slotTypes.map(type => (
+                  <MenuItem key={type.id} value={type.id}>{type.name}</MenuItem>
+                ))}
+              </TextField>
+            </Grid>
+            {/* Branch selector - only for super admins */}
+            {console.log('Branch selector check - isSuperAdmin:', isSuperAdmin)}
+            {isSuperAdmin && (
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  fullWidth
+                  select
+                  label="Branch *"
+                  name="branch_id"
+                  value={formData.branch_id || ''}
+                  onChange={handleChange}
+                  required
+                >
+                  <MenuItem value="">
+                    <em>Select Branch</em>
+                  </MenuItem>
+                  {branches.map(branch => (
+                    <MenuItem key={branch.id} value={branch.id}>{branch.name}</MenuItem>
+                  ))}
+                </TextField>
+              </Grid>
+            )}
+            <Grid item xs={12} sm={6}>
+              <TextField
+                fullWidth
+                select
+                label="Class *"
                 name="class_id"
                 value={formData.class_id}
                 onChange={handleChange}
                 required
+                helperText={!formData.class_id ? "Select class first to see available sections and teachers" : ""}
               >
+                <MenuItem value="">
+                  <em>Select Class</em>
+                </MenuItem>
                 {classes.map(cls => (
                   <MenuItem key={cls.id} value={cls.id}>{cls.grade}</MenuItem>
                 ))}
@@ -203,14 +469,43 @@ const ScheduleForm = ({ open, onClose, onSuccess }) => {
               <TextField
                 fullWidth
                 select
-                label="Section"
+                label="Section *"
                 name="section_id"
                 value={formData.section_id}
                 onChange={handleChange}
                 required
+                disabled={!formData.class_id || sections.length === 0}
+                helperText={!formData.class_id ? "Select class first" : sections.length === 0 ? "No sections available for this class" : ""}
               >
-                {sections.map(section => (
-                  <MenuItem key={section.id} value={section.id}>{section.name}</MenuItem>
+                <MenuItem value="">
+                  <em>Select Section</em>
+                </MenuItem>
+                {sections.map((section) => (
+                  <MenuItem key={section.id} value={section.id}>
+                    {section.name}
+                  </MenuItem>
+                ))}
+              </TextField>
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <TextField
+                fullWidth
+                select
+                label="Teacher *"
+                name="teacher_id"
+                value={formData.teacher_id}
+                onChange={handleChange}
+                required
+                disabled={!formData.class_id || teachers.length === 0}
+                helperText={!formData.class_id ? "Select class first" : teachers.length === 0 ? "No teachers assigned to this class" : ""}
+              >
+                <MenuItem value="">
+                  <em>Select Teacher</em>
+                </MenuItem>
+                {teachers.map((teacher) => (
+                  <MenuItem key={teacher.id} value={teacher.id}>
+                    {teacher.name || teacher.user_details?.full_name || teacher.user?.full_name || 'Unknown'}
+                  </MenuItem>
                 ))}
               </TextField>
             </Grid>
@@ -222,31 +517,25 @@ const ScheduleForm = ({ open, onClose, onSuccess }) => {
                 name="subject_id"
                 value={formData.subject_id}
                 onChange={handleChange}
+                disabled={!formData.teacher_id || subjects.length === 0}
+                helperText={!formData.teacher_id ? "Select teacher first" : subjects.length === 0 ? "No subjects available" : ""}
               >
-                <MenuItem value="">None</MenuItem>
+                <MenuItem value="">
+                  <em>Select Subject</em>
+                </MenuItem>
                 {subjects.map(subject => (
                   <MenuItem key={subject.id} value={subject.id}>{subject.name}</MenuItem>
                 ))}
               </TextField>
             </Grid>
-            <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
-                select
-                label="Teacher"
-                name="teacher_id"
-                value={formData.teacher_id}
-                onChange={handleChange}
-              >
-                <MenuItem value="">None</MenuItem>
-                {teachers.map(teacher => (
-                  <MenuItem key={teacher.id} value={teacher.id}>
-                    {teacher.name || teacher.user_details?.full_name || teacher.user?.full_name || 'Unknown'}
-                  </MenuItem>
-                ))}
-              </TextField>
-            </Grid>
           </Grid>
+
+          {/* Validation Error Display */}
+          {validationError && (
+            <Alert severity="error" sx={{ mt: 2 }}>
+              <div style={{ whiteSpace: 'pre-line' }}>{validationError}</div>
+            </Alert>
+          )}
         </DialogContent>
         <DialogActions>
           <Button onClick={handleClose} disabled={loading}>

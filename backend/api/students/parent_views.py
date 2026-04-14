@@ -176,11 +176,14 @@ class ParentDashboardView(APIView):
                         }
                         for ps in parent_students
                     ],
-                    'attendance': self._get_attendance(student) if hasattr(self, '_get_attendance') else [],
-                    'schedule': self._get_schedule(student) if hasattr(self, '_get_schedule') else [],
-                    'assignments': self._get_assignments(student) if hasattr(self, '_get_assignments') else [],
-                    'announcements': self._get_announcements(student) if hasattr(self, '_get_announcements') else [],
-                    'progress': self._get_progress(student) if hasattr(self, '_get_progress') else {},
+                    'enrolled_subjects_count': self._get_enrolled_subjects_count(student),
+                    'attendance': self._get_attendance(student),
+                    'schedule': self._get_schedule(student),
+                    'assignments': self._get_assignments(student),
+                    'announcements': self._get_announcements(student),
+                    'exams': self._get_exams(student),
+                    'exam_results': self._get_exam_results(student),
+                    'progress': self._get_progress(student),
                 }
             except Exception as e:
                 # If there's an error gathering dashboard data, return basic student info only
@@ -263,35 +266,119 @@ class ParentDashboardView(APIView):
             ]
         }
     
+    def _get_enrolled_subjects_count(self, student):
+        """Get count of subjects enrolled by student"""
+        from .models import StudentSubject
+        return StudentSubject.objects.filter(student=student).count()
+
     def _get_schedule(self, student):
         """Get weekly schedule for student"""
-        from schedule.models import Schedule
-        
+        from schedule.models import ClassScheduleSlot
+        from datetime import datetime
+        import pytz
+
         if not student.grade or not student.section:
             return []
-        
-        schedules = Schedule.objects.filter(
-            grade=student.grade,
-            section=student.section
-        ).select_related('subject', 'teacher').order_by('day_of_week', 'start_time')
-        
-        schedule_data = {}
-        days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
-        
-        for schedule in schedules:
-            day = days[schedule.day_of_week]
-            if day not in schedule_data:
-                schedule_data[day] = []
-            
-            schedule_data[day].append({
-                'subject': schedule.subject.name if schedule.subject else None,
-                'teacher': schedule.teacher.user.full_name if schedule.teacher else None,
-                'start_time': schedule.start_time.strftime('%H:%M') if schedule.start_time else None,
-                'end_time': schedule.end_time.strftime('%H:%M') if schedule.end_time else None,
-                'room': schedule.room,
+
+        # Get today's schedule
+        today = datetime.now(pytz.UTC).strftime('%A')
+
+        schedules = ClassScheduleSlot.objects.filter(
+            class_fk=student.grade,
+            section=student.section,
+            day_of_week=today
+        ).select_related('subject', 'teacher_assignment', 'classroom').order_by('start_time')
+
+        schedule_list = []
+        for slot in schedules:
+            teacher_name = None
+            if slot.teacher_assignment and slot.teacher_assignment.teacher:
+                teacher_name = slot.teacher_assignment.teacher.user.full_name
+
+            schedule_list.append({
+                'id': str(slot.id),
+                'subject': slot.subject.name if slot.subject else None,
+                'subject_details': {'name': slot.subject.name} if slot.subject else None,
+                'teacher': teacher_name,
+                'teacher_details': {'teacher_id': {'user': {'full_name': teacher_name}}} if teacher_name else None,
+                'start_time': slot.start_time.strftime('%H:%M') if slot.start_time else None,
+                'end_time': slot.end_time.strftime('%H:%M') if slot.end_time else None,
+                'classroom': slot.classroom.name if slot.classroom else None,
+                'day_of_week': slot.day_of_week,
+                'period_number': slot.period_number,
             })
-        
-        return schedule_data
+
+        return schedule_list
+
+    def _get_exams(self, student):
+        """Get upcoming exams for student's class/section"""
+        from schedule.models import Exam
+        from datetime import datetime
+        import pytz
+
+        if not student.grade:
+            return []
+
+        today = datetime.now(pytz.UTC).date()
+
+        exams = Exam.objects.filter(
+            class_fk=student.grade,
+            start_date__gte=today
+        ).select_related('subject', 'term').order_by('start_date', 'start_time')[:10]
+
+        if student.section:
+            exams = exams.filter(section=student.section)
+
+        return [
+            {
+                'id': str(exam.id),
+                'name': exam.name,
+                'exam_type': exam.exam_type,
+                'subject': exam.subject.name if exam.subject else 'N/A',
+                'subject_details': {'name': exam.subject.name} if exam.subject else None,
+                'start_date': exam.start_date.isoformat() if exam.start_date else None,
+                'end_date': exam.end_date.isoformat() if exam.end_date else None,
+                'start_time': exam.start_time.strftime('%H:%M') if exam.start_time else None,
+                'end_time': exam.end_time.strftime('%H:%M') if exam.end_time else None,
+                'max_score': exam.max_score,
+                'description': exam.description,
+            }
+            for exam in exams
+        ]
+
+    def _get_exam_results(self, student):
+        """Get exam results for student"""
+        from lessontopics.models import ExamResults
+
+        results = ExamResults.objects.filter(
+            student=student
+        ).select_related('exam', 'subject', 'teacher_assignment').order_by('-recorded_at')[:10]
+
+        return [
+            {
+                'id': str(result.id),
+                'exam_id': str(result.exam.id) if result.exam else None,
+                'exam_details': {
+                    'name': result.exam.name if result.exam else 'N/A',
+                    'exam_type': result.exam.exam_type if result.exam else None,
+                },
+                'subject_id_name': result.subject.name if result.subject else (
+                    result.teacher_assignment.subject.name if result.teacher_assignment and result.teacher_assignment.subject else 'N/A'
+                ),
+                'subject_details': {
+                    'name': result.subject.name if result.subject else (
+                        result.teacher_assignment.subject.name if result.teacher_assignment and result.teacher_assignment.subject else 'N/A'
+                    )
+                },
+                'score': result.score,
+                'max_score': result.max_score,
+                'percentage': float(result.percentage) if result.percentage else None,
+                'grade': result.grade,
+                'remarks': result.remarks,
+                'recorded_at': result.recorded_at.isoformat() if result.recorded_at else None,
+            }
+            for result in results
+        ]
     
     def _get_assignments(self, student):
         """Get assignments for student's grade/section"""

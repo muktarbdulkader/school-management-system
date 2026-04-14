@@ -35,6 +35,7 @@ const Backend = {
 
   // Students
   students: 'students/',
+  studentsDetail: 'students/{id}/',
   parents: 'parents/',
   parentStudents: 'parent_students/',
   parentAvailableTeachers: 'parent_students/available_teachers/',
@@ -47,8 +48,9 @@ const Backend = {
   // Teachers
   teachers: 'teachers/',
   teachersOverviewDashboard: 'teachers/overview_dashboard/',
-  teachersClassDashboard: 'teachers/class_dashboard/',
+  teachersClassDashboard: 'teachers/class_dashboard',
   teachersMyStudents: 'teachers/my_students/',
+  teachersStudentDetail: 'teachers/my_students/{student_id}/',
   teachersStudentBehaviorRatings: 'teachers/student_behavior_ratings/',
   teachersRateBehavior: 'behavior_ratings/',
   teachersAttendanceDashboard: 'teachers/attendance_dashboard/',

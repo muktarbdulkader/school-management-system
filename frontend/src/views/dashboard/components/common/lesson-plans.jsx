@@ -12,7 +12,7 @@ const DailyLessonPlans = ({ lessonPlans }) => {
             Daily Lesson Plans
           </Typography>
         </Box>
-        
+
         {!lessonPlans || lessonPlans.length === 0 ? (
           <Box sx={{ py: 3, textAlign: 'center' }}>
             <Typography variant="body2" color="text.secondary">
@@ -23,10 +23,10 @@ const DailyLessonPlans = ({ lessonPlans }) => {
           <List disablePadding>
             {lessonPlans.map((lesson, index) => (
               <React.Fragment key={lesson.id}>
-                <ListItem 
-                  alignItems="flex-start" 
-                  sx={{ 
-                    px: 0, 
+                <ListItem
+                  alignItems="flex-start"
+                  sx={{
+                    px: 0,
                     py: 1.5,
                     cursor: 'pointer',
                     '&:hover': { bgcolor: 'rgba(0,0,0,0.02)' }
@@ -36,11 +36,11 @@ const DailyLessonPlans = ({ lessonPlans }) => {
                     primary={
                       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <Typography variant="subtitle1" fontWeight="600">
-                          {lesson.subject_id_name || lesson.subject_id?.name || 'Subject'}
+                          {lesson.subject_details?.name || 'Subject'}
                         </Typography>
-                        <Chip 
-                          label={new Date(lesson.created_at).toLocaleDateString()} 
-                          size="small" 
+                        <Chip
+                          label={new Date(lesson.created_at).toLocaleDateString()}
+                          size="small"
                           variant="outlined"
                           sx={{ fontSize: '0.7rem' }}
                         />
@@ -52,7 +52,8 @@ const DailyLessonPlans = ({ lessonPlans }) => {
                           Aim: {lesson.lesson_aims}
                         </Typography>
                         <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>
-                          Unit: {lesson.unit_id_name || lesson.unit_id?.name || 'N/A'}
+                          Unit: {lesson.unit_details?.name || 'N/A'}
+                          {lesson.subunit_details?.name && ` > Subunit: ${lesson.subunit_details.name}`}
                         </Typography>
                       </Box>
                     }

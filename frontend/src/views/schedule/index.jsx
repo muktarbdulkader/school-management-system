@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Box,
   Table,
@@ -18,7 +19,7 @@ import {
   Grid,
   Paper
 } from '@mui/material';
-import { IconRefresh, IconPlus, IconClock, IconBook, IconUser } from '@tabler/icons-react';
+import { IconRefresh, IconPlus, IconClock, IconBook, IconUser, IconSettings } from '@tabler/icons-react';
 import PageContainer from 'ui-component/MainPage';
 import DrogaCard from 'ui-component/cards/DrogaCard';
 import ActivityIndicator from 'ui-component/indicators/ActivityIndicator';
@@ -30,33 +31,72 @@ import { hasPermission, PERMISSIONS } from 'config/rolePermissions';
 import { useSelector } from 'react-redux';
 
 const SchedulePage = () => {
+  const navigate = useNavigate();
   const [schedules, setSchedules] = useState([]);
   const [loading, setLoading] = useState(false);
   const [selectedDay, setSelectedDay] = useState('all');
+  const [selectedBranch, setSelectedBranch] = useState('all');
+  const [branches, setBranches] = useState([]);
   const [formOpen, setFormOpen] = useState(false);
   const [studentInfo, setStudentInfo] = useState(null);
-  
-  const userRoles = useSelector((state) => {
+
+  const userData = useSelector((state) => {
     try {
-      return state?.user?.user?.roles || state?.auth?.user?.roles || [];
+      return state?.user?.user || state?.auth?.user || {};
     } catch (error) {
-      console.error('Error accessing user roles:', error);
-      return [];
+      console.error('Error accessing user data:', error);
+      return {};
     }
   });
-  
+
+  const userRoles = userData.roles || userData.user_roles || [];
+  const isSuperUser = userData.is_superuser || userData.is_super_user;
+
+  // Check for superadmin role
+  const hasSuperAdminRole = userRoles.some(r => {
+    const roleName = (typeof r === 'string' ? r : (r.role?.name || r.name || '')).toLowerCase();
+    return roleName.includes('super_admin') || roleName.includes('superadmin');
+  });
+  const isSuperAdmin = isSuperUser || hasSuperAdminRole;
+
   const canCreateSchedule = hasPermission(userRoles, PERMISSIONS.CREATE_SCHEDULE);
-  const isStudent = userRoles.some(role => role.toLowerCase() === 'student');
-  const isParent = userRoles.some(role => role.toLowerCase() === 'parent');
+  const isStudent = userRoles.some(role => (typeof role === 'string' ? role : role.name)?.toLowerCase() === 'student');
+  const isParent = userRoles.some(role => (typeof role === 'string' ? role : role.name)?.toLowerCase() === 'parent');
+  const isAdmin = userRoles.some(role =>
+    ['super_admin', 'superadmin', 'admin'].includes((typeof role === 'string' ? role : role.name)?.toLowerCase())
+  );
 
   const daysOfWeek = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
   useEffect(() => {
+    if (isSuperAdmin) {
+      fetchBranches();
+    }
     fetchSchedules();
     if (isStudent) {
       fetchStudentInfo();
     }
   }, []);
+
+  useEffect(() => {
+    // Refetch when branch filter changes
+    fetchSchedules();
+  }, [selectedBranch]);
+
+  const fetchBranches = async () => {
+    try {
+      const token = await GetToken();
+      const response = await fetch(`${Backend.api}${Backend.branches}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setBranches(data.data || data.results || []);
+      }
+    } catch (error) {
+      console.error('Error fetching branches:', error);
+    }
+  };
 
   const fetchStudentInfo = async () => {
     try {
@@ -64,7 +104,7 @@ const SchedulePage = () => {
       const response = await fetch(`${Backend.api}${Backend.studentMe}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      
+
       if (response.ok) {
         const data = await response.json();
         setStudentInfo(data.data || data);
@@ -78,16 +118,34 @@ const SchedulePage = () => {
     setLoading(true);
     try {
       const token = await GetToken();
-      const response = await fetch(`${Backend.api}${Backend.scheduleSlots}`, {
+      // Add branch_id filter for superadmin
+      let url = `${Backend.api}${Backend.scheduleSlots}`;
+      if (isSuperAdmin && selectedBranch && selectedBranch !== 'all') {
+        url += `?branch_id=${selectedBranch}`;
+      }
+      const response = await fetch(url, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      
+
       if (response.ok) {
         const data = await response.json();
-        console.log('Schedule data:', data);
-        const scheduleData = data.data || data.results || [];
+        console.log('Schedule data response:', data);
+        // Handle different response formats
+        let scheduleData = [];
+        if (Array.isArray(data)) {
+          scheduleData = data;
+        } else if (data.data) {
+          scheduleData = data.data;
+        } else if (data.results) {
+          scheduleData = data.results;
+        }
+        console.log('Extracted schedule data:', scheduleData);
+        console.log('Number of schedules:', scheduleData.length);
+        if (scheduleData.length > 0) {
+          console.log('First schedule:', scheduleData[0]);
+        }
         setSchedules(scheduleData);
-        
+
         if (scheduleData.length === 0) {
           toast.info('No schedule found. Please contact administrator.');
         } else {
@@ -106,8 +164,8 @@ const SchedulePage = () => {
     }
   };
 
-  const filteredSchedules = selectedDay === 'all' 
-    ? schedules 
+  const filteredSchedules = selectedDay === 'all'
+    ? schedules
     : schedules.filter(s => s.day_of_week === selectedDay);
 
   // Group schedules by day for better display
@@ -204,22 +262,49 @@ const SchedulePage = () => {
                 Add Schedule
               </Button>
             )}
+            {isAdmin && (
+              <Button
+                variant="outlined"
+                startIcon={<IconSettings />}
+                onClick={() => navigate('/schedule/slot-types')}
+              >
+                Manage Slot Types
+              </Button>
+            )}
           </Stack>
         </Stack>
 
-        <FormControl sx={{ mb: 3, minWidth: 200 }}>
-          <InputLabel>Filter by Day</InputLabel>
-          <Select
-            value={selectedDay}
-            label="Filter by Day"
-            onChange={(e) => setSelectedDay(e.target.value)}
-          >
-            <MenuItem value="all">All Days</MenuItem>
-            {daysOfWeek.map(day => (
-              <MenuItem key={day} value={day}>{day}</MenuItem>
-            ))}
-          </Select>
-        </FormControl>
+        <Stack direction="row" spacing={2} sx={{ mb: 3 }}>
+          <FormControl sx={{ minWidth: 200 }}>
+            <InputLabel>Filter by Day</InputLabel>
+            <Select
+              value={selectedDay}
+              label="Filter by Day"
+              onChange={(e) => setSelectedDay(e.target.value)}
+            >
+              <MenuItem value="all">All Days</MenuItem>
+              {daysOfWeek.map(day => (
+                <MenuItem key={day} value={day}>{day}</MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+
+          {isSuperAdmin && (
+            <FormControl sx={{ minWidth: 200 }}>
+              <InputLabel>Filter by Branch</InputLabel>
+              <Select
+                value={selectedBranch}
+                label="Filter by Branch"
+                onChange={(e) => setSelectedBranch(e.target.value)}
+              >
+                <MenuItem value="all">All Branches</MenuItem>
+                {branches.map(branch => (
+                  <MenuItem key={branch.id} value={branch.id}>{branch.name}</MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          )}
+        </Stack>
 
         {loading ? (
           <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
@@ -249,7 +334,7 @@ const SchedulePage = () => {
                   <TableRow>
                     <TableCell colSpan={canCreateSchedule ? 8 : 7} align="center">
                       <Typography variant="body2" color="text.secondary" sx={{ py: 4 }}>
-                        {isStudent || isParent 
+                        {isStudent || isParent
                           ? 'No schedule found. Please ensure you are assigned to a class and section.'
                           : 'No schedule found. Click "Add Schedule" to create one.'}
                       </Typography>
@@ -259,9 +344,9 @@ const SchedulePage = () => {
                   filteredSchedules.map((schedule) => (
                     <TableRow key={schedule.id}>
                       <TableCell>
-                        <Chip 
-                          label={schedule.day_of_week} 
-                          size="small" 
+                        <Chip
+                          label={schedule.day_of_week}
+                          size="small"
                           color={schedule.day_of_week === new Date().toLocaleDateString('en-US', { weekday: 'long' }) ? 'primary' : 'default'}
                         />
                       </TableCell>

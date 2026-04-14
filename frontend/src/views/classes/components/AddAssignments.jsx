@@ -43,19 +43,19 @@ const AddAssignments = ({
   // Filter subjects available for the selected class
   const availableSubjects = assignmentDetails.class_id && teacherSubjects.length > 0
     ? [...new Map(
-        teacherSubjects
-          .filter(item => item.class_id === assignmentDetails.class_id)
-          .map(item => [item.id, { id: item.id, name: item.name, code: item.code }])
-      ).values()]
+      teacherSubjects
+        .filter(item => item.class_id === assignmentDetails.class_id)
+        .map(item => [item.id, { id: item.id, name: item.name, code: item.code }])
+    ).values()]
     : subjects;
 
   // Filter sections available for the selected class
   const availableSections = assignmentDetails.class_id && teacherSubjects.length > 0
     ? [...new Map(
-        teacherSubjects
-          .filter(item => item.class_id === assignmentDetails.class_id && item.section_id)
-          .map(item => [item.section_id, { id: item.section_id, name: item.section_name }])
-      ).values()]
+      teacherSubjects
+        .filter(item => item.class_id === assignmentDetails.class_id && item.section_id)
+        .map(item => [item.section_id, { id: item.section_id, name: item.section_name }])
+    ).values()]
     : sections;
 
   // Filter students by selected class and section
@@ -405,7 +405,7 @@ const AddAssignments = ({
 };
 
 AddAssignments.propTypes = {
-  add: PropTypes.bool.isRequired,
+  add: PropTypes.bool,
   isAdding: PropTypes.bool.isRequired,
   onClose: PropTypes.func.isRequired,
   onSubmit: PropTypes.func.isRequired,
@@ -414,6 +414,11 @@ AddAssignments.propTypes = {
   sections: PropTypes.array.isRequired,
   students: PropTypes.array.isRequired,
   teacherSubjects: PropTypes.array,
+};
+
+AddAssignments.defaultProps = {
+  add: false,
+  teacherSubjects: []
 };
 
 export default AddAssignments;

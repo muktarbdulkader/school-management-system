@@ -257,7 +257,7 @@ function SectionsPage() {
                   <TableCell>Unique ID</TableCell>
                   <TableCell>Class-Section</TableCell>
                   <TableCell>Branch</TableCell>
-                  <TableCell>Class Teacher</TableCell>
+                  {/* <TableCell>Class Teacher</TableCell> */}
                   <TableCell>Subject Teachers</TableCell>
                   <TableCell>Room/Capacity</TableCell>
                   <TableCell align="right">Actions</TableCell>
@@ -316,7 +316,7 @@ function SectionsPage() {
                             <Typography variant="body2" color="text.secondary">—</Typography>
                           )}
                         </TableCell>
-                        <TableCell>
+                        {/* <TableCell>
                           {section.class_teacher_details ? (
                             <Stack direction="row" spacing={1} alignItems="center">
                               <Avatar sx={{ width: 24, height: 24, fontSize: '0.75rem' }}>
@@ -339,7 +339,7 @@ function SectionsPage() {
                               color="default"
                             />
                           )}
-                        </TableCell>
+                        </TableCell> */}
                         <TableCell>
                           {section.teacher_assignments?.length > 0 ? (
                             <Stack spacing={0.5}>

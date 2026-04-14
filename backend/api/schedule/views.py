@@ -2,14 +2,94 @@ from rest_framework import viewsets, status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
-from .models import ClassScheduleSlot, LeaveRequest, SlotType, StudentScheduleOverride, Attendance, Exam, SubjectExamDay
-from .serializers import ClassScheduleSlotsSerializer, LeaveRequestSerializer, SlotTypeSerializer, StudentScheduleOverridesSerializer, AttendanceSerializer, ExamsSerializer, SubjectExamDaysSerializer
+from .models import ClassScheduleSlot, LeaveRequest, SlotType, StudentScheduleOverride, Attendance, Exam, SubjectExamDay, Classroom
+from .serializers import ClassScheduleSlotsSerializer, LeaveRequestSerializer, SlotTypeSerializer, StudentScheduleOverridesSerializer, AttendanceSerializer, ExamsSerializer, SubjectExamDaysSerializer, ClassroomSerializer
 from users.models import has_model_permission, UserBranchAccess, UserRole
 from students.models import ParentStudent, Student
 from rest_framework.decorators import action
 import logging
 from django.db.models import Q
 logger = logging.getLogger(__name__)
+
+class ClassroomViewSet(viewsets.ModelViewSet):
+    queryset = Classroom.objects.all()
+    serializer_class = ClassroomSerializer
+    permission_classes = [IsAuthenticated]
+
+    def is_administrative_user(self, user):
+        if user.is_superuser:
+            return True
+        user_roles = list(user.userrole_set.values_list('role__name', flat=True))
+        admin_roles = ['admin', 'super_admin', 'superadmin', 'staff', 'head_admin', 'ceo']
+        return any(role.lower() in admin_roles for role in user_roles)
+
+    def get_queryset(self):
+        user = self.request.user
+        branch_id = self.request.query_params.get('branch_id')
+
+        if user.is_superuser:
+            if branch_id:
+                return self.queryset.filter(branch_id=branch_id, is_active=True)
+            return self.queryset.filter(is_active=True)
+
+        if self.is_administrative_user(user):
+            from users.models import UserBranchAccess
+            accessible_branches = UserBranchAccess.objects.filter(user=user).values_list('branch_id', flat=True)
+            if branch_id:
+                return self.queryset.filter(branch_id=branch_id, is_active=True)
+            return self.queryset.filter(branch_id__in=accessible_branches, is_active=True)
+
+        return self.queryset.none()
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+        serializer = self.get_serializer(queryset, many=True)
+        return Response({
+            'success': True,
+            'message': 'OK',
+            'status': 200,
+            'data': serializer.data
+        })
+
+    def retrieve(self, request, *args, **kwargs):
+        instance = self.get_object()
+        serializer = self.get_serializer(instance)
+        return Response({
+            'success': True,
+            'message': 'OK',
+            'status': 200,
+            'data': serializer.data
+        })
+
+    def create(self, request, *args, **kwargs):
+        user = request.user
+        if not (user.is_superuser or self.is_administrative_user(user)):
+            raise PermissionDenied("Only administrative users can create classrooms.")
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        return Response({
+            'success': True,
+            'message': 'Classroom created successfully',
+            'status': 201,
+            'data': serializer.data
+        }, status=status.HTTP_201_CREATED)
+
+    def update(self, request, *args, **kwargs):
+        user = request.user
+        if not (user.is_superuser or self.is_administrative_user(user)):
+            raise PermissionDenied("Only administrative users can update classrooms.")
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+        return Response({
+            'success': True,
+            'message': 'Classroom updated successfully',
+            'status': 200,
+            'data': serializer.data
+        })
+
 
 class SlotTypesViewSet(viewsets.ModelViewSet):
     queryset = SlotType.objects.all()
@@ -450,12 +530,22 @@ class ClassScheduleSlotsViewSet(viewsets.ModelViewSet):
         user = self.request.user
         branch_id = self.request.query_params.get('branch_id')
         student_id = self.request.query_params.get('student_id')
+        
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"GET schedule slots - User: {user}, is_superuser: {user.is_superuser}, branch_id: {branch_id}")
+        logger.info(f"Total slots in DB: {self.queryset.count()}")
 
         # Allow superusers to see all records
         if user.is_superuser:
             if branch_id:
-                return self.queryset.filter(class_fk__branch_id=branch_id).order_by('day_of_week', 'period_number')
-            return self.queryset.order_by('day_of_week', 'period_number')
+                # Use class_fk__branch_id for filtering - Class model has branch_id field
+                result = self.queryset.filter(class_fk__branch_id=branch_id).order_by('day_of_week', 'period_number')
+                logger.info(f"Superuser with branch filter - returning {result.count()} slots")
+                return result
+            result = self.queryset.order_by('day_of_week', 'period_number')
+            logger.info(f"Superuser without branch filter - returning {result.count()} slots")
+            return result
 
         # Check if user is a student viewing their own schedule
         student = Student.objects.filter(user=user).first()
@@ -502,39 +592,77 @@ class ClassScheduleSlotsViewSet(viewsets.ModelViewSet):
     def create(self, request, *args, **kwargs):
         user = request.user
         from teachers.models import Teacher
+        from rest_framework import serializers
         is_teacher = Teacher.objects.filter(user=user).exists()
 
         if not self.is_administrative_user(user) and not is_teacher:
             raise PermissionDenied("Only administrative users or teachers can create schedule slots.")
 
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        self.perform_create(serializer)
-        return Response({
-            'success': True,
-            'message': 'Schedule slot created successfully',
-            'status': 201,
-            'data': serializer.data
-        }, status=status.HTTP_201_CREATED)
+        try:
+            serializer = self.get_serializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            self.perform_create(serializer)
+            return Response({
+                'success': True,
+                'message': 'Schedule slot created successfully',
+                'status': 201,
+                'data': serializer.data
+            }, status=status.HTTP_201_CREATED)
+        except serializers.ValidationError as e:
+            return Response({
+                'success': False,
+                'message': 'Validation error',
+                'status': 400,
+                'errors': e.detail
+            }, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            import traceback
+            print(f"Error creating schedule slot: {str(e)}")
+            print(traceback.format_exc())
+            return Response({
+                'success': False,
+                'message': f'Error: {str(e)}',
+                'status': 500,
+                'error_detail': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     def update(self, request, *args, **kwargs):
         user = request.user
         from teachers.models import Teacher
+        from rest_framework import serializers
         is_teacher = Teacher.objects.filter(user=user).exists()
 
         if not self.is_administrative_user(user) and not is_teacher:
             raise PermissionDenied("Only administrative users or teachers can update schedule slots.")
 
-        instance = self.get_object()
-        serializer = self.get_serializer(instance, data=request.data, partial=True)
-        serializer.is_valid(raise_exception=True)
-        self.perform_update(serializer)
-        return Response({
-            'success': True,
-            'message': 'Schedule slot updated successfully',
-            'status': 200,
-            'data': serializer.data
-        })
+        try:
+            instance = self.get_object()
+            serializer = self.get_serializer(instance, data=request.data, partial=True)
+            serializer.is_valid(raise_exception=True)
+            self.perform_update(serializer)
+            return Response({
+                'success': True,
+                'message': 'Schedule slot updated successfully',
+                'status': 200,
+                'data': serializer.data
+            })
+        except serializers.ValidationError as e:
+            return Response({
+                'success': False,
+                'message': 'Validation error',
+                'status': 400,
+                'errors': e.detail
+            }, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            import traceback
+            print(f"Error updating schedule slot: {str(e)}")
+            print(traceback.format_exc())
+            return Response({
+                'success': False,
+                'message': f'Error: {str(e)}',
+                'status': 500,
+                'error_detail': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     @action(detail=False, methods=['post'], url_path='validate')
     def validate_schedule(self, request):
@@ -547,15 +675,15 @@ class ClassScheduleSlotsViewSet(viewsets.ModelViewSet):
         
         # Create a temporary instance for validation
         slot = ClassScheduleSlot(
-            class_fk_id=data.get('class_fk'),
-            section_id=data.get('section'),
-            subject_id=data.get('subject'),
-            teacher_assignment_id=data.get('teacher_assignment'),
+            class_fk_id=data.get('class_id'),
+            section_id=data.get('section_id'),
+            subject_id=data.get('subject_id'),
+            teacher_assignment_id=data.get('teacher_id'),
             day_of_week=data.get('day_of_week'),
             period_number=data.get('period_number'),
             start_time=data.get('start_time'),
             end_time=data.get('end_time'),
-            room=data.get('room'),
+            classroom_id=data.get('classroom_id'),
             slot_type_id=data.get('slot_type'),
         )
 
@@ -597,21 +725,21 @@ class ClassScheduleSlotsViewSet(viewsets.ModelViewSet):
                 ]
             })
 
-        # Check room conflicts (if room is specified)
-        if slot.room:
-            room_conflicts = ClassScheduleSlot.objects.filter(
-                room=slot.room,
+        # Check classroom conflicts (if classroom is specified)
+        if slot.classroom:
+            classroom_conflicts = ClassScheduleSlot.objects.filter(
+                classroom=slot.classroom,
                 day_of_week=slot.day_of_week,
                 start_time__lt=slot.end_time,
                 end_time__gt=slot.start_time
             )
-            if room_conflicts.exists():
+            if classroom_conflicts.exists():
                 conflicts.append({
-                    'type': 'room',
-                    'message': f"Room is already booked at this time",
+                    'type': 'classroom',
+                    'message': f"Classroom is already booked at this time",
                     'conflicting_slots': [
                         {'id': str(c.id), 'class': c.class_fk.grade, 'teacher': c.teacher_assignment.teacher.user.full_name if c.teacher_assignment else None}
-                        for c in room_conflicts[:5]
+                        for c in classroom_conflicts[:5]
                     ]
                 })
 

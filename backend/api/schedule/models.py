@@ -34,6 +34,49 @@ class SlotType(models.Model):
     def __str__(self):
         return self.name
 
+
+class Classroom(models.Model):
+    """Classroom/Room model for scheduling"""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    name = models.CharField(max_length=100)
+    code = models.CharField(max_length=20, unique=True)
+    building = models.CharField(max_length=100, blank=True, null=True)
+    floor = models.CharField(max_length=10, blank=True, null=True)
+    capacity = models.PositiveIntegerField(default=30)
+    room_type = models.CharField(
+        max_length=50,
+        choices=[
+            ('classroom', 'Classroom'),
+            ('lab', 'Laboratory'),
+            ('hall', 'Hall'),
+            ('library', 'Library'),
+            ('other', 'Other'),
+        ],
+        default='classroom'
+    )
+    branch = models.ForeignKey(
+        'users.Branch',
+        on_delete=models.CASCADE,
+        related_name='classrooms',
+        null=True,
+        blank=True
+    )
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'classrooms'
+        ordering = ['code']
+        indexes = [
+            models.Index(fields=['branch', 'is_active']),
+            models.Index(fields=['code']),
+        ]
+
+    def __str__(self):
+        return f"{self.code} - {self.name}"
+
+
 class ClassScheduleSlot(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     term = models.ForeignKey('academics.Term', on_delete=models.CASCADE, related_name='schedule_slots', null=True, blank=True)
@@ -45,6 +88,7 @@ class ClassScheduleSlot(models.Model):
     end_time = models.TimeField()
     subject = models.ForeignKey('academics.Subject', on_delete=models.SET_NULL, null=True, blank=True)
     teacher_assignment = models.ForeignKey('teachers.TeacherAssignment', on_delete=models.SET_NULL, null=True, blank=True)
+    classroom = models.ForeignKey(Classroom, on_delete=models.SET_NULL, null=True, blank=True, related_name='schedule_slots')
     period_number = models.PositiveIntegerField(default=1)
 
     class Meta:
@@ -82,12 +126,27 @@ class ClassScheduleSlot(models.Model):
             start_time__lt=self.end_time,
             end_time__gt=self.start_time
         ).exclude(id=self.id if self.id else None)
-        
+
         if section_conflicts.exists():
             raise ValidationError(
                 f"Section {self.section.name} already has a class scheduled "
                 f"at this time ({self.day_of_week} {self.start_time}-{self.end_time})"
             )
+
+        # Check classroom is not double-booked
+        if self.classroom:
+            classroom_conflicts = ClassScheduleSlot.objects.filter(
+                classroom=self.classroom,
+                day_of_week=self.day_of_week,
+                start_time__lt=self.end_time,
+                end_time__gt=self.start_time
+            ).exclude(id=self.id if self.id else None)
+
+            if classroom_conflicts.exists():
+                raise ValidationError(
+                    f"Classroom {self.classroom.name} is already booked "
+                    f"at this time ({self.day_of_week} {self.start_time}-{self.end_time})"
+                )
 
     def save(self, *args, **kwargs):
         self.clean()
@@ -168,6 +227,8 @@ class Exam(models.Model):
     branch = models.ForeignKey('users.Branch', on_delete=models.CASCADE)
     start_date = models.DateField()
     end_date = models.DateField()
+    start_time = models.TimeField(null=True, blank=True)
+    end_time = models.TimeField(null=True, blank=True)
     max_score = models.FloatField(default=100)
     passing_score = models.FloatField(default=40)
     description = models.TextField(blank=True)

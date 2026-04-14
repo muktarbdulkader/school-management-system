@@ -1122,6 +1122,7 @@ export default function TeacherDashboardPage() {
         categories={categories}
         units={units}
         subunits={subunits}
+        classes={learnerGroups}
         onCategoryCreated={handleCreateCategory}
         onUnitCreated={handleCreateUnit}
         onSubunitCreated={handleCreateSubunit}
