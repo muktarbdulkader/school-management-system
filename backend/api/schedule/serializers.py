@@ -71,11 +71,12 @@ class ClassScheduleSlotsSerializer(serializers.ModelSerializer):
     slot_type_details = SlotTypeSerializer(source='slot_type', read_only=True)
     teacher_details = TeacherAssignmentSerializer(source='teacher_assignment', read_only=True)
     classroom_details = ClassroomSerializer(source='classroom', read_only=True)
+    term_details = TermsSerializer(source='term', read_only=True)
 
     class Meta:
         model = ClassScheduleSlot
         fields = ['id', 'class_id', 'section_id', 'subject_id', 'teacher_id', 'classroom_id', 
-                  'slot_type', 'term', 'day_of_week', 'start_time', 'end_time', 'period_number',
+                  'slot_type', 'term', 'term_details', 'day_of_week', 'start_time', 'end_time', 'period_number',
                   'class_details', 'section_details', 'subject', 'slot_type_details', 
                   'teacher_details', 'classroom_details']
 

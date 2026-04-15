@@ -142,6 +142,10 @@ class TermsViewSet(viewsets.ModelViewSet):
 
     def list(self, request, *args, **kwargs):
         queryset = self.filter_queryset(self.get_queryset())
+        # Auto-update status for all terms before serializing
+        for term in queryset:
+            term.update_status()
+            term.save(update_fields=['status', 'is_current'])
         serializer = self.get_serializer(queryset, many=True)
         return Response({
             'success': True,

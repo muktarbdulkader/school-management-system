@@ -19,6 +19,12 @@ class Term(models.Model):
         ('Winter', 'Winter'),
     )
     
+    STATUS_CHOICES = (
+        ('upcoming', 'Upcoming'),
+        ('current', 'Current'),
+        ('closed', 'Closed'),
+    )
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     branch = models.ForeignKey('users.Branch', on_delete=models.CASCADE, related_name='terms', null=True, blank=True)
     academic_year = models.CharField(max_length=20, help_text="e.g., 2025-2026")
@@ -26,6 +32,7 @@ class Term(models.Model):
     start_date = models.DateField()
     end_date = models.DateField()
     is_current = models.BooleanField(default=False)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='upcoming')
 
     class Meta:
         db_table = 'terms'
@@ -52,8 +59,25 @@ class Term(models.Model):
         if self.start_date and self.end_date and self.start_date >= self.end_date:
             raise ValidationError("Start date must be before end date")
 
+    def update_status(self):
+        """Auto-update status based on current date"""
+        from django.utils import timezone
+        today = timezone.now().date()
+
+        if today < self.start_date:
+            self.status = 'upcoming'
+            self.is_current = False
+        elif self.start_date <= today <= self.end_date:
+            self.status = 'current'
+            self.is_current = True
+        else:  # today > end_date
+            self.status = 'closed'
+            self.is_current = False
+
     def save(self, *args, **kwargs):
         self.clean()
+        # Auto-update status before saving
+        self.update_status()
         super().save(*args, **kwargs)
 
     def __str__(self):

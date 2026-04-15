@@ -1563,9 +1563,23 @@ class ParentStudentViewSet(viewsets.ModelViewSet):
         except (Student.DoesNotExist, Subject.DoesNotExist):
             return Response({'success': False, 'message': 'Student or Subject not found', 'status': 404}, status=404)
 
-        # Permission check
+        # Permission check - allow parents, teachers of this student, staff, and the student themselves
         is_parent = ParentStudent.objects.filter(parent__user=request.user, student=student).exists()
-        if not (is_parent or request.user.is_staff or student.user == request.user):
+        
+        # Check if user is a teacher assigned to this student's class/section
+        is_teacher = False
+        try:
+            from teachers.models import Teacher, TeacherAssignment
+            teacher = Teacher.objects.get(user=request.user)
+            is_teacher = TeacherAssignment.objects.filter(
+                teacher=teacher,
+                class_fk=student.grade,
+                section=student.section
+            ).exists()
+        except Teacher.DoesNotExist:
+            pass
+        
+        if not (is_parent or is_teacher or request.user.is_staff or student.user == request.user):
             raise PermissionDenied("You do not have permission to view objectives for this student.")
 
         class_obj = student.grade
@@ -1675,6 +1689,120 @@ class ParentStudentViewSet(viewsets.ModelViewSet):
             'message': 'OK',
             'status': 200,
             'data': response_data
+        })
+
+    @action(detail=False, methods=['get'], url_path='teacher_subject_assignments/(?P<student_id>[^/.]+)/(?P<subject_id>[^/.]+)/?')
+    def teacher_subject_assignments(self, request, student_id=None, subject_id=None):
+        """
+        Get assignments and submissions for a specific student and subject.
+        Only accessible by teachers assigned to this student.
+        Includes download links for submitted assignments.
+        """
+        from academics.models import Subject
+        from lessontopics.models import Assignments, StudentAssignments
+        from lessontopics.serializers import AssignmentsSerializer, StudentAssignmentsSerializer
+        from django.db.models import Q
+        from django.conf import settings
+        from urllib.parse import urljoin
+
+        try:
+            student = Student.objects.get(id=student_id)
+            subject = Subject.objects.get(id=subject_id)
+        except (Student.DoesNotExist, Subject.DoesNotExist):
+            return Response({'success': False, 'message': 'Student or Subject not found', 'status': 404}, status=404)
+
+        # Verify the user is a teacher assigned to this student
+        try:
+            from teachers.models import Teacher, TeacherAssignment
+            teacher = Teacher.objects.get(user=request.user)
+            is_teacher = TeacherAssignment.objects.filter(
+                teacher=teacher,
+                class_fk=student.grade,
+                section=student.section
+            ).exists()
+        except Teacher.DoesNotExist:
+            is_teacher = False
+
+        if not (is_teacher or request.user.is_staff):
+            raise PermissionDenied("You do not have permission to view assignments for this student.")
+
+        # Get assignments for this subject assigned to the student
+        assignments = Assignments.objects.filter(
+            Q(students=student) | Q(section=student.section) | Q(class_fk=student.grade),
+            subject=subject
+        ).distinct().order_by('-due_date')
+
+        # Get submissions for these assignments
+        submissions = StudentAssignments.objects.filter(
+            student=student,
+            assignment__in=assignments
+        ).select_related('assignment')
+
+        assignments_data = []
+        for assignment in assignments:
+            submission = submissions.filter(assignment=assignment).first()
+            submission_data = None
+            if submission:
+                # Build download URL if file exists
+                download_url = None
+                if submission.file_submission:
+                    # Assuming file_submission is a FileField
+                    download_url = request.build_absolute_uri(submission.file_submission.url)
+                
+                submission_data = {
+                    'id': str(submission.id),
+                    'submitted': True,
+                    'submitted_date': submission.submitted_date.isoformat() if submission.submitted_date else None,
+                    'grade': submission.grade,
+                    'feedback': submission.feedback,
+                    'status': submission.status,
+                    'download_url': download_url,
+                    'text_submission': submission.text_submission,
+                    'file_name': submission.file_submission.name if submission.file_submission else None,
+                }
+            else:
+                submission_data = {
+                    'id': None,
+                    'submitted': False,
+                    'submitted_date': None,
+                    'grade': None,
+                    'feedback': None,
+                    'status': 'not_submitted',
+                    'download_url': None,
+                    'text_submission': None,
+                    'file_name': None,
+                }
+
+            assignments_data.append({
+                'id': str(assignment.id),
+                'title': assignment.title,
+                'description': assignment.description,
+                'due_date': assignment.due_date.isoformat() if assignment.due_date else None,
+                'max_score': assignment.max_score,
+                'assignment_type': assignment.assignment_type,
+                'submission': submission_data
+            })
+
+        return Response({
+            'success': True,
+            'message': 'OK',
+            'status': 200,
+            'data': {
+                'student': {
+                    'id': str(student.id),
+                    'full_name': student.user.full_name if student.user else 'Unknown',
+                    'grade': student.grade.grade if student.grade else 'N/A',
+                    'section': student.section.name if student.section else 'N/A',
+                },
+                'subject': {
+                    'id': str(subject.id),
+                    'name': subject.name,
+                },
+                'assignments': assignments_data,
+                'total_count': len(assignments_data),
+                'submitted_count': sum(1 for a in assignments_data if a['submission']['submitted']),
+                'pending_count': sum(1 for a in assignments_data if not a['submission']['submitted']),
+            }
         })
 
     @action(detail=False, methods=['get'], url_path='available_teachers/(?P<student_id>[^/.]+)/?')

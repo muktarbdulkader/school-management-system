@@ -25,8 +25,11 @@ export default function OverviewTab({
   attendanceError = null,
   assignmentsLoading = false,
   assignmentsError = null,
+  userRole = 'parent',
+  studentId,
 }) {
   const navigate = useNavigate();
+  const isTeacher = userRole === 'teacher';
 
   const getBehaviorColor = (rating) => {
     if (rating >= 85) return 'success.main';
@@ -421,6 +424,114 @@ export default function OverviewTab({
           </CardContent>
         </Card>
       </Grid>
+
+      {/* Teacher-Only: Assignment Submissions & Learning Progress */}
+      {isTeacher && (
+        <Grid item xs={12}>
+          <Card sx={{ borderRadius: 3, boxShadow: 3, bgcolor: 'info.light' }}>
+            <CardContent>
+              <Stack direction="row" alignItems="center" spacing={2} mb={2}>
+                <Avatar sx={{ bgcolor: 'info.dark' }}>
+                  <Assignment />
+                </Avatar>
+                <Typography variant="h5" fontWeight="600">
+                  Teacher View: Assignment Submissions & Progress
+                </Typography>
+              </Stack>
+              <Divider sx={{ mb: 3 }} />
+
+              <Grid container spacing={3}>
+                {/* Section & Subject Info */}
+                <Grid item xs={12} md={4}>
+                  <Card variant="outlined" sx={{ bgcolor: 'background.paper' }}>
+                    <CardContent>
+                      <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                        Class Information
+                      </Typography>
+                      <Typography variant="body1" fontWeight="500">
+                        Grade: {data?.grade || 'N/A'}
+                      </Typography>
+                      <Typography variant="body1" fontWeight="500">
+                        Section: {data?.section || 'N/A'}
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                        Enrolled Subjects: {data?.enrolled_subjects_count || 0}
+                      </Typography>
+                    </CardContent>
+                  </Card>
+                </Grid>
+
+                {/* Assignment Submission Status */}
+                <Grid item xs={12} md={4}>
+                  <Card variant="outlined" sx={{ bgcolor: 'background.paper' }}>
+                    <CardContent>
+                      <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                        Recent Submissions
+                      </Typography>
+                      <Typography variant="body1">
+                        Total Assignments: {data?.assignments?.length || 0}
+                      </Typography>
+                      <Typography variant="body2" color="success.main">
+                        Submitted: {data?.assignments?.filter(a => a.status === 'submitted' || a.status === 'completed')?.length || 0}
+                      </Typography>
+                      <Typography variant="body2" color="warning.main">
+                        Pending: {data?.assignments?.filter(a => a.status === 'pending' || a.status === 'assigned')?.length || 0}
+                      </Typography>
+                    </CardContent>
+                  </Card>
+                </Grid>
+
+                {/* Learning Progress */}
+                <Grid item xs={12} md={4}>
+                  <Card variant="outlined" sx={{ bgcolor: 'background.paper' }}>
+                    <CardContent>
+                      <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                        Learning Progress
+                      </Typography>
+                      <Typography variant="h4" fontWeight="bold" color="primary.main">
+                        {data?.progress?.overall_average || data?.behavior_ratings?.average_rating || 0}%
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        Overall Average
+                      </Typography>
+                      <Box sx={{ mt: 1 }}>
+                        <Typography variant="caption" color="text.secondary">
+                          Based on assignments and assessments
+                        </Typography>
+                      </Box>
+                    </CardContent>
+                  </Card>
+                </Grid>
+
+                {/* Subject-wise Progress for Teachers */}
+                {data?.progress?.subject_progress && Object.keys(data.progress.subject_progress).length > 0 && (
+                  <Grid item xs={12}>
+                    <Typography variant="subtitle1" fontWeight="600" sx={{ mt: 2, mb: 1 }}>
+                      Subject-wise Learning Progress
+                    </Typography>
+                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                      {Object.entries(data.progress.subject_progress).map(([subject, grades]) => {
+                        const avg = grades.length > 0
+                          ? grades.reduce((sum, g) => sum + (g.percentage || 0), 0) / grades.length
+                          : 0;
+                        return (
+                          <Chip
+                            key={subject}
+                            label={`${subject}: ${avg.toFixed(1)}%`}
+                            size="small"
+                            color={avg >= 70 ? 'success' : avg >= 50 ? 'warning' : 'error'}
+                            variant="outlined"
+                          />
+                        );
+                      })}
+                    </Box>
+                  </Grid>
+                )}
+              </Grid>
+            </CardContent>
+          </Card>
+        </Grid>
+      )}
     </Grid>
   );
 }

@@ -17,6 +17,7 @@ import GetToken from 'utils/auth-token';
 
 const ScheduleForm = ({ open, onClose, onSuccess, editingSchedule }) => {
   const [formData, setFormData] = useState({
+    term_id: '',
     day_of_week: 'Monday',
     period_number: 1,
     start_time: '',
@@ -39,6 +40,7 @@ const ScheduleForm = ({ open, onClose, onSuccess, editingSchedule }) => {
   const [teacherAssignments, setTeacherAssignments] = useState([]);
   const [slotTypes, setSlotTypes] = useState([]);
   const [branches, setBranches] = useState([]);
+  const [terms, setTerms] = useState([]);
   const [validationError, setValidationError] = useState(null);
 
   // Get user data from Redux like the main schedule page
@@ -81,6 +83,7 @@ const ScheduleForm = ({ open, onClose, onSuccess, editingSchedule }) => {
   useEffect(() => {
     if (editingSchedule) {
       setFormData({
+        term_id: editingSchedule.term_details?.id || editingSchedule.term?.id || '',
         day_of_week: editingSchedule.day_of_week || 'Monday',
         period_number: editingSchedule.period_number || 1,
         start_time: editingSchedule.start_time || '',
@@ -95,6 +98,7 @@ const ScheduleForm = ({ open, onClose, onSuccess, editingSchedule }) => {
     } else {
       // Reset form for new entry
       setFormData({
+        term_id: '',
         day_of_week: 'Monday',
         period_number: 1,
         start_time: '',
@@ -120,7 +124,8 @@ const ScheduleForm = ({ open, onClose, onSuccess, editingSchedule }) => {
         fetch(`${Backend.api}${Backend.sections}`, { headers }),
         fetch(`${Backend.api}${Backend.subjects}`, { headers }),
         fetch(`${Backend.api}${Backend.teacherAssignments}`, { headers }),
-        fetch(`${Backend.api}${Backend.slotTypes}`, { headers })
+        fetch(`${Backend.api}${Backend.slotTypes}`, { headers }),
+        fetch(`${Backend.api}${Backend.terms}`, { headers })
       ];
 
       // Only fetch branches for super admin
@@ -128,7 +133,7 @@ const ScheduleForm = ({ open, onClose, onSuccess, editingSchedule }) => {
         fetchList.push(fetch(`${Backend.api}${Backend.branches}`, { headers }));
       }
 
-      const [classesRes, sectionsRes, subjectsRes, assignmentsRes, slotTypesRes, branchesRes] = await Promise.all(fetchList);
+      const [classesRes, sectionsRes, subjectsRes, assignmentsRes, slotTypesRes, termsRes, branchesRes] = await Promise.all(fetchList);
 
       if (classesRes.ok) {
         const data = await classesRes.json();
@@ -169,6 +174,18 @@ const ScheduleForm = ({ open, onClose, onSuccess, editingSchedule }) => {
         // Set default slot type if available
         if (types.length > 0 && !formData.slot_type_id) {
           setFormData(prev => ({ ...prev, slot_type_id: types[0].id }));
+        }
+      }
+      if (termsRes && termsRes.ok) {
+        const data = await termsRes.json();
+        const termsList = data.data || data.results || [];
+        // Filter out closed terms - only show upcoming and current terms
+        const activeTerms = termsList.filter(t => t.status !== 'closed');
+        setTerms(activeTerms);
+        // Auto-select current term if available and not editing
+        if (activeTerms.length > 0 && !editingSchedule && !formData.term_id) {
+          const currentTerm = activeTerms.find(t => t.status === 'current') || activeTerms[0];
+          setFormData(prev => ({ ...prev, term_id: currentTerm.id }));
         }
       }
       if (branchesRes && branchesRes.ok) {
@@ -273,6 +290,10 @@ const ScheduleForm = ({ open, onClose, onSuccess, editingSchedule }) => {
     e.preventDefault();
     setValidationError(null);
 
+    if (!formData.term_id) {
+      toast.error('Please select a term first');
+      return;
+    }
     if (!formData.start_time || !formData.end_time || !formData.class_id || !formData.section_id || !formData.teacher_id || !formData.slot_type_id) {
       toast.error('Please fill in all required fields including slot type');
       return;
@@ -293,7 +314,7 @@ const ScheduleForm = ({ open, onClose, onSuccess, editingSchedule }) => {
         period_number: parseInt(formData.period_number) || 1,
         start_time: formData.start_time,
         end_time: formData.end_time,
-        term: null  // Explicitly set term as null since model allows null
+        term: formData.term_id
       };
 
       // Add branch_id for super admin if selected
@@ -376,6 +397,7 @@ const ScheduleForm = ({ open, onClose, onSuccess, editingSchedule }) => {
 
   const handleClose = () => {
     setFormData({
+      term_id: '',
       day_of_week: 'Monday',
       period_number: 1,
       start_time: '',
@@ -385,9 +407,8 @@ const ScheduleForm = ({ open, onClose, onSuccess, editingSchedule }) => {
       section_id: '',
       subject_id: '',
       teacher_id: '',
-      slot_type_id: slotTypes.length > 0 ? slotTypes[0].id : ''
+      slot_type_id: ''
     });
-    // Reset filtered lists
     setSections(allSections);
     setTeachers(allTeachers);
     setSubjects(allSubjects);
@@ -401,6 +422,29 @@ const ScheduleForm = ({ open, onClose, onSuccess, editingSchedule }) => {
         <DialogTitle>{editingSchedule ? 'Edit Schedule Slot' : 'Add Schedule Slot'}</DialogTitle>
         <DialogContent>
           <Grid container spacing={2} sx={{ mt: 0.5 }}>
+            {/* Term Selection - Must be selected first */}
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                select
+                label="Term *"
+                name="term_id"
+                value={formData.term_id}
+                onChange={handleChange}
+                required
+                error={!formData.term_id}
+                helperText={!formData.term_id ? "Please select a term first" : ""}
+              >
+                <MenuItem value="">
+                  <em>Select Term</em>
+                </MenuItem>
+                {terms.map(term => (
+                  <MenuItem key={term.id} value={term.id}>
+                    {term.name} {term.is_current && "(Current)"}
+                  </MenuItem>
+                ))}
+              </TextField>
+            </Grid>
             <Grid item xs={12} sm={6}>
               <TextField
                 fullWidth
@@ -410,6 +454,7 @@ const ScheduleForm = ({ open, onClose, onSuccess, editingSchedule }) => {
                 value={formData.day_of_week}
                 onChange={handleChange}
                 required
+                disabled={!formData.term_id}
               >
                 {daysOfWeek.map(day => (
                   <MenuItem key={day} value={day}>{day}</MenuItem>
@@ -426,6 +471,7 @@ const ScheduleForm = ({ open, onClose, onSuccess, editingSchedule }) => {
                 onChange={handleChange}
                 required
                 inputProps={{ min: 1 }}
+                disabled={!formData.term_id}
               />
             </Grid>
             <Grid item xs={12} sm={6}>
@@ -438,6 +484,7 @@ const ScheduleForm = ({ open, onClose, onSuccess, editingSchedule }) => {
                 onChange={handleChange}
                 required
                 InputLabelProps={{ shrink: true }}
+                disabled={!formData.term_id}
               />
             </Grid>
             <Grid item xs={12} sm={6}>
@@ -450,6 +497,7 @@ const ScheduleForm = ({ open, onClose, onSuccess, editingSchedule }) => {
                 onChange={handleChange}
                 required
                 InputLabelProps={{ shrink: true }}
+                disabled={!formData.term_id}
               />
             </Grid>
             <Grid item xs={12} sm={6}>
@@ -461,6 +509,7 @@ const ScheduleForm = ({ open, onClose, onSuccess, editingSchedule }) => {
                 value={formData.slot_type_id}
                 onChange={handleChange}
                 required
+                disabled={!formData.term_id}
               >
                 <MenuItem value="">
                   <em>Select Slot Type</em>
@@ -482,6 +531,7 @@ const ScheduleForm = ({ open, onClose, onSuccess, editingSchedule }) => {
                   value={formData.branch_id || ''}
                   onChange={handleChange}
                   required
+                  disabled={!formData.term_id}
                 >
                   <MenuItem value="">
                     <em>Select Branch</em>
@@ -501,7 +551,8 @@ const ScheduleForm = ({ open, onClose, onSuccess, editingSchedule }) => {
                 value={formData.class_id}
                 onChange={handleChange}
                 required
-                helperText={!formData.class_id ? "Select class first to see available sections and teachers" : ""}
+                disabled={!formData.term_id}
+                helperText={!formData.term_id ? "Select term first" : !formData.class_id ? "Select class first to see available sections and teachers" : ""}
               >
                 <MenuItem value="">
                   <em>Select Class</em>
@@ -520,8 +571,8 @@ const ScheduleForm = ({ open, onClose, onSuccess, editingSchedule }) => {
                 value={formData.section_id}
                 onChange={handleChange}
                 required
-                disabled={!formData.class_id || sections.length === 0}
-                helperText={!formData.class_id ? "Select class first" : sections.length === 0 ? "No sections available for this class" : ""}
+                disabled={!formData.term_id || !formData.class_id || sections.length === 0}
+                helperText={!formData.term_id ? "Select term first" : !formData.class_id ? "Select class first" : sections.length === 0 ? "No sections available for this class" : ""}
               >
                 <MenuItem value="">
                   <em>Select Section</em>
@@ -542,8 +593,8 @@ const ScheduleForm = ({ open, onClose, onSuccess, editingSchedule }) => {
                 value={formData.teacher_id}
                 onChange={handleChange}
                 required
-                disabled={!formData.class_id || teachers.length === 0}
-                helperText={!formData.class_id ? "Select class first" : teachers.length === 0 ? "No teachers assigned to this class" : ""}
+                disabled={!formData.term_id || !formData.class_id || teachers.length === 0}
+                helperText={!formData.term_id ? "Select term first" : !formData.class_id ? "Select class first" : teachers.length === 0 ? "No teachers assigned to this class" : ""}
               >
                 <MenuItem value="">
                   <em>Select Teacher</em>
@@ -563,8 +614,8 @@ const ScheduleForm = ({ open, onClose, onSuccess, editingSchedule }) => {
                 name="subject_id"
                 value={formData.subject_id}
                 onChange={handleChange}
-                disabled={!formData.teacher_id || subjects.length === 0}
-                helperText={!formData.teacher_id ? "Select teacher first" : subjects.length === 0 ? "No subjects available" : ""}
+                disabled={!formData.term_id || !formData.teacher_id || subjects.length === 0}
+                helperText={!formData.term_id ? "Select term first" : !formData.teacher_id ? "Select teacher first" : subjects.length === 0 ? "No subjects available" : ""}
               >
                 <MenuItem value="">
                   <em>Select Subject</em>

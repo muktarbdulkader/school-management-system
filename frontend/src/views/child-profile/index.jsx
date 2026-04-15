@@ -10,7 +10,9 @@ import {
   Tabs,
   Tab,
   useMediaQuery,
+  Chip,
 } from '@mui/material';
+import { School as SchoolIcon } from '@mui/icons-material';
 import Backend from 'services/backend';
 import GetToken from 'utils/auth-token';
 import { toast } from 'react-toastify';
@@ -27,17 +29,55 @@ export default function ChildProfilePage() {
   const userRole = user?.role?.toLowerCase() || 'parent';
   const [dashboardData, setDashboardData] = useState(null);
   const [academicData, setAcademicData] = useState(null);
+  const [teacherSubjects, setTeacherSubjects] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [selectedTab, setSelectedTab] = useState(0);
   const isMobile = useMediaQuery('(max-width:600px)');
+  const isTeacher = userRole === 'teacher';
+
+  // Fetch teacher's assigned subjects for this student
+  useEffect(() => {
+    const loadTeacherSubjects = async () => {
+      if (!isTeacher || !studentId) return;
+
+      try {
+        const token = await GetToken();
+        // Fetch teacher's class-subject assignments
+        const apiUrl = `${Backend.api}${Backend.classSubjectTeachers}`;
+
+        const response = await fetch(apiUrl, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          if (data.success && data.data) {
+            // Extract subject IDs that this teacher teaches
+            const subjectIds = data.data
+              .filter(item => item.subject_details)
+              .map(item => item.subject_details.id);
+            setTeacherSubjects([...new Set(subjectIds)]);
+          }
+        }
+      } catch (err) {
+        console.error('Error loading teacher subjects:', err);
+      }
+    };
+
+    loadTeacherSubjects();
+  }, [isTeacher, studentId]);
 
   useEffect(() => {
     const loadData = async () => {
       try {
         setLoading(true);
         const token = await GetToken();
-        // Use parent dashboard endpoint - works for parents to view their child's data
+
+        // For teachers, use a different endpoint or the same one but filter data
         const endpoint = Backend.parentStudentDashboard.replace('{student_id}', studentId);
         const apiUrl = `${Backend.api}${endpoint}`;
 
@@ -84,12 +124,14 @@ export default function ChildProfilePage() {
             exams: data.data.exams || [],
             exam_results: data.data.exam_results || [],
             progress: data.data.progress || {},
-            enrolled_subjects_count: data.data.enrolled_subjects_count || 0,
+            enrolled_subjects_count: isTeacher ? teacherSubjects.length : (data.data.enrolled_subjects_count || 0),
             all_students: data.data.all_students || [],
             // Behavior ratings placeholder (if available from other source)
             behavior_ratings: {
               average_rating: data.data.progress?.overall_average || 0,
             },
+            // For teacher view - store which subjects they teach
+            teacher_subject_ids: teacherSubjects,
           };
           setDashboardData(transformedData);
         } else {
@@ -110,7 +152,7 @@ export default function ChildProfilePage() {
       setError('No student ID provided');
       setLoading(false);
     }
-  }, [studentId]);
+  }, [studentId, teacherSubjects, isTeacher]);
 
   useEffect(() => {
     const loadData = async () => {
@@ -132,7 +174,19 @@ export default function ChildProfilePage() {
 
         const data = await response.json();
         if (data.success) {
-          setAcademicData(data.data);
+          // For teachers, filter subjects to only show ones they teach
+          if (isTeacher && data.data?.subjects && teacherSubjects.length > 0) {
+            const filteredData = {
+              ...data.data,
+              subjects: data.data.subjects.filter(subject =>
+                teacherSubjects.includes(subject.subject_id) ||
+                teacherSubjects.includes(subject.id)
+              ),
+            };
+            setAcademicData(filteredData);
+          } else {
+            setAcademicData(data.data);
+          }
         } else {
           throw new Error(data.message || 'No data available');
         }
@@ -208,14 +262,16 @@ export default function ChildProfilePage() {
           px: isMobile ? 1 : 3,
         }}
       >
-        {/* Header Section */}
+        {/* Header Section - Teacher gets different styling */}
         <Box
           sx={{
             mb: isMobile ? 2 : 4,
-            bgcolor: 'background.paper',
+            bgcolor: isTeacher ? 'info.light' : 'background.paper',
             p: isMobile ? 1 : 2,
             borderRadius: 2,
             boxShadow: 1,
+            border: isTeacher ? '2px solid' : 'none',
+            borderColor: isTeacher ? 'info.main' : 'transparent',
           }}
         >
           <Box
@@ -228,13 +284,26 @@ export default function ChildProfilePage() {
             }}
           >
             <Box>
-              <Typography
-                variant={isMobile ? 'h5' : 'h3'}
-                fontWeight="bold"
-                sx={{ mb: 1 }}
-              >
-                {dashboardData.student?.full_name || dashboardData.student?.name || 'Child Profile'}
-              </Typography>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                <Typography
+                  variant={isMobile ? 'h5' : 'h3'}
+                  fontWeight="bold"
+                >
+                  {isTeacher
+                    ? (dashboardData.student?.full_name || dashboardData.student?.name || 'Student Profile')
+                    : (dashboardData.student?.full_name || dashboardData.student?.name || 'Child Profile')}
+                </Typography>
+                {isTeacher && (
+                  <Chip
+                    icon={<SchoolIcon />}
+                    label="Teacher View"
+                    color="info"
+                    variant="filled"
+                    size="small"
+                    sx={{ ml: 1 }}
+                  />
+                )}
+              </Box>
               <Typography
                 variant="body1"
                 color="text.secondary"
@@ -242,8 +311,15 @@ export default function ChildProfilePage() {
               >
                 {dashboardData.student?.grade && dashboardData.student?.section
                   ? `${dashboardData.student.grade} • ${dashboardData.student.section}`
-                  : "Track your child's daily academic and well-being progress"}
+                  : isTeacher
+                    ? "Monitor student progress, assignments, and academic performance"
+                    : "Track your child's daily academic and well-being progress"}
               </Typography>
+              {isTeacher && teacherSubjects.length > 0 && (
+                <Typography variant="caption" color="info.main" sx={{ display: 'block', mt: 0.5 }}>
+                  You teach {teacherSubjects.length} subject{teacherSubjects.length !== 1 ? 's' : ''} to this student
+                </Typography>
+              )}
             </Box>
             <Button
               variant="outlined"
@@ -263,7 +339,7 @@ export default function ChildProfilePage() {
         <Tabs
           value={selectedTab}
           onChange={handleTabChange}
-          aria-label="Child Profile Tabs"
+          aria-label={isTeacher ? "Student Profile Tabs" : "Child Profile Tabs"}
           variant={isMobile ? 'scrollable' : 'standard'}
           scrollButtons="auto"
           allowScrollButtonsMobile
@@ -282,7 +358,10 @@ export default function ChildProfilePage() {
             },
           }}
         >
-          {['Overview', 'Academic', 'Attendance & Behavior'].map(
+          {(isTeacher
+            ? ['Overview', 'My Subjects', 'Attendance']
+            : ['Overview', 'Academic', 'Attendance & Behavior']
+          ).map(
             (label, index) => (
               <Tab
                 key={label}
@@ -332,17 +411,18 @@ export default function ChildProfilePage() {
           }}
         >
           {selectedTab === 0 && (
-            <OverviewTab data={dashboardData} isMobile={isMobile} />
+            <OverviewTab data={dashboardData} isMobile={isMobile} userRole={userRole} studentId={studentId} />
           )}
           {selectedTab === 1 && (
             <AcademicTab
               data={academicData}
               isMobile={isMobile}
               studentId={studentId}
+              userRole={userRole}
             />
           )}
           {selectedTab === 2 && (
-            <AttendanceBehaviorTab data={dashboardData} isMobile={isMobile} />
+            <AttendanceBehaviorTab data={dashboardData} isMobile={isMobile} userRole={userRole} />
           )}
         </Box>
       </Container>

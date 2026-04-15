@@ -12,6 +12,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.exceptions import PermissionDenied
 from users.models import User, has_model_permission
 from .models import Chat, GroupChat, GroupChatMember, GroupChatMessage, Meeting, Announcement, ParentFeedback, Notification
+from students.models import StudentSubject
 from .serializers import ChatSerializer, ConversationSummarySerializer, GroupChatConversationSummarySerializer, GroupChatMessageDetailSerializer, GroupChatMessageSerializer, MeetingSerializer, AnnouncementSerializer, GroupChatSerializer, GroupChatMemberSerializer, MessageDetailSerializer, ParentFeedbackSerializer, NotificationSerializer
 
 class ChatViewSet(viewsets.ModelViewSet):
@@ -24,6 +25,14 @@ class ChatViewSet(viewsets.ModelViewSet):
         branch_id = self.request.query_params.get('branch_id')
         if branch_id and not has_model_permission(user, 'chat', 'view_chat', branch_id):
             raise PermissionDenied("You do not have permission to view chats in this branch.")
+        # Superusers and staff can see all chats; regular users only see their own
+        if user.is_superuser or user.is_staff:
+            if branch_id:
+                return self.queryset.filter(
+                    models.Q(sender__userbranchaccess__branch_id=branch_id) |
+                    models.Q(receiver__userbranchaccess__branch_id=branch_id)
+                ).distinct().order_by('-timestamp')
+            return self.queryset.all().order_by('-timestamp')
         return self.queryset.filter(
             models.Q(sender=user) | models.Q(receiver=user)
         ).order_by('-timestamp')
@@ -464,6 +473,14 @@ class ChatHistoryViewSet(viewsets.ReadOnlyModelViewSet):
         branch_id = self.request.query_params.get('branch_id')
         if branch_id and not (user.is_superuser or user.is_staff) and not has_model_permission(user, 'chat', 'view_chat', branch_id):
             raise PermissionDenied("You do not have permission to view chat history in this branch.")
+        # Superusers and staff can see all chats; regular users only see their own
+        if user.is_superuser or user.is_staff:
+            if branch_id:
+                return self.queryset.filter(
+                    models.Q(sender__userbranchaccess__branch_id=branch_id) |
+                    models.Q(receiver__userbranchaccess__branch_id=branch_id)
+                ).distinct().order_by("-timestamp")
+            return self.queryset.all().order_by("-timestamp")
         return self.queryset.filter(
             models.Q(sender=user) | models.Q(receiver=user)
         ).order_by("-timestamp")

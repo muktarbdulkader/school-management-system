@@ -134,7 +134,7 @@ const CreateMessageForm = ({ open, onClose, onSubmit }) => {
     return () => clearTimeout(debounce);
   }, [messageDetails, students, teachers, recipientType]);
 
-  const fetchStudents = async () => {
+  const fetchStudents = async (overrideSubjectId = null) => {
     setLoadingStudents(true);
     const token = await GetToken();
 
@@ -145,7 +145,9 @@ const CreateMessageForm = ({ open, onClose, onSubmit }) => {
     });
 
     if (filters.branch_id) params.append('branch_id', filters.branch_id);
-    if (filters.subject_id) params.append('subject_id', filters.subject_id);
+    // Use overrideSubjectId if provided (from subject dropdown), otherwise use filter
+    const subjectId = overrideSubjectId !== null ? overrideSubjectId : filters.subject_id;
+    if (subjectId) params.append('subject_id', subjectId);
     if (filters.grade) params.append('grade', filters.grade);
     if (filters.section) params.append('section', filters.section);
 
@@ -455,6 +457,19 @@ const CreateMessageForm = ({ open, onClose, onSubmit }) => {
   useEffect(() => {
     fetchSubject();
   }, []);
+
+  // Refetch students when selected subject changes
+  useEffect(() => {
+    if (open && recipientType === 'student') {
+      // Update filters state for UI consistency
+      setFilters((prev) => ({
+        ...prev,
+        subject_id: selectedSubjectList,
+      }));
+      // Fetch students immediately with the selected subject
+      fetchStudents(selectedSubjectList);
+    }
+  }, [selectedSubjectList, open, recipientType]);
 
   return (
     <DrogaFormModal

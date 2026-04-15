@@ -498,6 +498,7 @@ const SchedulePage = () => {
               <TableHead>
                 <TableRow>
                   <TableCell>Day</TableCell>
+                  <TableCell>Term</TableCell>
                   <TableCell>Period</TableCell>
                   <TableCell>Time</TableCell>
                   {!isStudent && !isParent && (
@@ -514,7 +515,7 @@ const SchedulePage = () => {
               <TableBody>
                 {filteredSchedules.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={canCreateSchedule ? 8 : 7} align="center">
+                    <TableCell colSpan={canCreateSchedule ? 9 : 8} align="center">
                       <Typography variant="body2" color="text.secondary" sx={{ py: 4 }}>
                         {isStudent || isParent
                           ? 'No schedule found. Please ensure you are assigned to a class and section.'
@@ -531,6 +532,24 @@ const SchedulePage = () => {
                           size="small"
                           color={schedule.day_of_week === new Date().toLocaleDateString('en-US', { weekday: 'long' }) ? 'primary' : 'default'}
                         />
+                      </TableCell>
+                      <TableCell>
+                        <Stack direction="column" spacing={0.5}>
+                          <Typography variant="body2" color="text.secondary">
+                            {schedule.term_details?.name || schedule.term?.name || 'N/A'}
+                          </Typography>
+                          {schedule.term_details?.status && (
+                            <Chip
+                              label={schedule.term_details.status}
+                              size="small"
+                              color={
+                                schedule.term_details.status === 'current' ? 'success' :
+                                  schedule.term_details.status === 'upcoming' ? 'warning' : 'default'
+                              }
+                              sx={{ height: 20, fontSize: '0.7rem' }}
+                            />
+                          )}
+                        </Stack>
                       </TableCell>
                       <TableCell>
                         <Typography variant="body2" fontWeight="medium">

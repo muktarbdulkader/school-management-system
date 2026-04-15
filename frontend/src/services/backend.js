@@ -209,6 +209,8 @@ const Backend = {
   // aliases used by child-profile page
   parentStudentsAcademicProgress: 'parent_students/academic_progress/',
   parentStudentsParentSubjectObjectives: 'parent_students/parent_subject_objectives/',
+  // Teacher-specific endpoint for student subject assignments with submissions
+  teacherSubjectAssignments: 'parent_students/teacher_subject_assignments/',
   behaviorIncidentsTodayIncidents: 'behavior_incidents/today_incidents/',
 
   // Custom Communication Actions

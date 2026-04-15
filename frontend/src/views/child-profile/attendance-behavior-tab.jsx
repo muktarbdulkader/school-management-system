@@ -6,12 +6,13 @@ import GetToken from "utils/auth-token"
 import axios from "axios"
 import dayjs from "dayjs"
 
-export default function AttendanceBehaviorTab({ child, profile, data }) {
+export default function AttendanceBehaviorTab({ child, profile, data, userRole = 'parent' }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
   const [attendanceData, setAttendanceData] = useState([])
   const [behaviorData, setBehaviorData] = useState([])
-  
+  const isTeacher = userRole === 'teacher'
+
   // Support multiple prop formats for flexibility
   const studentId = child?.id || profile?.id || data?.profile?.id || data?.student?.id
 
@@ -24,7 +25,7 @@ export default function AttendanceBehaviorTab({ child, profile, data }) {
   const fetchAttendanceAndBehavior = async () => {
     setLoading(true)
     setError("")
-    
+
     try {
       const token = await GetToken()
       const headers = {
@@ -49,7 +50,7 @@ export default function AttendanceBehaviorTab({ child, profile, data }) {
       const behaviorRes = await axios.get(behaviorUrl, { headers })
       const incidents = behaviorRes.data?.data || behaviorRes.data?.results || []
       setBehaviorData(incidents)
-      
+
     } catch (err) {
       console.error("Error fetching attendance/behavior:", err)
       setError(err?.response?.data?.message || err.message || "Failed to load data")
@@ -82,7 +83,7 @@ export default function AttendanceBehaviorTab({ child, profile, data }) {
           <Card>
             <CardContent>
               <Typography variant="h6" gutterBottom>
-                Recent Attendance
+                {isTeacher ? 'Student Attendance Records' : 'Recent Attendance'}
               </Typography>
               {attendanceData.length === 0 ? (
                 <Typography variant="body2" color="text.secondary">
@@ -121,7 +122,7 @@ export default function AttendanceBehaviorTab({ child, profile, data }) {
           <Card>
             <CardContent>
               <Typography variant="h6" gutterBottom>
-                Behavior Incidents
+                {isTeacher ? 'Behavior & Conduct Records' : 'Behavior Incidents'}
               </Typography>
               {behaviorData.length === 0 ? (
                 <Typography variant="body2" color="text.secondary">
@@ -158,6 +159,56 @@ export default function AttendanceBehaviorTab({ child, profile, data }) {
             </CardContent>
           </Card>
         </Grid>
+
+        {/* Teacher-only: Attendance Summary & Actions */}
+        {isTeacher && (
+          <Grid item xs={12}>
+            <Card sx={{ bgcolor: 'info.light' }}>
+              <CardContent>
+                <Typography variant="h6" gutterBottom>
+                  Teacher View: Attendance Summary
+                </Typography>
+                <Grid container spacing={2}>
+                  <Grid item xs={12} md={3}>
+                    <Typography variant="body2" color="text.secondary">
+                      Total Records
+                    </Typography>
+                    <Typography variant="h6">
+                      {attendanceData.length}
+                    </Typography>
+                  </Grid>
+                  <Grid item xs={12} md={3}>
+                    <Typography variant="body2" color="text.secondary">
+                      Present
+                    </Typography>
+                    <Typography variant="h6" color="success.main">
+                      {attendanceData.filter(a => a.status?.toLowerCase() === 'present').length}
+                    </Typography>
+                  </Grid>
+                  <Grid item xs={12} md={3}>
+                    <Typography variant="body2" color="text.secondary">
+                      Absent
+                    </Typography>
+                    <Typography variant="h6" color="error.main">
+                      {attendanceData.filter(a => a.status?.toLowerCase() === 'absent').length}
+                    </Typography>
+                  </Grid>
+                  <Grid item xs={12} md={3}>
+                    <Typography variant="body2" color="text.secondary">
+                      Late
+                    </Typography>
+                    <Typography variant="h6" color="warning.main">
+                      {attendanceData.filter(a => a.status?.toLowerCase() === 'late').length}
+                    </Typography>
+                  </Grid>
+                </Grid>
+                <Typography variant="caption" color="text.secondary" sx={{ mt: 2, display: 'block' }}>
+                  * Teachers can mark attendance and view detailed reports
+                </Typography>
+              </CardContent>
+            </Card>
+          </Grid>
+        )}
       </Grid>
     </Box>
   )

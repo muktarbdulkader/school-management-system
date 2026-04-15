@@ -20,15 +20,50 @@ class TermsSerializer(serializers.ModelSerializer):
         allow_null=True
     )
     branch_details = serializers.SerializerMethodField()
-    
+
     class Meta:
         model = Term
-        fields = ['id', 'branch', 'branch_details', 'academic_year', 'name', 'start_date', 'end_date', 'is_current']
-    
+        fields = ['id', 'branch', 'branch_details', 'academic_year', 'name', 'start_date', 'end_date', 'is_current', 'status']
+
     def get_branch_details(self, obj):
         if obj.branch:
             return {'id': str(obj.branch.id), 'name': obj.branch.name}
         return None
+
+    def validate_end_date(self, value):
+        """Prevent creating terms with past end dates"""
+        from django.utils import timezone
+        from rest_framework.exceptions import ValidationError
+
+        today = timezone.now().date()
+        if value < today:
+            raise ValidationError(
+                f"Cannot create a term with an end date in the past. "
+                f"Today is {today}, but the end date is {value}."
+            )
+        return value
+
+    def validate(self, data):
+        """Additional validation for term dates"""
+        from django.utils import timezone
+        from rest_framework.exceptions import ValidationError
+
+        start_date = data.get('start_date')
+        end_date = data.get('end_date')
+
+        # Validate date range
+        if start_date and end_date and start_date >= end_date:
+            raise ValidationError("Start date must be before end date.")
+
+        # Validate that end date is not in the past
+        today = timezone.now().date()
+        if end_date and end_date < today:
+            raise ValidationError(
+                f"Cannot create a term with an end date in the past. "
+                f"Today is {today}, but the end date is {end_date}."
+            )
+
+        return data
 
 class ClassesSerializer(serializers.ModelSerializer):
     branch =serializers.PrimaryKeyRelatedField(

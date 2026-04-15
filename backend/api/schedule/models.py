@@ -104,14 +104,14 @@ class ClassScheduleSlot(models.Model):
             raise ValidationError("Start time must be before end time")
         
         # Check teacher is not double-booked
-        if self.teacher_assignment:
+        if self.teacher_assignment and self.teacher_assignment.teacher:
             teacher_conflicts = ClassScheduleSlot.objects.filter(
                 teacher_assignment=self.teacher_assignment,
                 day_of_week=self.day_of_week,
                 start_time__lt=self.end_time,
                 end_time__gt=self.start_time
             ).exclude(id=self.id if self.id else None)
-            
+
             if teacher_conflicts.exists():
                 raise ValidationError(
                     f"Teacher {self.teacher_assignment.teacher.user.full_name} is already "

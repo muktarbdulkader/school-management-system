@@ -738,7 +738,7 @@ class ClassScheduleSlotsViewSet(viewsets.ModelViewSet):
                     'type': 'classroom',
                     'message': f"Classroom is already booked at this time",
                     'conflicting_slots': [
-                        {'id': str(c.id), 'class': c.class_fk.grade, 'teacher': c.teacher_assignment.teacher.user.full_name if c.teacher_assignment else None}
+                        {'id': str(c.id), 'class': c.class_fk.grade, 'teacher': c.teacher_assignment.teacher.user.full_name if c.teacher_assignment and c.teacher_assignment.teacher else None}
                         for c in classroom_conflicts[:5]
                     ]
                 })
@@ -1158,7 +1158,7 @@ class LeaveRequestViewSet(viewsets.ModelViewSet):
         branch_id = self.request.query_params.get('branch_id')
 
         # Check if user has permission to view leave requests
-        if not user.is_superuser and not has_model_permission(user, 'attendance', 'view_attendance', branch_id):
+        if not user.is_superuser and not user.is_staff and not has_model_permission(user, 'attendance', 'view_attendance', branch_id):
             raise PermissionDenied("You do not have permission to view pending leave requests.")
 
         # Get pending leave requests
@@ -1187,7 +1187,7 @@ class LeaveRequestViewSet(viewsets.ModelViewSet):
         user = self.request.user
 
         # Check if user has permission
-        if not user.is_superuser and not has_model_permission(user, 'attendance', 'view_attendance'):
+        if not user.is_superuser and not user.is_staff and not has_model_permission(user, 'attendance', 'view_attendance'):
             raise PermissionDenied("You do not have permission to view student leave history.")
 
         queryset = self.queryset.filter(student_id=student_id).order_by('-created_at')
@@ -1203,7 +1203,8 @@ class LeaveRequestViewSet(viewsets.ModelViewSet):
     def reject_leave(self, request, pk=None):
         """Endpoint for teachers to reject leave requests"""
         leave_request = self.get_object()
-        if not has_model_permission(self.request.user, 'attendance', 'change_attendance'):
+        user = self.request.user
+        if not user.is_superuser and not user.is_staff and not has_model_permission(user, 'attendance', 'change_attendance'):
             raise PermissionDenied("Only teachers can reject leave requests.")
 
         if leave_request.status != 'pending':
@@ -1227,7 +1228,8 @@ class LeaveRequestViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['patch'], url_path='approve_leave')
     def approve_leave(self, request, pk=None):
         leave_request = self.get_object()
-        if not has_model_permission(self.request.user, 'attendance', 'change_attendance'):
+        user = self.request.user
+        if not user.is_superuser and not user.is_staff and not has_model_permission(user, 'attendance', 'change_attendance'):
             raise PermissionDenied("Only teachers can approve leave requests.")
 
         if leave_request.status != 'pending':

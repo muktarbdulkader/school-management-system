@@ -77,13 +77,14 @@ class MeetingSerializer(serializers.ModelSerializer):
     )
     requested_by_details = UserSerializer(source='requested_by', read_only=True)
     requested_to_details = UserSerializer(source='requested_to', read_only=True)
+    branch_id = serializers.CharField(write_only=True, required=False, allow_null=True)
 
     class Meta:
         model = Meeting
-        fields = ['id', 'requested_by', 'requested_to', 'requested_by_details', 
-                'requested_to_details', 'requested_date', 'requested_time', 
-                'status', 'notes', 'is_canceled', 'canceled_at', 'parent_comment', 'parent_rating']
-        read_only_fields = ['id', 'requested_by_details', 'requested_to_details', 
+        fields = ['id', 'requested_by', 'requested_to', 'requested_by_details',
+                'requested_to_details', 'requested_date', 'requested_time',
+                'status', 'notes', 'is_canceled', 'canceled_at', 'parent_comment', 'parent_rating', 'branch_id']
+        read_only_fields = ['id', 'requested_by_details', 'requested_to_details',
                             'is_canceled', 'canceled_at']
 
     def validate(self, data):
