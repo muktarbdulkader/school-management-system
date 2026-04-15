@@ -603,17 +603,23 @@ class StudentViewSet(viewsets.ModelViewSet):
             raise PermissionDenied("You do not have permission to view assignments.")
 
         from lessontopics.models import Assignments, StudentAssignments
-        from lessontopics.serializers import AssignmentsSerializer, StudentAssignmentsSerializer
+        from lessontopics.serializers import SimpleAssignmentsSerializer, StudentAssignmentsSerializer
         from django.db.models import Q
 
         # All assignments assigned to the student (either directly or via section/class)
+        # Limit to 50 most recent to prevent memory issues
         all_assignments = Assignments.objects.filter(
             Q(students=student) | Q(section=student.section) | Q(class_fk=student.grade)
-        ).prefetch_related('students', 'section').distinct().order_by('-due_date')
+        ).select_related(
+            'teacher_assignment', 'teacher_assignment__subject',
+            'teacher_assignment__class_fk', 'teacher_assignment__section',
+            'teacher_assignment__teacher', 'teacher_assignment__teacher__user'
+        ).distinct().order_by('-due_date')[:50]
 
-        submissions = StudentAssignments.objects.filter(student=student, assignment__in=all_assignments)
+        assignment_ids = [a.id for a in all_assignments]
+        submissions = StudentAssignments.objects.filter(student=student, assignment_id__in=assignment_ids)
 
-        assignments_data = AssignmentsSerializer(all_assignments, many=True).data
+        assignments_data = SimpleAssignmentsSerializer(all_assignments, many=True).data
         submissions_data = StudentAssignmentsSerializer(submissions, many=True).data
 
         return Response({
@@ -872,7 +878,7 @@ class ParentStudentViewSet(viewsets.ModelViewSet):
             LessonPlans, ExamResults, StudentAssignments, Assignments
         )
         from lessontopics.serializers import (
-            LessonPlansSerializer, ExamResultsSerializer, StudentAssignmentsSerializer, AssignmentsSerializer
+            LessonPlansSerializer, ExamResultsSerializer, StudentAssignmentsSerializer, SimpleAssignmentsSerializer
         )
         from schedule.models import Exam, Attendance
         from communication.models import Announcement
@@ -997,9 +1003,13 @@ class ParentStudentViewSet(viewsets.ModelViewSet):
         ).filter(
             due_date__gte=today,
             due_date__lte=end_date_assignments
-        ).order_by('-due_date').prefetch_related('students', 'class_fk', 'section')
+        ).order_by('-due_date').select_related(
+            'teacher_assignment', 'teacher_assignment__subject',
+            'teacher_assignment__class_fk', 'teacher_assignment__section',
+            'teacher_assignment__teacher', 'teacher_assignment__teacher__user'
+        )[:20]
 
-        upcoming_assignments_data = AssignmentsSerializer(upcoming_assignments, many=True, context={'student_id': student_id}).data
+        upcoming_assignments_data = SimpleAssignmentsSerializer(upcoming_assignments, many=True).data
         health_record = StudentHealthRecords.objects.filter(student=student).order_by('-date').first()
         health_incident = health_record.incident if health_record else "No recent health incidents"
         health_history = health_record.history if health_record else "No health history recorded"
@@ -1187,6 +1197,8 @@ class ParentStudentViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['get'], url_path='profile_dashboard/(?P<student_id>[^/.]+)/?')
     def profile_dashboard(self, request, student_id=None):
+        from lessontopics.serializers import SimpleAssignmentsSerializer
+
         user = request.user
         branch_id = request.query_params.get('branch_id')
 
@@ -1235,9 +1247,13 @@ class ParentStudentViewSet(viewsets.ModelViewSet):
         ).filter(
             due_date__gte=today,
             due_date__lte=end_date_assignments
-        ).order_by('-due_date').prefetch_related('students', 'class_fk', 'section')
+        ).order_by('-due_date').select_related(
+            'teacher_assignment', 'teacher_assignment__subject',
+            'teacher_assignment__class_fk', 'teacher_assignment__section',
+            'teacher_assignment__teacher', 'teacher_assignment__teacher__user'
+        )[:10]
 
-        upcoming_assignments_data = AssignmentsSerializer(upcoming_assignments, many=True).data
+        upcoming_assignments_data = SimpleAssignmentsSerializer(upcoming_assignments, many=True).data
 
         behavior_incidents = BehaviorIncidents.objects.filter(student=student).order_by('-incident_date')[:5]
 
@@ -1466,6 +1482,8 @@ class ParentStudentViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['get'], url_path='assignment_dashboard/(?P<student_id>[^/.]+)/?')
     def assignment_dashboard(self, request, student_id=None):
+        from lessontopics.serializers import SimpleAssignmentsSerializer
+
         user = request.user
         branch_id = request.query_params.get('branch_id')
 
@@ -1516,24 +1534,28 @@ class ParentStudentViewSet(viewsets.ModelViewSet):
         ))
         all_assignments = Assignments.objects.filter(
             Q(students=student) | Q(section=student.section)
-        ).prefetch_related('students', 'section')
+        ).select_related(
+            'teacher_assignment', 'teacher_assignment__subject',
+            'teacher_assignment__class_fk', 'teacher_assignment__section',
+            'teacher_assignment__teacher', 'teacher_assignment__teacher__user'
+        )
 
-        completed = all_assignments.filter(is_submitted).order_by('due_date')
+        completed = all_assignments.filter(is_submitted).order_by('-due_date')[:20]
 
         pending = all_assignments.filter(
             ~is_submitted,
             due_date__gte=today,
             due_date__lte=due_soon_threshold
-        ).order_by('due_date')
+        ).order_by('due_date')[:20]
 
         overdue = all_assignments.filter(
             ~is_submitted,
             due_date__lt=today
-        ).order_by('due_date')
+        ).order_by('-due_date')[:20]
 
-        overdue_data = AssignmentsSerializer(overdue, many=True).data
-        pending_data = AssignmentsSerializer(pending, many=True).data
-        completed_data = AssignmentsSerializer(completed, many=True).data
+        overdue_data = SimpleAssignmentsSerializer(overdue, many=True).data
+        pending_data = SimpleAssignmentsSerializer(pending, many=True).data
+        completed_data = SimpleAssignmentsSerializer(completed, many=True).data
 
         response_data = {
             'success': True,

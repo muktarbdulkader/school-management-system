@@ -108,20 +108,8 @@ class Command(BaseCommand):
                 'role': 'Admin',
                 'is_staff': True
             },
-            {
-                'email': 'headadmin@school.com',
-                'full_name': 'Head Administrator',
-                'password': 'admin123',
-                'role': 'Head_Admin',
-                'is_staff': True
-            },
-            {
-                'email': 'ceo@school.com',
-                'full_name': 'Chief Executive Officer',
-                'password': 'admin123',
-                'role': 'CEO',
-                'is_staff': True
-            },
+           
+          
             {
                 'email': 'teacher1@school.com',
                 'full_name': 'John Teacher',

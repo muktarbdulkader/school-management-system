@@ -19,16 +19,8 @@ class Command(BaseCommand):
                 'description': 'Administrative access with most permissions',
                 'permissions': 'all'
             },
-            {
-                'name': 'Head_Admin',
-                'description': 'Head administrator with elevated permissions',
-                'permissions': 'all'
-            },
-            {
-                'name': 'CEO',
-                'description': 'Chief Executive Officer with full oversight',
-                'permissions': 'all'
-            },
+           
+          
             {
                 'name': 'Teacher',
                 'description': 'Teaching staff with access to academic features',

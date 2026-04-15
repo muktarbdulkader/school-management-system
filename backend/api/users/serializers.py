@@ -50,7 +50,7 @@ class RoleSerializer(serializers.ModelSerializer):
         fields = ['id', 'name', 'description', 'permissions', 'permission_ids']
 
     def get_permissions(self, obj):
-        # Use prefetched rolepermission_set (avoids N+1 queries)
+        # Use select_related to avoid N+1 queries when content_type or permission are accessed
         return [
             {
                 'uuid': str(rp.permission.id),
@@ -60,7 +60,7 @@ class RoleSerializer(serializers.ModelSerializer):
                 'type': rp.content_type.model,
                 'content_type': f"{rp.content_type.app_label} | {rp.content_type.model}"
             }
-            for rp in obj.rolepermission_set.all()
+            for rp in obj.rolepermission_set.select_related('content_type', 'permission').all()
         ]
 
     def update(self, instance, validated_data):
@@ -129,8 +129,14 @@ class BranchAccessSerializer(serializers.ModelSerializer):
         model = UserBranchAccess
         fields = ['id', 'user', 'branch', 'user_id', 'branch_id', 'access_level']
 
+class SimpleRoleSerializer(serializers.ModelSerializer):
+    """Minimal role serializer without nested permissions to avoid circular serialization."""
+    class Meta:
+        model = Role
+        fields = ['id', 'name', 'description']
+
 class RolePermissionSerializer(serializers.ModelSerializer):
-    role = RoleSerializer(read_only=True)
+    role = SimpleRoleSerializer(read_only=True)
 
     class Meta:
         model = RolePermission

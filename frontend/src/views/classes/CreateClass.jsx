@@ -171,7 +171,9 @@ function CreateClass() {
       if (response.ok) {
         const data = await response.json();
         if (data.success && data.data) {
-          setAvailableTerms(data.data);
+          // Filter out closed terms - only show upcoming and current
+          const activeTerms = data.data.filter(t => t.status !== 'closed');
+          setAvailableTerms(activeTerms);
         }
       }
     } catch (error) {
@@ -744,7 +746,7 @@ function CreateClass() {
                 </MenuItem>
                 {availableTerms.map((term) => (
                   <MenuItem key={term.id} value={term.id}>
-                    {term.name} ({term.academic_year})
+                    {term.name} ({term.academic_year}) {term.status === 'current' && '✓ Current'}
                   </MenuItem>
                 ))}
               </Select>

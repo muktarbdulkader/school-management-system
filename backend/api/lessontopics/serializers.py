@@ -331,6 +331,24 @@ class LessonPlanObjectivesSerializer(serializers.ModelSerializer):
         return instance
 
 # ==================== Assignments ====================
+class SimpleAssignmentsSerializer(serializers.ModelSerializer):
+    """Lightweight serializer for dashboard use - avoids heavy nested student data"""
+    subject_name = serializers.CharField(source='teacher_assignment.subject.name', read_only=True)
+    class_name = serializers.CharField(source='teacher_assignment.class_fk.grade', read_only=True)
+    section_name = serializers.CharField(source='teacher_assignment.section.name', read_only=True, default=None)
+    teacher_name = serializers.CharField(source='teacher_assignment.teacher.user.full_name', read_only=True, default=None)
+    student_count = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = Assignments
+        fields = ['id', 'title', 'description', 'assigned_date', 'due_date', 
+                  'file_url', 'is_group_assignment', 'group_name', 'max_score', 
+                  'is_active', 'subject_name', 'class_name', 'section_name', 
+                  'teacher_name', 'student_count', 'status']
+    
+    def get_student_count(self, obj):
+        return obj.students.count()
+
 class AssignmentsSerializer(serializers.ModelSerializer):
     teacher_assignment_id = serializers.PrimaryKeyRelatedField(
         queryset=TeacherAssignment.objects.all(),

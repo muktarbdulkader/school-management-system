@@ -102,17 +102,17 @@ class ClassScheduleSlotsSerializer(serializers.ModelSerializer):
                 class_fk_id=class_id or self.instance.class_fk_id,
                 section_id=section_id or self.instance.section_id,
                 day_of_week=day_of_week or self.instance.day_of_week
-            ).exclude(id=self.instance.id)
+            ).exclude(id=self.instance.id).exclude(term__status='closed')
         else:
             existing_slots = ClassScheduleSlot.objects.filter(
                 class_fk_id=class_id,
                 section_id=section_id,
                 day_of_week=day_of_week
-            )
+            ).exclude(term__status='closed')
         if period_number and existing_slots.filter(period_number=period_number).exists():
             raise serializers.ValidationError("This period number is already assigned for the given day.")
 
-        # Check classroom conflicts
+        # Check classroom conflicts (exclude closed terms)
         if classroom_id and day_of_week and start_time and end_time:
             if self.instance:
                 classroom_conflicts = ClassScheduleSlot.objects.filter(
@@ -120,14 +120,14 @@ class ClassScheduleSlotsSerializer(serializers.ModelSerializer):
                     day_of_week=day_of_week,
                     start_time__lt=end_time,
                     end_time__gt=start_time
-                ).exclude(id=self.instance.id)
+                ).exclude(id=self.instance.id).exclude(term__status='closed')
             else:
                 classroom_conflicts = ClassScheduleSlot.objects.filter(
                     classroom_id=classroom_id,
                     day_of_week=day_of_week,
                     start_time__lt=end_time,
                     end_time__gt=start_time
-                )
+                ).exclude(term__status='closed')
 
             if classroom_conflicts.exists():
                 raise serializers.ValidationError("This classroom is already booked at this time")

@@ -246,12 +246,13 @@ const SchedulePage = () => {
     return schedulesByDay[today] || [];
   };
 
-  // Detect conflicts in schedule
+  // Detect conflicts in schedule (exclude closed terms)
   const detectConflicts = () => {
     const conflicts = [];
-    schedules.forEach(schedule => {
-      // Check for duplicate period in same class/section/day
-      const sameSlot = schedules.filter(s =>
+    const activeSchedules = schedules.filter(s => s.term_details?.status !== 'closed');
+    activeSchedules.forEach(schedule => {
+      // Check for duplicate period in same class/section/day (only in active terms)
+      const sameSlot = activeSchedules.filter(s =>
         s.id !== schedule.id &&
         s.day_of_week === schedule.day_of_week &&
         s.class_details?.id === schedule.class_details?.id &&
@@ -267,9 +268,9 @@ const SchedulePage = () => {
         });
       }
 
-      // Check for teacher conflict
+      // Check for teacher conflict (only in active terms)
       if (schedule.teacher_details?.id) {
-        const teacherConflict = schedules.filter(s =>
+        const teacherConflict = activeSchedules.filter(s =>
           s.id !== schedule.id &&
           s.day_of_week === schedule.day_of_week &&
           s.teacher_details?.id === schedule.teacher_details?.id &&

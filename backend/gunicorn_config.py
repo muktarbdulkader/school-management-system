@@ -8,17 +8,17 @@ import os
 bind = "0.0.0.0:10000"
 
 # Worker processes - limit for 512MB memory
-# Formula: (512MB - OS overhead) / ~150MB per worker = ~2-3 workers
-workers = 2  # Fixed at 2 for 512MB RAM
+# Formula: (512MB - OS overhead) / ~150MB per worker = ~2 workers max
+workers = 1  # Reduced to 1 worker for 512MB RAM to prevent OOM
 worker_class = "sync"  # Use sync workers (less memory than gevent/eventlet)
 worker_connections = 1000
-timeout = 120
+timeout = 60  # Reduced timeout since endpoints are now optimized
 keepalive = 2
 
 # Memory optimization
-max_requests = 500  # Restart workers after 500 requests to prevent memory leaks
-max_requests_jitter = 50  # Add randomness to prevent all workers restarting at once
-preload_app = True  # Preload application to save memory
+max_requests = 200  # Restart workers more frequently to prevent memory leaks
+max_requests_jitter = 20  # Add randomness to prevent all workers restarting at once
+preload_app = False  # Disable preload to reduce initial memory usage
 
 # Logging
 accesslog = "-"  # Log to stdout
@@ -42,16 +42,8 @@ secure_scheme_headers = {
     'X-FORWARDED-SSL': 'on'
 }
 
-# Memory limit for workers (optional, Linux only)
-# This will kill workers that use too much memory
-if os.name != 'nt':  # Not Windows
-    import resource
-    # Try to set a soft memory limit per worker (~200MB)
-    try:
-        soft, hard = resource.getrlimit(resource.RLIMIT_AS)
-        resource.setrlimit(resource.RLIMIT_AS, (209715200, hard))  # 200MB soft limit
-    except (ValueError, OSError):
-        pass  # Ignore if not supported
+# Note: Memory limits disabled - Render handles OOM at container level
+# With 1 worker and optimized code, we should stay under 512MB
 
 def worker_int(worker):
     """Log when worker receives SIGINT or SIGQUIT"""

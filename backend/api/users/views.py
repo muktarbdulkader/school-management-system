@@ -730,12 +730,7 @@ class BranchAccessViewSet(viewsets.ModelViewSet):
 
 
 class RolePermissionViewSet(viewsets.ModelViewSet):
-    queryset = RolePermission.objects.all().prefetch_related(
-        'permission', 'content_type',
-        'role__rolepermission_set',
-        'role__rolepermission_set__permission',
-        'role__rolepermission_set__content_type'
-    )
+    queryset = RolePermission.objects.all().select_related('permission', 'content_type', 'role')
     serializer_class = RolePermissionSerializer
     permission_classes = [IsAuthenticated]
 

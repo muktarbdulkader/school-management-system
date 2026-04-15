@@ -672,7 +672,10 @@ class ClassScheduleSlotsViewSet(viewsets.ModelViewSet):
             raise PermissionDenied("Only administrative users can validate schedule slots.")
 
         data = request.data
-        
+
+        # Get term_id for the new schedule
+        term_id = data.get('term')
+
         # Create a temporary instance for validation
         slot = ClassScheduleSlot(
             class_fk_id=data.get('class_id'),
@@ -685,18 +688,30 @@ class ClassScheduleSlotsViewSet(viewsets.ModelViewSet):
             end_time=data.get('end_time'),
             classroom_id=data.get('classroom_id'),
             slot_type_id=data.get('slot_type'),
+            term_id=term_id,
         )
 
         conflicts = []
 
-        # Check teacher conflicts
+        # Helper function to check if a slot is in a closed term
+        def is_in_closed_term(slot_obj):
+            if not slot_obj.term:
+                return False
+            return slot_obj.term.status == 'closed'
+
+        # Check teacher conflicts (exclude closed terms)
         if slot.teacher_assignment_id:
             teacher_conflicts = ClassScheduleSlot.objects.filter(
                 teacher_assignment_id=slot.teacher_assignment_id,
                 day_of_week=slot.day_of_week,
                 start_time__lt=slot.end_time,
                 end_time__gt=slot.start_time
-            )
+            ).exclude(term__status='closed')  # Exclude closed terms
+
+            # Also exclude same term (for updates)
+            if slot.term_id:
+                teacher_conflicts = teacher_conflicts.exclude(term_id=slot.term_id)
+
             if teacher_conflicts.exists():
                 conflicts.append({
                     'type': 'teacher',
@@ -707,14 +722,19 @@ class ClassScheduleSlotsViewSet(viewsets.ModelViewSet):
                     ]
                 })
 
-        # Check section conflicts
+        # Check section conflicts (exclude closed terms)
         section_conflicts = ClassScheduleSlot.objects.filter(
             class_fk=slot.class_fk,
             section=slot.section,
             day_of_week=slot.day_of_week,
             start_time__lt=slot.end_time,
             end_time__gt=slot.start_time
-        )
+        ).exclude(term__status='closed')  # Exclude closed terms
+
+        # Also exclude same term (for updates)
+        if slot.term_id:
+            section_conflicts = section_conflicts.exclude(term_id=slot.term_id)
+
         if section_conflicts.exists():
             conflicts.append({
                 'type': 'section',
@@ -725,14 +745,19 @@ class ClassScheduleSlotsViewSet(viewsets.ModelViewSet):
                 ]
             })
 
-        # Check classroom conflicts (if classroom is specified)
+        # Check classroom conflicts (if classroom is specified, exclude closed terms)
         if slot.classroom:
             classroom_conflicts = ClassScheduleSlot.objects.filter(
                 classroom=slot.classroom,
                 day_of_week=slot.day_of_week,
                 start_time__lt=slot.end_time,
                 end_time__gt=slot.start_time
-            )
+            ).exclude(term__status='closed')  # Exclude closed terms
+
+            # Also exclude same term (for updates)
+            if slot.term_id:
+                classroom_conflicts = classroom_conflicts.exclude(term_id=slot.term_id)
+
             if classroom_conflicts.exists():
                 conflicts.append({
                     'type': 'classroom',
