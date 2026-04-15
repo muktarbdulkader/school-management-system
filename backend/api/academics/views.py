@@ -169,6 +169,31 @@ class TermsViewSet(viewsets.ModelViewSet):
         if not user.is_superuser:  # Restrict creation to superusers
             raise PermissionDenied("Only superusers can create terms.")
 
+        from django.utils import timezone
+
+        # Check if there's already a current term that hasn't ended
+        today = timezone.now().date()
+        existing_current_term = Term.objects.filter(
+            status='current',
+            end_date__gte=today
+        ).first()
+
+        if existing_current_term:
+            return Response({
+                'success': False,
+                'message': 'You can not create more than one term at a time',
+                'status': 400,
+                'data': {
+                    'existing_term': {
+                        'id': str(existing_current_term.id),
+                        'name': existing_current_term.name,
+                        'academic_year': existing_current_term.academic_year,
+                        'start_date': existing_current_term.start_date.isoformat(),
+                        'end_date': existing_current_term.end_date.isoformat()
+                    }
+                }
+            }, status=status.HTTP_400_BAD_REQUEST)
+
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         self.perform_create(serializer)
@@ -190,6 +215,36 @@ class TermsViewSet(viewsets.ModelViewSet):
             raise PermissionDenied("Only superusers can update terms.")
 
         instance = self.get_object()
+
+        # Check if status is being changed to 'current'
+        new_status = request.data.get('status', instance.status)
+
+        if new_status == 'current' and instance.status != 'current':
+            from django.utils import timezone
+
+            # Check if there's already a current term that hasn't ended
+            today = timezone.now().date()
+            existing_current_term = Term.objects.filter(
+                status='current',
+                end_date__gte=today
+            ).exclude(id=instance.id).first()
+
+            if existing_current_term:
+                return Response({
+                    'success': False,
+                    'message': 'You can not create more than one term at a time',
+                    'status': 400,
+                    'data': {
+                        'existing_term': {
+                            'id': str(existing_current_term.id),
+                            'name': existing_current_term.name,
+                            'academic_year': existing_current_term.academic_year,
+                            'start_date': existing_current_term.start_date.isoformat(),
+                            'end_date': existing_current_term.end_date.isoformat()
+                        }
+                    }
+                }, status=status.HTTP_400_BAD_REQUEST)
+
         serializer = self.get_serializer(instance, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         self.perform_update(serializer)

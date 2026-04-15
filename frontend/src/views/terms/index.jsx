@@ -140,19 +140,34 @@ const TermManagement = () => {
       const token = await GetToken();
       const response = await fetch(`${Backend.api}terms/${selectedTerm.id}/`, {
         method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` }
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
       });
-      const data = await response.json();
-      if (data.success || response.status === 204) {
+
+      // Handle 204 No Content response (success but no body)
+      if (response.status === 204 || response.ok) {
         toast.success('Term deleted successfully');
         setDeleteDialogOpen(false);
         setSelectedTerm(null);
         fetchTerms();
-      } else {
-        toast.error(data.message || 'Failed to delete term');
+        return;
       }
+
+      // Try to parse error response
+      let errorMessage = 'Failed to delete term';
+      try {
+        const data = await response.json();
+        errorMessage = data.message || data.detail || `Error ${response.status}: Failed to delete term`;
+      } catch (e) {
+        errorMessage = `Error ${response.status}: Failed to delete term`;
+      }
+
+      toast.error(errorMessage);
     } catch (error) {
-      toast.error('Error deleting term');
+      console.error('Delete term error:', error);
+      toast.error('Error deleting term: ' + (error.message || 'Network error'));
     }
   };
 
@@ -222,45 +237,57 @@ const TermManagement = () => {
         </Grid>
 
         <Grid container spacing={2}>
-          {terms.map((term) => (
-            <Grid item xs={12} md={6} lg={4} key={term.id}>
-              <Card sx={{ height: '100%', border: term.is_current ? 2 : 0, borderColor: 'success.main', position: 'relative' }}>
-                {term.is_current && (
-                  <Box sx={{ position: 'absolute', top: 8, right: 8, bgcolor: 'success.main', color: 'white', px: 1, py: 0.5, borderRadius: 1, fontSize: '0.75rem', fontWeight: 'bold' }}>
-                    CURRENT
-                  </Box>
-                )}
-                <CardContent>
-                  <Stack spacing={2}>
-                    <Box>
-                      <Typography variant="h5" gutterBottom>{term.name}</Typography>
-                      <Chip label={getStatusLabel(term)} color={getStatusColor(term)} size="small" sx={{ mr: 1 }} />
-                      {term.branch_details && <Chip label={term.branch_details.name} variant="outlined" size="small" />}
+          {terms.map((term) => {
+            const now = new Date();
+            const end = new Date(term.end_date);
+            const isCompleted = now > end;
+
+            return (
+              <Grid item xs={12} md={6} lg={4} key={term.id}>
+                <Card sx={{
+                  height: '100%',
+                  border: term.is_current ? 2 : 0,
+                  borderColor: 'success.main',
+                  position: 'relative',
+                  bgcolor: isCompleted ? 'grey.100' : 'background.paper',
+                  opacity: isCompleted ? 0.85 : 1
+                }}>
+                  {term.is_current && (
+                    <Box sx={{ position: 'absolute', top: 8, right: 8, bgcolor: 'success.main', color: 'white', px: 1, py: 0.5, borderRadius: 1, fontSize: '0.75rem', fontWeight: 'bold' }}>
+                      CURRENT
                     </Box>
-                    <Divider />
-                    <Stack spacing={1}>
-                      <Box display="flex" alignItems="center" gap={1}>
-                        <IconSchool size={16} color="#666" />
-                        <Typography variant="body2" color="text.secondary">Academic Year: <strong>{term.academic_year}</strong></Typography>
+                  )}
+                  <CardContent>
+                    <Stack spacing={2}>
+                      <Box>
+                        <Typography variant="h5" gutterBottom>{term.name}</Typography>
+                        <Chip label={getStatusLabel(term)} color={getStatusColor(term)} size="small" sx={{ mr: 1 }} />
+                        {term.branch_details && <Chip label={term.branch_details.name} variant="outlined" size="small" />}
                       </Box>
-                      <Box display="flex" alignItems="center" gap={1}>
-                        <IconCalendar size={16} color="#666" />
-                        <Typography variant="body2" color="text.secondary">Start: {term.start_date ? format(new Date(term.start_date), 'MMM dd, yyyy') : '-'}</Typography>
-                      </Box>
-                      <Box display="flex" alignItems="center" gap={1}>
-                        <IconCalendar size={16} color="#666" />
-                        <Typography variant="body2" color="text.secondary">End: {term.end_date ? format(new Date(term.end_date), 'MMM dd, yyyy') : '-'}</Typography>
+                      <Divider />
+                      <Stack spacing={1}>
+                        <Box display="flex" alignItems="center" gap={1}>
+                          <IconSchool size={16} color="#666" />
+                          <Typography variant="body2" color="text.secondary">Academic Year: <strong>{term.academic_year}</strong></Typography>
+                        </Box>
+                        <Box display="flex" alignItems="center" gap={1}>
+                          <IconCalendar size={16} color="#666" />
+                          <Typography variant="body2" color="text.secondary">Start: {term.start_date ? format(new Date(term.start_date), 'MMM dd, yyyy') : '-'}</Typography>
+                        </Box>
+                        <Box display="flex" alignItems="center" gap={1}>
+                          <IconCalendar size={16} color="#666" />
+                          <Typography variant="body2" color="text.secondary">End: {term.end_date ? format(new Date(term.end_date), 'MMM dd, yyyy') : '-'}</Typography>
+                        </Box>
+                      </Stack>
+                      <Box display="flex" justifyContent="flex-end" gap={1} sx={{ mt: 2 }}>
+                        <Tooltip title="Edit"><IconButton size="small" onClick={() => handleOpenDialog(term)} color="primary"><IconEdit size={18} /></IconButton></Tooltip>
+                        <Tooltip title="Delete"><IconButton size="small" onClick={() => openDeleteDialog(term)} color="error"><IconTrash size={18} /></IconButton></Tooltip>
                       </Box>
                     </Stack>
-                    <Box display="flex" justifyContent="flex-end" gap={1} sx={{ mt: 2 }}>
-                      <Tooltip title="Edit"><IconButton size="small" onClick={() => handleOpenDialog(term)} color="primary"><IconEdit size={18} /></IconButton></Tooltip>
-                      <Tooltip title="Delete"><IconButton size="small" onClick={() => openDeleteDialog(term)} color="error"><IconTrash size={18} /></IconButton></Tooltip>
-                    </Box>
-                  </Stack>
-                </CardContent>
-              </Card>
-            </Grid>
-          ))}
+                  </CardContent>
+                </Card>
+              </Grid>
+            ))}
         </Grid>
 
         {terms.length === 0 && !loading && (
