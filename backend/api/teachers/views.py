@@ -1501,9 +1501,12 @@ class TeacherAssignmentViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['get'], url_path='teacher-detail/(?P<teacher_id>[^/.]+)')
     def teacher_detail(self, request, teacher_id=None):
-        """Get detailed information about a teacher including all their assignments"""
+        """Get detailed information about a teacher including all their scheduled classes"""
+        from schedule.models import ClassScheduleSlot
+        from django.db.models import Prefetch
+
         try:
-            teacher = Teacher.objects.get(id=teacher_id)
+            teacher = Teacher.objects.select_related('user').get(id=teacher_id)
         except Teacher.DoesNotExist:
             return Response({
                 'success': False,
@@ -1511,41 +1514,93 @@ class TeacherAssignmentViewSet(viewsets.ModelViewSet):
                 'status': 404
             }, status=404)
 
-        # Get all assignments for this teacher
-        assignments = TeacherAssignment.objects.filter(
+        # Get all schedule slots where this teacher is assigned
+        # This fetches from the Class Schedule (Schedule Management page)
+        schedule_slots = ClassScheduleSlot.objects.filter(
+            teacher_assignment__teacher=teacher
+        ).select_related(
+            'class_fk', 'section', 'subject', 'term', 'teacher_assignment'
+        ).distinct()
+
+        # Build teaching info from scheduled slots
+        teaching_info = []
+        seen_assignments = set()  # Track unique class-section-subject combinations
+
+        for slot in schedule_slots:
+            if slot.subject:  # Only include slots with a subject assigned
+                assignment_key = (slot.class_fk.id, slot.section.id if slot.section else None, slot.subject.id)
+                if assignment_key not in seen_assignments:
+                    seen_assignments.add(assignment_key)
+                    teaching_info.append({
+                        'class': {
+                            'id': str(slot.class_fk.id),
+                            'grade': slot.class_fk.grade
+                        },
+                        'section': {
+                            'id': str(slot.section.id) if slot.section else None,
+                            'name': slot.section.name if slot.section else 'All Sections'
+                        },
+                        'subject': {
+                            'id': str(slot.subject.id),
+                            'name': slot.subject.name,
+                            'code': slot.subject.code
+                        },
+                        'term': {
+                            'id': str(slot.term.id) if slot.term else None,
+                            'name': slot.term.name if slot.term else None
+                        },
+                        'is_primary': slot.teacher_assignment.is_primary if slot.teacher_assignment else False,
+                        'is_active': slot.teacher_assignment.is_active if slot.teacher_assignment else True,
+                        'assigned_on': slot.teacher_assignment.assigned_on if slot.teacher_assignment else None,
+                        'schedule_count': 1  # Count of scheduled periods for this class-section-subject
+                    })
+                else:
+                    # Increment schedule count for existing assignment
+                    for info in teaching_info:
+                        if (info['class']['id'] == str(slot.class_fk.id) and
+                            info['section']['id'] == (str(slot.section.id) if slot.section else None) and
+                            info['subject']['id'] == str(slot.subject.id)):
+                            info['schedule_count'] += 1
+                            break
+
+        # Also include teacher assignments that don't have schedule slots yet
+        # (for teachers who are assigned but not yet scheduled)
+        teacher_assignments = TeacherAssignment.objects.filter(
             teacher=teacher
         ).select_related('class_fk', 'section', 'subject', 'term')
 
-        # Group by subject and class for better display
-        teaching_info = []
-        for assignment in assignments:
-            teaching_info.append({
-                'class': {
-                    'id': str(assignment.class_fk.id),
-                    'grade': assignment.class_fk.grade
-                },
-                'section': {
-                    'id': str(assignment.section.id) if assignment.section else None,
-                    'name': assignment.section.name if assignment.section else 'All Sections'
-                },
-                'subject': {
-                    'id': str(assignment.subject.id),
-                    'name': assignment.subject.name,
-                    'code': assignment.subject.code
-                },
-                'term': {
-                    'id': str(assignment.term.id) if assignment.term else None,
-                    'name': assignment.term.name if assignment.term else None
-                },
-                'is_primary': assignment.is_primary,
-                'is_active': assignment.is_active,
-                'assigned_on': assignment.assigned_on
-            })
+        for assignment in teacher_assignments:
+            assignment_key = (assignment.class_fk.id, assignment.section.id if assignment.section else None, assignment.subject.id)
+            if assignment_key not in seen_assignments:
+                seen_assignments.add(assignment_key)
+                teaching_info.append({
+                    'class': {
+                        'id': str(assignment.class_fk.id),
+                        'grade': assignment.class_fk.grade
+                    },
+                    'section': {
+                        'id': str(assignment.section.id) if assignment.section else None,
+                        'name': assignment.section.name if assignment.section else 'All Sections'
+                    },
+                    'subject': {
+                        'id': str(assignment.subject.id),
+                        'name': assignment.subject.name,
+                        'code': assignment.subject.code
+                    },
+                    'term': {
+                        'id': str(assignment.term.id) if assignment.term else None,
+                        'name': assignment.term.name if assignment.term else None
+                    },
+                    'is_primary': assignment.is_primary,
+                    'is_active': assignment.is_active,
+                    'assigned_on': assignment.assigned_on,
+                    'schedule_count': 0  # Not scheduled yet
+                })
 
-        # Calculate summary stats
-        unique_classes = set(a.class_fk.grade for a in assignments)
-        unique_subjects = set(a.subject.name for a in assignments)
-        unique_sections = set(a.section.name for a in assignments if a.section)
+        # Calculate summary stats from scheduled data
+        unique_classes = set(info['class']['grade'] for info in teaching_info)
+        unique_subjects = set(info['subject']['name'] for info in teaching_info)
+        unique_sections = set(info['section']['name'] for info in teaching_info if info['section']['name'] != 'All Sections')
 
         # Get user data safely
         user = teacher.user
@@ -1559,20 +1614,20 @@ class TeacherAssignmentViewSet(viewsets.ModelViewSet):
                 'is_active': user.is_active if user else False
             },
             'summary': {
-                'total_assignments': len(assignments),
+                'total_assignments': len(teaching_info),
                 'unique_classes': len(unique_classes),
                 'unique_subjects': len(unique_subjects),
                 'unique_sections': len(unique_sections),
-                'classes_list': list(unique_classes),
-                'subjects_list': list(unique_subjects),
-                'sections_list': list(unique_sections)
+                'classes_list': sorted(list(unique_classes)),
+                'subjects_list': sorted(list(unique_subjects)),
+                'sections_list': sorted(list(unique_sections))
             },
             'assignments': teaching_info
         }
 
         return Response({
             'success': True,
-            'message': 'Teacher details retrieved successfully',
+            'message': 'Teacher details retrieved successfully from Class Schedule',
             'status': 200,
             'data': teacher_data
         })

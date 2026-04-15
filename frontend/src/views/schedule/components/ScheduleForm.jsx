@@ -197,6 +197,63 @@ const ScheduleForm = ({ open, onClose, onSuccess, editingSchedule }) => {
     }
   };
 
+  // Helper function to filter teachers by class and optional section
+  const filterTeachersByClassSection = (classId, sectionId) => {
+    const teacherIds = new Set();
+
+    const filteredAssignments = teacherAssignments.filter(assignment => {
+      const assignmentClassId = assignment.class_details?.id || assignment.class_fk;
+      const assignmentSectionId = assignment.section_details?.id || assignment.section;
+
+      // Match by class
+      if (assignmentClassId !== classId) return false;
+
+      // If section is specified, also match by section
+      if (sectionId && assignmentSectionId && assignmentSectionId !== sectionId) {
+        return false;
+      }
+
+      return true;
+    });
+
+    filteredAssignments.forEach(assignment => {
+      if (assignment.teacher_details) {
+        teacherIds.add(assignment.teacher_details.id);
+      }
+    });
+
+    const filteredTeachers = allTeachers.filter(teacher =>
+      teacherIds.has(teacher.id)
+    );
+
+    return { filteredTeachers, filteredAssignments };
+  };
+
+  // Helper function to filter subjects by teacher, class, and section
+  const filterSubjectsByTeacherClassSection = (teacherId, classId, sectionId) => {
+    const teacherClassSectionSubjects = teacherAssignments.filter(assignment => {
+      const assignmentTeacherId = assignment.teacher_details?.id || assignment.teacher;
+      const assignmentClassId = assignment.class_details?.id || assignment.class_fk;
+      const assignmentSectionId = assignment.section_details?.id || assignment.section;
+
+      return assignmentTeacherId === teacherId &&
+        assignmentClassId === classId &&
+        (!sectionId || !assignmentSectionId || assignmentSectionId === sectionId);
+    });
+
+    // Extract unique subjects
+    const uniqueSubjectIds = new Set();
+    const filteredSubjects = [];
+    teacherClassSectionSubjects.forEach(assignment => {
+      if (assignment.subject_details && !uniqueSubjectIds.has(assignment.subject_details.id)) {
+        uniqueSubjectIds.add(assignment.subject_details.id);
+        filteredSubjects.push(assignment.subject_details);
+      }
+    });
+
+    return filteredSubjects;
+  };
+
   const handleChange = (e) => {
     const { name, value } = e.target;
 
@@ -214,22 +271,8 @@ const ScheduleForm = ({ open, onClose, onSuccess, editingSchedule }) => {
       });
       setSections(filteredSections);
 
-      // Filter teachers that have assignments for this class (using class_details since class_fk is write-only)
-      const teacherIdsForClass = new Set();
-      const filteredAssignments = teacherAssignments.filter(assignment => {
-        const assignmentClassId = assignment.class_details?.id || assignment.class_fk;
-        return assignmentClassId === selectedClassId;
-      });
-
-      filteredAssignments.forEach(assignment => {
-        if (assignment.teacher_details) {
-          teacherIdsForClass.add(assignment.teacher_details.id);
-        }
-      });
-
-      const filteredTeachers = allTeachers.filter(teacher =>
-        teacherIdsForClass.has(teacher.id)
-      );
+      // Filter teachers for this class
+      const { filteredTeachers } = filterTeachersByClassSection(selectedClassId, '');
       setTeachers(filteredTeachers);
 
       // Reset dependent fields
@@ -243,28 +286,46 @@ const ScheduleForm = ({ open, onClose, onSuccess, editingSchedule }) => {
       return;
     }
 
-    // Handle teacher selection - filter subjects based on teacher's assignments for selected class
+    // Handle section selection - filter teachers by class AND section
+    if (name === 'section_id') {
+      const selectedSectionId = value;
+      const selectedClassId = formData.class_id;
+
+      // Filter teachers for this class and section combination
+      const { filteredTeachers } = filterTeachersByClassSection(selectedClassId, selectedSectionId);
+      setTeachers(filteredTeachers);
+
+      // If a teacher is already selected, re-filter subjects
+      if (formData.teacher_id) {
+        const filteredSubjects = filterSubjectsByTeacherClassSection(
+          formData.teacher_id,
+          selectedClassId,
+          selectedSectionId
+        );
+        setSubjects(filteredSubjects.length > 0 ? filteredSubjects : allSubjects);
+      }
+
+      setFormData(prev => ({
+        ...prev,
+        section_id: value,
+        teacher_id: '',
+        subject_id: ''
+      }));
+      return;
+    }
+
+    // Handle teacher selection - filter subjects based on teacher's assignments for selected class and section
     if (name === 'teacher_id') {
       const selectedTeacherId = value;
       const selectedClassId = formData.class_id;
+      const selectedSectionId = formData.section_id;
 
       if (selectedClassId && selectedTeacherId) {
-        // Get subjects this teacher teaches for the selected class
-        const teacherClassSubjects = teacherAssignments.filter(assignment => {
-          const assignmentTeacherId = assignment.teacher_details?.id || assignment.teacher;
-          const assignmentClassId = assignment.class_details?.id || assignment.class_fk;
-          return assignmentTeacherId === selectedTeacherId && assignmentClassId === selectedClassId;
-        });
-
-        // Extract unique subjects
-        const uniqueSubjectIds = new Set();
-        const filteredSubjects = [];
-        teacherClassSubjects.forEach(assignment => {
-          if (assignment.subject_details && !uniqueSubjectIds.has(assignment.subject_details.id)) {
-            uniqueSubjectIds.add(assignment.subject_details.id);
-            filteredSubjects.push(assignment.subject_details);
-          }
-        });
+        const filteredSubjects = filterSubjectsByTeacherClassSection(
+          selectedTeacherId,
+          selectedClassId,
+          selectedSectionId
+        );
 
         // If no subjects found from assignments, show all subjects
         if (filteredSubjects.length === 0) {
