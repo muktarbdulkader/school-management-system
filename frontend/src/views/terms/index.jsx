@@ -287,7 +287,8 @@ const TermManagement = () => {
                   </CardContent>
                 </Card>
               </Grid>
-            ))}
+            );
+          })}
         </Grid>
 
         {terms.length === 0 && !loading && (
