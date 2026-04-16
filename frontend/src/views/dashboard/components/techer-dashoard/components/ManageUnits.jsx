@@ -35,6 +35,7 @@ const ManageUnits = ({
   units,
   subunits,
   classes,
+  teacherAssignments,
   onCategoryCreated,
   onUnitCreated,
   onSubunitCreated,
@@ -57,6 +58,26 @@ const ManageUnits = ({
     name: '',
   });
 
+  // Get subjects assigned to teacher for the selected class
+  const getAssignedSubjectsForClass = (classId) => {
+    if (!classId || !teacherAssignments || teacherAssignments.length === 0) {
+      return [];
+    }
+    // Filter teacher assignments by class and extract unique subjects
+    const assignedSubjects = teacherAssignments
+      .filter(assignment => assignment.class_fk?.id === classId || assignment.class_details?.id === classId)
+      .map(assignment => assignment.subject_details)
+      .filter(subject => subject); // Remove null/undefined
+
+    // Remove duplicates by subject id
+    return [...new Map(assignedSubjects.map(s => [s.id, s])).values()];
+  };
+
+  // Get available subjects based on selected class
+  const availableSubjects = categoryForm.class_fk_id
+    ? getAssignedSubjectsForClass(categoryForm.class_fk_id)
+    : [];
+
   const [unitForm, setUnitForm] = useState({
     category_id: '',
     name: '',
@@ -77,9 +98,25 @@ const ManageUnits = ({
       const result = await onCategoryCreated(categoryForm);
       if (result.success) {
         setCategoryForm({ subject_id: '', class_fk_id: '', name: '' });
-        toast.success('Category created successfully');
+        toast.success('Category created successfully! It will now appear in the Unit dropdown.');
       } else {
-        toast.error(result.message || 'Failed to create category');
+        // Handle backend validation errors
+        let errorMsg = result.message || 'Failed to create category';
+        if (result.data && typeof result.data === 'object') {
+          // Extract field-specific errors
+          const fieldErrors = Object.entries(result.data)
+            .map(([field, errors]) => {
+              if (Array.isArray(errors)) {
+                return `${field}: ${errors.join(', ')}`;
+              }
+              return `${field}: ${errors}`;
+            })
+            .join('\n');
+          if (fieldErrors) {
+            errorMsg = fieldErrors;
+          }
+        }
+        toast.error(errorMsg);
       }
     } catch (error) {
       toast.error(error.message || 'Failed to create category');
@@ -98,9 +135,24 @@ const ManageUnits = ({
       const result = await onUnitCreated(unitForm);
       if (result.success) {
         setUnitForm({ category_id: '', name: '' });
-        toast.success('Unit created successfully');
+        toast.success('Unit created successfully! It will now appear in the Sub-unit dropdown.');
       } else {
-        toast.error(result.message || 'Failed to create unit');
+        // Handle backend validation errors
+        let errorMsg = result.message || 'Failed to create unit';
+        if (result.data && typeof result.data === 'object') {
+          const fieldErrors = Object.entries(result.data)
+            .map(([field, errors]) => {
+              if (Array.isArray(errors)) {
+                return `${field}: ${errors.join(', ')}`;
+              }
+              return `${field}: ${errors}`;
+            })
+            .join('\n');
+          if (fieldErrors) {
+            errorMsg = fieldErrors;
+          }
+        }
+        toast.error(errorMsg);
       }
     } catch (error) {
       toast.error(error.message || 'Failed to create unit');
@@ -119,15 +171,54 @@ const ManageUnits = ({
       const result = await onSubunitCreated(subunitForm);
       if (result.success) {
         setSubunitForm({ unit_id: '', name: '' });
-        toast.success('Sub-unit created successfully');
+        toast.success('Sub-unit created successfully!');
       } else {
-        toast.error(result.message || 'Failed to create sub-unit');
+        // Handle backend validation errors
+        let errorMsg = result.message || 'Failed to create sub-unit';
+        if (result.data && typeof result.data === 'object') {
+          const fieldErrors = Object.entries(result.data)
+            .map(([field, errors]) => {
+              if (Array.isArray(errors)) {
+                return `${field}: ${errors.join(', ')}`;
+              }
+              return `${field}: ${errors}`;
+            })
+            .join('\n');
+          if (fieldErrors) {
+            errorMsg = fieldErrors;
+          }
+        }
+        toast.error(errorMsg);
       }
     } catch (error) {
       toast.error(error.message || 'Failed to create sub-unit');
     } finally {
       setLoading(false);
     }
+  };
+
+  // Handle Submit button click based on active tab
+  const handleSubmit = async () => {
+    if (activeTab === 'category') {
+      await handleCreateCategory();
+    } else if (activeTab === 'unit') {
+      await handleCreateUnit();
+    } else if (activeTab === 'subunit') {
+      await handleCreateSubunit();
+    }
+  };
+
+  // Check if current form is valid for submission
+  const isSubmitDisabled = () => {
+    if (loading) return true;
+    if (activeTab === 'category') {
+      return !categoryForm.subject_id || !categoryForm.class_fk_id || !categoryForm.name;
+    } else if (activeTab === 'unit') {
+      return !unitForm.category_id || !unitForm.name;
+    } else if (activeTab === 'subunit') {
+      return !subunitForm.unit_id || !subunitForm.name;
+    }
+    return true;
   };
 
   // Group units by category for display
@@ -198,10 +289,10 @@ const ManageUnits = ({
                     {!categoryForm.class_fk_id && (
                       <MenuItem disabled>Please select a class first</MenuItem>
                     )}
-                    {categoryForm.class_fk_id && subjects.length === 0 && (
-                      <MenuItem disabled>No subjects available</MenuItem>
+                    {categoryForm.class_fk_id && availableSubjects.length === 0 && (
+                      <MenuItem disabled>No subjects assigned for this class</MenuItem>
                     )}
-                    {subjects.map((subject) => (
+                    {availableSubjects.map((subject) => (
                       <MenuItem key={subject.id} value={subject.id}>
                         {subject.name}
                       </MenuItem>
@@ -230,30 +321,29 @@ const ManageUnits = ({
               >
                 {loading ? 'Creating...' : 'Create Category'}
               </Button>
-              <Button
-                variant="outlined"
-                onClick={onClose}
-                disabled={loading}
-              >
-                Cancel
-              </Button>
             </Box>
 
             <Divider sx={{ my: 3 }} />
 
             <Typography variant="subtitle1" sx={{ mb: 2 }}>
-              Existing Categories
+              Existing Categories ({categories.length} found)
             </Typography>
-            <List dense>
-              {categories.map((cat) => (
-                <ListItem key={cat.id}>
-                  <ListItemText
-                    primary={cat.name}
-                    secondary={`Subject: ${cat.subject_details?.name || 'N/A'} | Class: ${cat.class_details?.name || cat.class_details?.grade || 'N/A'}`}
-                  />
-                </ListItem>
-              ))}
-            </List>
+            {categories.length === 0 ? (
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                No categories created yet. Create your first category above.
+              </Typography>
+            ) : (
+              <List dense>
+                {categories.map((cat) => (
+                  <ListItem key={cat.id}>
+                    <ListItemText
+                      primary={cat.name || 'Unnamed Category'}
+                      secondary={`Subject: ${cat.subject_details?.name || cat.subject?.name || 'N/A'} | Class: ${cat.class_details?.name || cat.class_details?.grade || cat.class_fk?.name || 'N/A'}`}
+                    />
+                  </ListItem>
+                ))}
+              </List>
+            )}
           </Box>
         )}
 
@@ -274,11 +364,23 @@ const ManageUnits = ({
                     }
                     label="Category *"
                   >
-                    {categories.map((cat) => (
-                      <MenuItem key={cat.id} value={cat.id}>
-                        {cat.name} ({cat.subject_details?.name || 'N/A'} - Class {cat.class_details?.grade || cat.class_details?.name || 'N/A'})
+                    {categories.length === 0 && (
+                      <MenuItem disabled>
+                        No categories available. Please create a category first.
                       </MenuItem>
-                    ))}
+                    )}
+                    {categories.map((cat) => {
+                      // Handle different possible data structures from backend
+                      const catName = cat.name || 'Unnamed';
+                      const subjectName = cat.subject_details?.name || cat.subject?.name || 'N/A';
+                      const className = cat.class_details?.grade || cat.class_details?.name || cat.class_fk?.grade || cat.class_fk?.name || 'N/A';
+
+                      return (
+                        <MenuItem key={cat.id} value={cat.id}>
+                          {catName} ({subjectName} - Class {className})
+                        </MenuItem>
+                      );
+                    })}
                   </Select>
                 </FormControl>
               </Grid>
@@ -300,13 +402,6 @@ const ManageUnits = ({
                 startIcon={<AddIcon />}
               >
                 {loading ? 'Creating...' : 'Create Unit'}
-              </Button>
-              <Button
-                variant="outlined"
-                onClick={onClose}
-                disabled={loading}
-              >
-                Cancel
               </Button>
             </Box>
 
@@ -382,13 +477,6 @@ const ManageUnits = ({
               >
                 {loading ? 'Creating...' : 'Create Sub-unit'}
               </Button>
-              <Button
-                variant="outlined"
-                onClick={onClose}
-                disabled={loading}
-              >
-                Cancel
-              </Button>
             </Box>
 
             <Divider sx={{ my: 3 }} />
@@ -408,6 +496,24 @@ const ManageUnits = ({
             </List>
           </Box>
         )}
+
+        {/* Bottom Action Buttons */}
+        <Box sx={{ mt: 4, pt: 3, borderTop: 1, borderColor: 'divider', display: 'flex', justifyContent: 'flex-end', gap: 2 }}>
+          <Button
+            variant="outlined"
+            onClick={onClose}
+            disabled={loading}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            onClick={handleSubmit}
+            disabled={isSubmitDisabled()}
+          >
+            {loading ? 'Saving...' : 'Submit'}
+          </Button>
+        </Box>
       </Box>
     </DrogaFormModal>
   );
@@ -421,6 +527,7 @@ ManageUnits.propTypes = {
   units: PropTypes.array.isRequired,
   subunits: PropTypes.array.isRequired,
   classes: PropTypes.array,
+  teacherAssignments: PropTypes.array,
   onCategoryCreated: PropTypes.func.isRequired,
   onUnitCreated: PropTypes.func.isRequired,
   onSubunitCreated: PropTypes.func.isRequired,

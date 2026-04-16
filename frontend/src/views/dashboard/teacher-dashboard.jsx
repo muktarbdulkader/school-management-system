@@ -49,6 +49,7 @@ export default function TeacherDashboardPage() {
   // Tasks and Reports
   const [teacherTasks, setTeacherTasks] = useState([]);
   const [teacherReports, setTeacherReports] = useState([]);
+  const [teacherAssignments, setTeacherAssignments] = useState([]);
 
   // Dashboard stats
   const [dashboardStats, setDashboardStats] = useState({
@@ -81,7 +82,9 @@ export default function TeacherDashboardPage() {
       const responseData = await response.json();
 
       if (responseData.success) {
-        console.log('Teacher assignments data:', responseData.data);
+        console.log('Teacher assignments fetched:', responseData.data);
+        // Store full teacher assignments for class-subject filtering
+        setTeacherAssignments(responseData.data || []);
         // Extract unique subjects from teacher assignments (use subject_details since subject is write-only)
         const uniqueSubjects = [...new Map(responseData.data
           .filter(item => item.subject_details)
@@ -94,9 +97,11 @@ export default function TeacherDashboardPage() {
         setSubjects(uniqueSubjects);
       } else {
         toast.warning(responseData.message);
+        console.warn('Teacher assignments fetch failed:', responseData);
       }
     } catch (error) {
       toast.error(error.message);
+      console.error('Teacher assignments fetch error:', error);
     } finally {
       setLoading(false);
     }
@@ -117,12 +122,15 @@ export default function TeacherDashboardPage() {
       const responseData = await response.json();
 
       if (responseData.success) {
-        setCategories(responseData.data);
+        console.log('Categories fetched:', responseData.data);
+        setCategories(responseData.data || []);
       } else {
         toast.warning(responseData.message);
+        console.warn('Categories fetch failed:', responseData);
       }
     } catch (error) {
       toast.error(error.message);
+      console.error('Categories fetch error:', error);
     } finally {
       setLoading(false);
     }
@@ -351,17 +359,42 @@ export default function TeacherDashboardPage() {
   // API functions for creating categories, units, and subunits
   const handleCreateCategory = async (data) => {
     const token = await GetToken();
+    console.log('Creating category with data:', data);
+
+    // Ensure data format is correct for backend
+    const payload = {
+      subject_id: data.subject_id,
+      class_fk_id: data.class_fk_id,
+      name: data.name
+    };
+    console.log('Sending payload:', payload);
+
     const response = await fetch(`${Backend.auth}${Backend.createObjectiveCategory}`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(data),
+      body: JSON.stringify(payload),
     });
+
     const result = await response.json();
+    console.log('Create category response:', result);
+    console.log('Response status:', response.status);
+
     if (result.success) {
-      handleFetchingCategories();
+      toast.success('Category created! Refreshing list...');
+      await handleFetchingCategories();
+      console.log('Categories after refresh:', categories);
+    } else {
+      // Show detailed error in toast and console
+      let errorMsg = result.message || 'Failed to create category';
+      if (result.data) {
+        console.error('Error details:', result.data);
+        const details = JSON.stringify(result.data);
+        errorMsg = `${result.message || 'Error'}: ${details}`;
+      }
+      toast.error(errorMsg);
     }
     return result;
   };
@@ -1124,6 +1157,7 @@ export default function TeacherDashboardPage() {
         units={units}
         subunits={subunits}
         classes={learnerGroups}
+        teacherAssignments={teacherAssignments}
         onCategoryCreated={handleCreateCategory}
         onUnitCreated={handleCreateUnit}
         onSubunitCreated={handleCreateSubunit}

@@ -66,9 +66,108 @@ const ScheduleForm = ({ open, onClose, onSuccess, editingSchedule }) => {
 
   const daysOfWeek = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
+  const fetchFormData = async (termId = null, branchId = null) => {
+    try {
+      const token = await GetToken();
+      const headers = { Authorization: `Bearer ${token}` };
+
+      // Build URLs with filters
+      let sectionsUrl = `${Backend.api}${Backend.sections}`;
+      if (branchId) {
+        sectionsUrl += `?branch_id=${branchId}`;
+      }
+
+      // Build fetch list based on user role
+      const fetchList = [
+        fetch(`${Backend.api}${Backend.classes}`, { headers }),
+        fetch(sectionsUrl, { headers }),
+        fetch(`${Backend.api}${Backend.subjects}`, { headers }),
+        fetch(`${Backend.api}${Backend.teacherAssignments}`, { headers }),
+        fetch(`${Backend.api}${Backend.slotTypes}`, { headers }),
+        fetch(`${Backend.api}${Backend.terms}`, { headers })
+      ];
+
+      // Only fetch branches for super admin
+      if (isSuperAdmin) {
+        fetchList.push(fetch(`${Backend.api}${Backend.branches}`, { headers }));
+      }
+
+      const [classesRes, sectionsRes, subjectsRes, assignmentsRes, slotTypesRes, termsRes, branchesRes] = await Promise.all(fetchList);
+
+      if (classesRes.ok) {
+        const data = await classesRes.json();
+        const classesList = data.data || data.results || [];
+        console.log('Fetched classes from API:', classesList.length, classesList.slice(0, 3));
+        setClasses(classesList);
+      }
+      if (sectionsRes.ok) {
+        const data = await sectionsRes.json();
+        const sectionsList = data.data || data.results || [];
+        console.log('Fetched sections from API:', sectionsList.length, sectionsList.slice(0, 3));
+        setAllSections(sectionsList);
+        setSections(sectionsList);
+      }
+      if (subjectsRes.ok) {
+        const data = await subjectsRes.json();
+        const subjectsList = data.data || data.results || [];
+        setSubjects(subjectsList);
+        setAllSubjects(subjectsList);
+      }
+      if (assignmentsRes.ok) {
+        const data = await assignmentsRes.json();
+        const assignments = data.data || data.results || [];
+        console.log('Fetched teacher assignments:', assignments.length, assignments);
+        setTeacherAssignments(assignments);
+
+        // Extract unique teachers from assignments
+        const uniqueTeachers = [];
+        const teacherIds = new Set();
+        assignments.forEach(assignment => {
+          if (assignment.teacher_details && !teacherIds.has(assignment.teacher_details.id)) {
+            teacherIds.add(assignment.teacher_details.id);
+            uniqueTeachers.push(assignment.teacher_details);
+          }
+        });
+        console.log('Extracted unique teachers:', uniqueTeachers.length, uniqueTeachers);
+        setAllTeachers(uniqueTeachers);
+        setTeachers(uniqueTeachers);
+      } else {
+        console.error('Failed to fetch teacher assignments:', assignmentsRes.status, await assignmentsRes.text());
+      }
+      if (slotTypesRes && slotTypesRes.ok) {
+        const data = await slotTypesRes.json();
+        const types = data.data || data.results || [];
+        setSlotTypes(types);
+        // Set default slot type if available
+        if (types.length > 0 && !formData.slot_type_id) {
+          setFormData(prev => ({ ...prev, slot_type_id: types[0].id }));
+        }
+      }
+      if (termsRes && termsRes.ok) {
+        const data = await termsRes.json();
+        const termsList = data.data || data.results || [];
+        // Filter out closed terms - only show upcoming and current terms
+        const activeTerms = termsList.filter(t => t.status !== 'closed');
+        setTerms(activeTerms);
+        // Auto-select current term if available and not editing
+        if (activeTerms.length > 0 && !editingSchedule && !formData.term_id) {
+          const currentTerm = activeTerms.find(t => t.status === 'current') || activeTerms[0];
+          setFormData(prev => ({ ...prev, term_id: currentTerm.id }));
+        }
+      }
+      if (branchesRes && branchesRes.ok) {
+        const data = await branchesRes.json();
+        setBranches(data.data || data.results || []);
+      }
+    } catch (error) {
+      console.error('Error fetching form data:', error);
+    }
+  };
+
   useEffect(() => {
     if (open) {
-      fetchFormData();
+      console.log('ScheduleForm opened - term:', formData.term_id, 'branch:', formData.branch_id);
+      fetchFormData(formData.term_id, formData.branch_id);
     }
   }, [open]);
 
@@ -113,108 +212,27 @@ const ScheduleForm = ({ open, onClose, onSuccess, editingSchedule }) => {
     }
   }, [editingSchedule]);
 
-  const fetchFormData = async () => {
-    try {
-      const token = await GetToken();
-      const headers = { Authorization: `Bearer ${token}` };
-
-      // Build fetch list based on user role
-      const fetchList = [
-        fetch(`${Backend.api}${Backend.classes}`, { headers }),
-        fetch(`${Backend.api}${Backend.sections}`, { headers }),
-        fetch(`${Backend.api}${Backend.subjects}`, { headers }),
-        fetch(`${Backend.api}${Backend.teacherAssignments}`, { headers }),
-        fetch(`${Backend.api}${Backend.slotTypes}`, { headers }),
-        fetch(`${Backend.api}${Backend.terms}`, { headers })
-      ];
-
-      // Only fetch branches for super admin
-      if (isSuperAdmin) {
-        fetchList.push(fetch(`${Backend.api}${Backend.branches}`, { headers }));
-      }
-
-      const [classesRes, sectionsRes, subjectsRes, assignmentsRes, slotTypesRes, termsRes, branchesRes] = await Promise.all(fetchList);
-
-      if (classesRes.ok) {
-        const data = await classesRes.json();
-        setClasses(data.data || data.results || []);
-      }
-      if (sectionsRes.ok) {
-        const data = await sectionsRes.json();
-        setAllSections(data.data || data.results || []);
-        setSections(data.data || data.results || []);
-      }
-      if (subjectsRes.ok) {
-        const data = await subjectsRes.json();
-        const subjectsList = data.data || data.results || [];
-        setSubjects(subjectsList);
-        setAllSubjects(subjectsList);
-      }
-      if (assignmentsRes.ok) {
-        const data = await assignmentsRes.json();
-        const assignments = data.data || data.results || [];
-        setTeacherAssignments(assignments);
-
-        // Extract unique teachers from assignments
-        const uniqueTeachers = [];
-        const teacherIds = new Set();
-        assignments.forEach(assignment => {
-          if (assignment.teacher_details && !teacherIds.has(assignment.teacher_details.id)) {
-            teacherIds.add(assignment.teacher_details.id);
-            uniqueTeachers.push(assignment.teacher_details);
-          }
-        });
-        setAllTeachers(uniqueTeachers);
-        setTeachers(uniqueTeachers);
-      }
-      if (slotTypesRes && slotTypesRes.ok) {
-        const data = await slotTypesRes.json();
-        const types = data.data || data.results || [];
-        setSlotTypes(types);
-        // Set default slot type if available
-        if (types.length > 0 && !formData.slot_type_id) {
-          setFormData(prev => ({ ...prev, slot_type_id: types[0].id }));
-        }
-      }
-      if (termsRes && termsRes.ok) {
-        const data = await termsRes.json();
-        const termsList = data.data || data.results || [];
-        // Filter out closed terms - only show upcoming and current terms
-        const activeTerms = termsList.filter(t => t.status !== 'closed');
-        setTerms(activeTerms);
-        // Auto-select current term if available and not editing
-        if (activeTerms.length > 0 && !editingSchedule && !formData.term_id) {
-          const currentTerm = activeTerms.find(t => t.status === 'current') || activeTerms[0];
-          setFormData(prev => ({ ...prev, term_id: currentTerm.id }));
-        }
-      }
-      if (branchesRes && branchesRes.ok) {
-        const data = await branchesRes.json();
-        setBranches(data.data || data.results || []);
-      }
-    } catch (error) {
-      console.error('Error fetching form data:', error);
-    }
-  };
-
   // Helper function to filter teachers by class and optional section
   const filterTeachersByClassSection = (classId, sectionId) => {
     const teacherIds = new Set();
+    const normalizedClassId = String(classId);
+    const normalizedSectionId = sectionId ? String(sectionId) : null;
 
     const filteredAssignments = teacherAssignments.filter(assignment => {
-      const assignmentClassId = assignment.class_details?.id || assignment.class_fk;
+      const assignmentClassId = String(assignment.class_details?.id || assignment.class_fk || '');
       const assignmentSectionId = assignment.section_details?.id || assignment.section;
 
       // Match by class
-      if (assignmentClassId !== classId) return false;
+      if (assignmentClassId !== normalizedClassId) return false;
 
       // If section is specified, also match by section
-      if (sectionId && assignmentSectionId && assignmentSectionId !== sectionId) {
+      if (normalizedSectionId && assignmentSectionId && String(assignmentSectionId) !== normalizedSectionId) {
         return false;
       }
 
       return true;
     });
+    console.log('Filtered assignments for class', normalizedClassId, ':', filteredAssignments.length);
 
     filteredAssignments.forEach(assignment => {
       if (assignment.teacher_details) {
@@ -231,14 +249,20 @@ const ScheduleForm = ({ open, onClose, onSuccess, editingSchedule }) => {
 
   // Helper function to filter subjects by teacher, class, and section
   const filterSubjectsByTeacherClassSection = (teacherId, classId, sectionId) => {
+    const normalizedTeacherId = String(teacherId);
+    const normalizedClassId = String(classId);
+    const normalizedSectionId = sectionId ? String(sectionId) : null;
+
     const teacherClassSectionSubjects = teacherAssignments.filter(assignment => {
-      const assignmentTeacherId = assignment.teacher_details?.id || assignment.teacher;
-      const assignmentClassId = assignment.class_details?.id || assignment.class_fk;
+      const assignmentTeacherId = String(assignment.teacher_details?.id || assignment.teacher || '');
+      const assignmentClassId = String(assignment.class_details?.id || assignment.class_fk || '');
       const assignmentSectionId = assignment.section_details?.id || assignment.section;
 
-      return assignmentTeacherId === teacherId &&
-        assignmentClassId === classId &&
-        (!sectionId || !assignmentSectionId || assignmentSectionId === sectionId);
+      const teacherMatch = assignmentTeacherId === normalizedTeacherId;
+      const classMatch = assignmentClassId === normalizedClassId;
+      const sectionMatch = !normalizedSectionId || !assignmentSectionId || String(assignmentSectionId) === normalizedSectionId;
+
+      return teacherMatch && classMatch && sectionMatch;
     });
 
     // Extract unique subjects
@@ -260,15 +284,38 @@ const ScheduleForm = ({ open, onClose, onSuccess, editingSchedule }) => {
     // Clear validation error when user changes fields
     setValidationError(null);
 
+    // Handle branch selection - re-fetch sections for new branch
+    if (name === 'branch_id') {
+      const selectedBranchId = value;
+      console.log('Branch changed to:', selectedBranchId);
+
+      // Re-fetch form data with new branch
+      fetchFormData(formData.term_id, selectedBranchId);
+
+      // Reset dependent fields
+      setFormData(prev => ({
+        ...prev,
+        branch_id: value,
+        class_id: '',
+        section_id: '',
+        teacher_id: '',
+        subject_id: ''
+      }));
+      setSections([]);
+      setTeachers([]);
+      return;
+    }
+
     // Handle class selection - filter sections and teachers
     if (name === 'class_id') {
-      const selectedClassId = value;
+      const selectedClassId = String(value);
 
       // Filter sections that belong to this class (using class_details since class_fk is write-only)
       const filteredSections = allSections.filter(section => {
-        const sectionClassId = section.class_details?.id || section.class_fk;
+        const sectionClassId = String(section.class_details?.id || section.class_fk || '');
         return sectionClassId === selectedClassId;
       });
+      console.log('Selected class:', selectedClassId, 'Filtered sections:', filteredSections.length);
       setSections(filteredSections);
 
       // Filter teachers for this class

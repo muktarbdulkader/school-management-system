@@ -313,18 +313,26 @@ class ClassesViewSet(viewsets.ModelViewSet):
         # Admin role check
         if self.is_administrative_user(user):
             from users.models import UserBranchAccess
-            accessible_branches = UserBranchAccess.objects.filter(user=user).values_list('branch_id', flat=True)
+            accessible_branches = list(UserBranchAccess.objects.filter(user=user).values_list('branch_id', flat=True))
+
+            queryset = self.queryset
 
             if branch_id:
                 try:
                     import uuid
-                    if uuid.UUID(branch_id) in accessible_branches:
-                        return self.queryset.filter(branch_id=branch_id)
-                    return self.queryset.none()
+                    branch_uuid = uuid.UUID(branch_id)
+                    # Allow if user has no branch restrictions or has access to this branch
+                    if not accessible_branches or branch_uuid in accessible_branches:
+                        return queryset.filter(branch_id=branch_id)
+                    return queryset.none()
                 except (ValueError, TypeError):
-                    return self.queryset.none()
+                    return queryset.none()
+            elif accessible_branches:
+                # Only filter by branches if user has specific branch access
+                return queryset.filter(branch_id__in=accessible_branches)
 
-            return self.queryset.filter(branch_id__in=accessible_branches)
+            # If no branch restrictions, return all classes
+            return queryset
 
         return self.queryset.none()
 
@@ -674,20 +682,28 @@ class SectionsViewSet(viewsets.ModelViewSet):
 
         if self.is_administrative_user(user):
             from users.models import UserBranchAccess
-            accessible_branches = UserBranchAccess.objects.filter(user=user).values_list('branch_id', flat=True)
+            accessible_branches = list(UserBranchAccess.objects.filter(user=user).values_list('branch_id', flat=True))
 
-            queryset = self.queryset.filter(class_fk__branch_id__in=accessible_branches)
-            if class_id: queryset = queryset.filter(class_fk=class_id)
+            queryset = self.queryset
 
+            # If specific branch requested, filter by it if user has access
             if branch_id:
                 try:
                     import uuid
-                    if uuid.UUID(branch_id) in accessible_branches:
+                    branch_uuid = uuid.UUID(branch_id)
+                    # Allow if user has no branch restrictions or has access to this branch
+                    if not accessible_branches or branch_uuid in accessible_branches:
                         queryset = queryset.filter(class_fk__branch_id=branch_id)
                     else:
                         queryset = queryset.none()
                 except (ValueError, TypeError):
                     queryset = queryset.none()
+            elif accessible_branches:
+                # Filter by accessible branches if no specific branch requested
+                queryset = queryset.filter(class_fk__branch_id__in=accessible_branches)
+
+            if class_id:
+                queryset = queryset.filter(class_fk=class_id)
 
             return queryset
 

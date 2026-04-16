@@ -67,15 +67,40 @@ class ObjectiveCategoriesViewSet(viewsets.ModelViewSet):
         return self.queryset.filter(Q(created_by=user) | Q(created_by__isnull=True))
 
     def create(self, request, *args, **kwargs):
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        logger.info(f"Creating category with data: {request.data}")
+        logger.info(f"User: {request.user}, is_superuser: {request.user.is_superuser}")
+        
         serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        self.perform_create(serializer)
-        return Response({
-            'success': True,
-            'message': 'Category created successfully',
-            'status': 201,
-            'data': serializer.data
-        }, status=status.HTTP_201_CREATED)
+        if not serializer.is_valid():
+            logger.error(f"Validation errors: {serializer.errors}")
+            # Return validation errors properly
+            return Response({
+                'success': False,
+                'message': 'Validation failed',
+                'status': 400,
+                'data': serializer.errors
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            self.perform_create(serializer)
+            logger.info(f"Category created successfully: {serializer.data}")
+            return Response({
+                'success': True,
+                'message': 'Category created successfully',
+                'status': 201,
+                'data': serializer.data
+            }, status=status.HTTP_201_CREATED)
+        except Exception as e:
+            logger.error(f"Error creating category: {str(e)}")
+            return Response({
+                'success': False,
+                'message': str(e),
+                'status': 400,
+                'data': {'error': str(e)}
+            }, status=status.HTTP_400_BAD_REQUEST)
 
     def is_administrative_user(self, user):
         """Helper to check if user has admin, super_admin, or staff roles"""
@@ -151,6 +176,23 @@ class ObjectiveUnitsViewSet(viewsets.ModelViewSet):
     queryset = ObjectiveUnits.objects.all()
     serializer_class = ObjectiveUnitsSerializer
     permission_classes = [IsAuthenticated]
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        if not serializer.is_valid():
+            return Response({
+                'success': False,
+                'message': 'Validation failed',
+                'status': 400,
+                'data': serializer.errors
+            }, status=status.HTTP_400_BAD_REQUEST)
+        self.perform_create(serializer)
+        return Response({
+            'success': True,
+            'message': 'Unit created successfully',
+            'status': 201,
+            'data': serializer.data
+        }, status=status.HTTP_201_CREATED)
 
     def get_queryset(self):
         user = self.request.user
@@ -396,6 +438,23 @@ class ObjectiveSubunitsViewSet(viewsets.ModelViewSet):
     queryset = ObjectiveSubunits.objects.all()
     serializer_class = ObjectiveSubunitsSerializer
     permission_classes = [IsAuthenticated]
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        if not serializer.is_valid():
+            return Response({
+                'success': False,
+                'message': 'Validation failed',
+                'status': 400,
+                'data': serializer.errors
+            }, status=status.HTTP_400_BAD_REQUEST)
+        self.perform_create(serializer)
+        return Response({
+            'success': True,
+            'message': 'Sub-unit created successfully',
+            'status': 201,
+            'data': serializer.data
+        }, status=status.HTTP_201_CREATED)
 
     def get_queryset(self):
         user = self.request.user
