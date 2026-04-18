@@ -217,7 +217,8 @@ export default function TeacherDashboardPage() {
   const handleFetchingLearnerGroups = async () => {
     setLoading(true);
     const token = await GetToken();
-    const Api = `${Backend.api}${Backend.classSubjectTeachers}`;
+    // Use the same endpoint as My Classes page (teachers/overview_dashboard/)
+    const Api = `${Backend.auth}${Backend.teachersOverviewDashboard}`;
     const header = {
       Authorization: `Bearer ${token}`,
       accept: 'application/json',
@@ -225,23 +226,43 @@ export default function TeacherDashboardPage() {
     };
 
     try {
+      console.log('Fetching learner groups from:', Api);
       const response = await fetch(Api, { method: 'GET', headers: header });
       const responseData = await response.json();
+      console.log('=== FULL RESPONSE ===');
+      console.log('Response success:', responseData.success);
+      console.log('Response data:', responseData.data);
+      console.log('Response keys:', Object.keys(responseData));
+      if (responseData.data) {
+        console.log('Data keys:', Object.keys(responseData.data));
+      }
 
-      if (responseData.success) {
-        // Extract unique classes from teacher assignments using class_details
-        const uniqueClasses = [...new Map(responseData.data
-          .filter(item => item.class_details)
-          .map(item => {
-            const classData = item.class_details;
-            return [classData.id, classData];
-          })
+      if (responseData.success && responseData.data) {
+        // The overview_dashboard endpoint returns 'subjects' not 'classes'
+        // Each subject has class_id, class_name, etc. - extract unique classes from subjects
+        const subjectsData = responseData.data.subjects || [];
+        console.log('Subjects data:', subjectsData.length, subjectsData);
+
+        // Extract unique classes from subjects (each subject has class info)
+        const uniqueClasses = [...new Map(subjectsData
+          .filter(item => item && item.class_id)
+          .map(item => [item.class_id, {
+            id: item.class_id,
+            name: item.class_name,
+            grade: item.class_name,
+            section_id: item.section_id,
+            section_name: item.section_name
+          }])
         ).values()];
+
+        console.log('Extracted unique classes from subjects:', uniqueClasses.length, uniqueClasses);
         setLearnerGroups(uniqueClasses);
       } else {
-        toast.warning(responseData.message);
+        console.error('Failed to fetch learner groups:', responseData.message);
+        toast.warning(responseData.message || 'No classes found');
       }
     } catch (error) {
+      console.error('Error fetching learner groups:', error);
       toast.error(error.message);
     } finally {
       setLoading(false);
@@ -401,15 +422,25 @@ export default function TeacherDashboardPage() {
 
   const handleCreateUnit = async (data) => {
     const token = await GetToken();
+    console.log('Creating unit with data:', data);
+
+    // Ensure we send the correct format
+    const payload = {
+      category_id: data.category_id,
+      name: data.name
+    };
+    console.log('Sending unit payload:', payload);
+
     const response = await fetch(`${Backend.auth}${Backend.createObjectiveUnit}`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(data),
+      body: JSON.stringify(payload),
     });
     const result = await response.json();
+    console.log('Create unit response:', result);
     if (result.success) {
       handleFetchingUnits();
     }
@@ -418,15 +449,33 @@ export default function TeacherDashboardPage() {
 
   const handleCreateSubunit = async (data) => {
     const token = await GetToken();
+    console.log('Creating subunit with data:', data);
+    const payload = {
+      unit_id: data.unit_id,
+      name: data.name
+    };
+    console.log('Sending subunit payload:', payload);
     const response = await fetch(`${Backend.auth}${Backend.createObjectiveSubunit}`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(data),
+      body: JSON.stringify(payload),
     });
-    const result = await response.json();
+
+    const responseText = await response.text();
+    console.log('Create subunit response text:', responseText);
+
+    let result;
+    try {
+      result = JSON.parse(responseText);
+    } catch (e) {
+      console.error('Failed to parse JSON response:', e);
+      return { success: false, message: 'Server error - invalid JSON response' };
+    }
+
+    console.log('Create subunit result:', result);
     if (result.success) {
       handleFetchingSubunits();
     }

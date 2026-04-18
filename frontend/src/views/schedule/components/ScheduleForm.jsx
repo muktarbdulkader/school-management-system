@@ -97,8 +97,11 @@ const ScheduleForm = ({ open, onClose, onSuccess, editingSchedule }) => {
       if (classesRes.ok) {
         const data = await classesRes.json();
         const classesList = data.data || data.results || [];
-        console.log('Fetched classes from API:', classesList.length, classesList.slice(0, 3));
+        console.log('Fetched all classes from API:', classesList.length, classesList);
+        // ALWAYS show all classes - no filtering
         setClasses(classesList);
+      } else {
+        console.error('Failed to fetch classes:', classesRes.status);
       }
       if (sectionsRes.ok) {
         const data = await sectionsRes.json();
@@ -115,14 +118,22 @@ const ScheduleForm = ({ open, onClose, onSuccess, editingSchedule }) => {
       }
       if (assignmentsRes.ok) {
         const data = await assignmentsRes.json();
-        const assignments = data.data || data.results || [];
-        console.log('Fetched teacher assignments:', assignments.length, assignments);
-        setTeacherAssignments(assignments);
+        const allAssignments = data.data || data.results || [];
+        console.log('Fetched all teacher assignments:', allAssignments.length, allAssignments);
 
-        // Extract unique teachers from assignments
+        // Log first assignment structure to debug
+        if (allAssignments.length > 0) {
+          console.log('First assignment structure:', JSON.stringify(allAssignments[0], null, 2));
+        }
+
+        // Use ALL assignments - don't filter by current user
+        // This allows seeing all teachers assigned to any class
+        setTeacherAssignments(allAssignments);
+
+        // Extract unique teachers from ALL assignments
         const uniqueTeachers = [];
         const teacherIds = new Set();
-        assignments.forEach(assignment => {
+        allAssignments.forEach(assignment => {
           if (assignment.teacher_details && !teacherIds.has(assignment.teacher_details.id)) {
             teacherIds.add(assignment.teacher_details.id);
             uniqueTeachers.push(assignment.teacher_details);
@@ -131,6 +142,18 @@ const ScheduleForm = ({ open, onClose, onSuccess, editingSchedule }) => {
         console.log('Extracted unique teachers:', uniqueTeachers.length, uniqueTeachers);
         setAllTeachers(uniqueTeachers);
         setTeachers(uniqueTeachers);
+
+        // Log assignment data for debugging
+        console.log('All teacher assignments loaded:', allAssignments.length);
+        if (allAssignments.length > 0) {
+          const assignedClassIds = new Set();
+          allAssignments.forEach(assignment => {
+            if (assignment.class_fk_id || assignment.class_fk?.id) {
+              assignedClassIds.add(assignment.class_fk_id || assignment.class_fk?.id);
+            }
+          });
+          console.log('All assigned class IDs:', assignedClassIds);
+        }
       } else {
         console.error('Failed to fetch teacher assignments:', assignmentsRes.status, await assignmentsRes.text());
       }
@@ -177,6 +200,13 @@ const ScheduleForm = ({ open, onClose, onSuccess, editingSchedule }) => {
     console.log('ScheduleForm - isSuperAdmin:', isSuperAdmin);
     console.log('ScheduleForm - canSelectBranch:', canSelectBranch);
   }, [userData]);
+
+  // Log classes for debugging
+  useEffect(() => {
+    console.log('=== CLASSES UPDATED ===');
+    console.log('Classes count:', classes.length);
+    console.log('Classes:', classes);
+  }, [classes]);
 
   // Populate form when editing
   useEffect(() => {
@@ -650,6 +680,12 @@ const ScheduleForm = ({ open, onClose, onSuccess, editingSchedule }) => {
                 </TextField>
               </Grid>
             )}
+            {/* DEBUG: Show classes count */}
+            <Grid item xs={12}>
+              <Alert severity="info" sx={{ mb: 2 }}>
+                Classes loaded: {classes.length} | Term selected: {formData.term_id || 'None'}
+              </Alert>
+            </Grid>
             <Grid item xs={12} sm={6}>
               <TextField
                 fullWidth
@@ -659,14 +695,24 @@ const ScheduleForm = ({ open, onClose, onSuccess, editingSchedule }) => {
                 value={formData.class_id}
                 onChange={handleChange}
                 required
-                disabled={!formData.term_id}
-                helperText={!formData.term_id ? "Select term first" : !formData.class_id ? "Select class first to see available sections and teachers" : ""}
+                disabled={!formData.term_id || classes.length === 0}
+                helperText={
+                  !formData.term_id
+                    ? "Select term first"
+                    : classes.length === 0
+                      ? "⚠️ No classes available. Check console for errors."
+                      : !formData.class_id
+                        ? "Select class first to see available sections and teachers"
+                        : ""
+                }
               >
                 <MenuItem value="">
-                  <em>Select Class</em>
+                  <em>{classes.length === 0 ? "No classes available" : "Select Class"}</em>
                 </MenuItem>
-                {classes.map(cls => (
-                  <MenuItem key={cls.id} value={cls.id}>{cls.grade}</MenuItem>
+                {classes.map((cls, index) => (
+                  <MenuItem key={cls.id || index} value={cls.id}>
+                    {cls.grade || cls.name || cls.class_name || `Class ${index + 1}`}
+                  </MenuItem>
                 ))}
               </TextField>
             </Grid>

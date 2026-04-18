@@ -1,6 +1,7 @@
 from rest_framework import viewsets, status
 from django.utils import timezone
 from django.db import transaction, IntegrityError
+from django.db.models import ProtectedError
 from rest_framework.permissions import IsAuthenticated, IsAdminUser
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
@@ -400,38 +401,42 @@ class ClassesViewSet(viewsets.ModelViewSet):
         if not has_model_permission(user, 'class', 'delete_class', instance.branch_id):
             raise PermissionDenied("You do not have permission to delete classes in this branch.")
 
-        instance.delete()
-        return Response({
-            'success': True,
-            'message': 'Class deleted successfully',
-            'status': 204,
-            'data': {}
-        }, status=status.HTTP_204_NO_CONTENT)
+        try:
+            instance.delete()
+            return Response({
+                'success': True,
+                'message': 'Class deleted successfully',
+                'status': 200,
+                'data': {}
+            }, status=status.HTTP_200_OK)
+        except ProtectedError as e:
+            # Class has related objects (students, subjects, assignments)
+            related_objects = []
+            for obj in e.protected_objects[:5]:  # Show first 5
+                related_objects.append(f"{obj._meta.model_name}: {str(obj)}")
+            
+            return Response({
+                'success': False,
+                'message': f'Cannot delete class because it has related objects: {", ".join(related_objects)}. Please remove these first.',
+                'status': 400,
+                'data': {'related_objects': related_objects}
+            }, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            return Response({
+                'success': False,
+                'message': f'Error deleting class: {str(e)}',
+                'status': 500,
+                'data': {'error': str(e)}
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     @action(detail=False, methods=['post'], url_path='create-with-sections')
     def create_with_sections(self, request):
         """
         Create a new class/grade with auto-generated sections and assigned courses.
-        
-        Payload:
-        {
-            "grade_number": 10,
-            "sections_count": 3,
-            "courses": ["uuid1", "uuid2", "uuid3"]
-        }
-        
-        Returns:
-        {
-            "success": true,
-            "message": "Class created successfully",
-            "data": {
-                "grade": 10,
-                "sections": ["10A", "10B", "10C"],
-                "courses": ["Math", "English", "Physics"]
-            }
-        }
         """
         user = request.user
+        
+        print(f"[CreateClass] User: {user.email}, Data: {request.data}")
         
         # Only superusers can create classes
         if not user.is_superuser:
@@ -439,15 +444,32 @@ class ClassesViewSet(viewsets.ModelViewSet):
         
         # Validate input
         serializer = ClassCreateSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
+        if not serializer.is_valid():
+            print(f"[CreateClass] Validation errors: {serializer.errors}")
+            return Response({
+                'success': False,
+                'message': 'Validation failed',
+                'errors': serializer.errors
+            }, status=status.HTTP_400_BAD_REQUEST)
         
-        # Create class with sections and courses
-        result = serializer.save()
+        try:
+            # Create class with sections and courses
+            result = serializer.save()
+            print(f"[CreateClass] Created class: {result}")
+        except Exception as e:
+            print(f"[CreateClass] Error creating class: {str(e)}")
+            import traceback
+            print(traceback.format_exc())
+            return Response({
+                'success': False,
+                'message': f'Error creating class: {str(e)}'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         
         # Format response
         grade = result['grade']
         sections = result['sections']
         course_ids = result['courses']
+        print(f"[CreateClass] Grade: {grade.grade}, Sections: {len(sections)}, Courses: {len(course_ids)}")
         
         # Get course names for response
         courses_data = Subject.objects.filter(id__in=course_ids).values('id', 'name')
@@ -642,9 +664,9 @@ class ClassesViewSet(viewsets.ModelViewSet):
         })
 
 class SectionsViewSet(viewsets.ModelViewSet):
-    queryset = Section.objects.all()
     serializer_class = SectionsSerializer
     permission_classes = [IsAuthenticated]
+    # No class-level queryset - using get_queryset() to prevent caching
 
     def is_administrative_user(self, user):
         """Helper to check if user has admin, super_admin, or staff roles"""
@@ -659,32 +681,43 @@ class SectionsViewSet(viewsets.ModelViewSet):
         student_id = self.request.query_params.get('student_id')
         branch_id = self.request.query_params.get('branch_id')
         class_id = self.request.query_params.get('class_fk') or self.request.query_params.get('class_id')
+        
+        print(f"[SectionsViewSet] User: {user.email}, is_superuser: {user.is_superuser}, student_id: {student_id}, branch_id: {branch_id}, class_id: {class_id}")
+        
+        # Start with fresh queryset including all sections
+        base_queryset = Section.objects.all().select_related('class_fk', 'class_fk__branch', 'class_teacher', 'class_teacher__user')
+        total_count = Section.objects.count()
+        print(f"[SectionsViewSet] Total sections in DB: {total_count}")
 
         # 1. Students/Parents Context
         from students.models import Student
         student = Student.objects.filter(user=user).first()
         if student and student.section:
-            return self.queryset.filter(id=student.section.id)
+            print(f"[SectionsViewSet] Student context - returning section {student.section.id}")
+            return base_queryset.filter(id=student.section.id)
 
         if student_id:
             from students.models import ParentStudent
             if not ParentStudent.objects.filter(parent__user=user, student_id=student_id).exists():
                 raise PermissionDenied("You do not have permission to view this student's sections.")
             student = Student.objects.get(id=student_id)
-            return self.queryset.filter(id=student.section.id)
+            return base_queryset.filter(id=student.section.id)
 
         # 2. Administrative Context
         if user.is_superuser:
-            queryset = self.queryset
+            queryset = base_queryset
             if class_id: queryset = queryset.filter(class_fk=class_id)
             if branch_id: queryset = queryset.filter(class_fk__branch_id=branch_id)
+            count = queryset.count()
+            print(f"[SectionsViewSet] Superuser - returning {count} sections")
             return queryset
 
         if self.is_administrative_user(user):
             from users.models import UserBranchAccess
             accessible_branches = list(UserBranchAccess.objects.filter(user=user).values_list('branch_id', flat=True))
+            print(f"[SectionsViewSet] Admin user - accessible_branches: {accessible_branches}")
 
-            queryset = self.queryset
+            queryset = base_queryset
 
             # If specific branch requested, filter by it if user has access
             if branch_id:
@@ -699,12 +732,18 @@ class SectionsViewSet(viewsets.ModelViewSet):
                 except (ValueError, TypeError):
                     queryset = queryset.none()
             elif accessible_branches:
-                # Filter by accessible branches if no specific branch requested
-                queryset = queryset.filter(class_fk__branch_id__in=accessible_branches)
+                # Filter by accessible branches if user has specific branch restrictions
+                # Also include sections where class has no branch (null branch)
+                queryset = queryset.filter(
+                    Q(class_fk__branch_id__in=accessible_branches) | Q(class_fk__branch__isnull=True)
+                )
+            # If no branch_id specified AND no accessible_branches, admin sees all sections
 
             if class_id:
                 queryset = queryset.filter(class_fk=class_id)
-
+            
+            count = queryset.count()
+            print(f"[SectionsViewSet] Admin - returning {count} sections")
             return queryset
 
         # 3. Teacher Context - allow teachers to see sections for their assigned classes
@@ -713,13 +752,16 @@ class SectionsViewSet(viewsets.ModelViewSet):
         if teacher:
             # Get sections from teacher's class-subject assignments
             assignments = TeacherAssignment.objects.filter(teacher=teacher)
-            section_ids = assignments.values_list('section', flat=True).distinct()
-            queryset = self.queryset.filter(id__in=section_ids)
+            section_ids = list(assignments.values_list('section', flat=True).distinct())
+            queryset = base_queryset.filter(id__in=section_ids)
             if class_id:
                 queryset = queryset.filter(class_fk=class_id)
+            count = queryset.count()
+            print(f"[SectionsViewSet] Teacher {teacher.id} - section_ids: {section_ids}, returning {count} sections")
             return queryset
 
-        return self.queryset.none()
+        print(f"[SectionsViewSet] No matching context - returning none")
+        return base_queryset.none()
 
     def create(self, request, *args, **kwargs):
         user = request.user
@@ -735,32 +777,74 @@ class SectionsViewSet(viewsets.ModelViewSet):
         if not has_model_permission(user, 'section', 'add_section', target_class.branch_id):
             raise PermissionDenied("You do not have permission to create sections in this branch.")
 
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        self.perform_create(serializer)
-        return Response({
-            'success': True,
-            'message': 'Section created successfully',
-            'status': 201,
-            'data': serializer.data
-        }, status=status.HTTP_201_CREATED)
+        try:
+            serializer = self.get_serializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            self.perform_create(serializer)
+            return Response({
+                'success': True,
+                'message': 'Section created successfully',
+                'status': 201,
+                'data': serializer.data
+            }, status=status.HTTP_201_CREATED)
+        except IntegrityError as ie:
+            print(f"[SectionCreate] IntegrityError: {str(ie)}")
+            return Response({
+                'success': False,
+                'message': 'Section with this name already exists for this class',
+                'errors': {'name': ['A section with this name already exists in this class']}
+            }, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            print(f"[SectionCreate] Error: {str(e)}")
+            return Response({
+                'success': False,
+                'message': f'Error creating section: {str(e)}'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     def update(self, request, *args, **kwargs):
         user = request.user
         instance = self.get_object()
+        
+        print(f"[SectionUpdate] User: {user.email}, Section ID: {instance.id}")
+        print(f"[SectionUpdate] Current data - room_number: {instance.room_number}, capacity: {instance.capacity}")
+        print(f"[SectionUpdate] Request data: {request.data}")
 
         if not has_model_permission(user, 'section', 'change_section', instance.class_fk.branch_id):
             raise PermissionDenied("You do not have permission to update sections in this branch.")
 
-        serializer = self.get_serializer(instance, data=request.data, partial=True)
-        serializer.is_valid(raise_exception=True)
-        self.perform_update(serializer)
-        return Response({
-            'success': True,
-            'message': 'Section updated successfully',
-            'status': 200,
-            'data': serializer.data
-        })
+        try:
+            serializer = self.get_serializer(instance, data=request.data, partial=True)
+            if not serializer.is_valid():
+                print(f"[SectionUpdate] Validation errors: {serializer.errors}")
+                return Response({
+                    'success': False,
+                    'message': 'Validation failed',
+                    'errors': serializer.errors
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            self.perform_update(serializer)
+            print(f"[SectionUpdate] Success - Updated data: {serializer.data}")
+            return Response({
+                'success': True,
+                'message': 'Section updated successfully',
+                'status': 200,
+                'data': serializer.data
+            })
+        except IntegrityError as ie:
+            print(f"[SectionUpdate] IntegrityError: {str(ie)}")
+            return Response({
+                'success': False,
+                'message': 'Section with this name already exists for this class',
+                'errors': {'name': ['A section with this name already exists in this class']}
+            }, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            print(f"[SectionUpdate] Error: {str(e)}")
+            import traceback
+            print(traceback.format_exc())
+            return Response({
+                'success': False,
+                'message': f'Error updating section: {str(e)}'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     def destroy(self, request, *args, **kwargs):
         user = request.user
@@ -769,13 +853,31 @@ class SectionsViewSet(viewsets.ModelViewSet):
         if not has_model_permission(user, 'section', 'delete_section', instance.class_fk.branch_id):
             raise PermissionDenied("You do not have permission to delete sections in this branch.")
 
-        instance.delete()
-        return Response({
-            'success': True,
-            'message': 'Section deleted successfully',
-            'status': 204,
-            'data': {}
-        }, status=status.HTTP_204_NO_CONTENT)
+        try:
+            instance.delete()
+            return Response({
+                'success': True,
+                'message': 'Section deleted successfully',
+                'status': 200,
+                'data': {}
+            }, status=status.HTTP_200_OK)
+        except ProtectedError as e:
+            related_objects = []
+            for obj in e.protected_objects[:5]:
+                related_objects.append(f"{obj._meta.model_name}: {str(obj)}")
+            return Response({
+                'success': False,
+                'message': f'Cannot delete section because it has related objects: {", ".join(related_objects)}',
+                'status': 400,
+                'data': {'related_objects': related_objects}
+            }, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            return Response({
+                'success': False,
+                'message': f'Error deleting section: {str(e)}',
+                'status': 500,
+                'data': {'error': str(e)}
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     def list(self, request, *args, **kwargs):
         queryset = self.filter_queryset(self.get_queryset())
@@ -863,11 +965,33 @@ class SubjectsViewSet(viewsets.ModelViewSet):
                 return Response({
                     'success': False,
                     'message': 'Validation failed',
-                })
-            return Response({
-                'message': 'Subject created successfully',
-                'data': serializer.data
-            }, status=status.HTTP_201_CREATED, headers=headers)
+                    'errors': serializer.errors
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            try:
+                self.perform_create(serializer)
+                headers = self.get_success_headers(serializer.data)
+                return Response({
+                    'success': True,
+                    'message': 'Subject created successfully',
+                    'data': serializer.data
+                }, status=status.HTTP_201_CREATED, headers=headers)
+            except IntegrityError as ie:
+                print(f"[SubjectCreate] IntegrityError: {str(ie)}")
+                # Check if it's a unique constraint violation
+                error_str = str(ie)
+                if 'unique' in error_str.lower() or 'already exists' in error_str.lower():
+                    return Response({
+                        'success': False,
+                        'message': 'Subject with this code already exists for this class/branch',
+                        'errors': {'code': ['A subject with this code already exists in this class. Please use a unique code.']}
+                    }, status=status.HTTP_400_BAD_REQUEST)
+                else:
+                    return Response({
+                        'success': False,
+                        'message': f'Database error: {str(ie)}',
+                        'errors': {'database': [str(ie)]}
+                    }, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
             import traceback
             print(f"[SubjectCreate] ERROR: {str(e)}")

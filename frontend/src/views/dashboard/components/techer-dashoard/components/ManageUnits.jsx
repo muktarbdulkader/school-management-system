@@ -51,6 +51,43 @@ const ManageUnits = ({
     }
   }, [open]);
 
+  // Refresh data when switching to Unit tab (to get newly created categories)
+  useEffect(() => {
+    if (activeTab === 'unit' && onRefresh) {
+      console.log('Switched to Unit tab, refreshing data...');
+      onRefresh();
+    }
+  }, [activeTab]);
+
+  // Refresh data when switching to Sub-unit tab (to get newly created units)
+  useEffect(() => {
+    if (activeTab === 'subunit' && onRefresh) {
+      console.log('Switched to Sub-unit tab, refreshing data...');
+      onRefresh();
+    }
+  }, [activeTab]);
+
+  // Debug: log units whenever they change
+  useEffect(() => {
+    console.log('=== UNITS UPDATED ===');
+    console.log('Units count:', units?.length || 0);
+    console.log('Units data:', units);
+  }, [units]);
+
+  // Debug: log subunits whenever they change
+  useEffect(() => {
+    console.log('=== SUBUNITS UPDATED ===');
+    console.log('Subunits count:', subunits?.length || 0);
+    console.log('Subunits data:', subunits);
+  }, [subunits]);
+
+  // Debug: log categories whenever they change
+  useEffect(() => {
+    console.log('=== CATEGORIES UPDATED ===');
+    console.log('Categories count:', categories?.length || 0);
+    console.log('Categories data:', categories);
+  }, [categories]);
+
   // Form states
   const [categoryForm, setCategoryForm] = useState({
     subject_id: '',
@@ -95,10 +132,19 @@ const ManageUnits = ({
     }
     setLoading(true);
     try {
+      console.log('Creating category with form data:', categoryForm);
       const result = await onCategoryCreated(categoryForm);
+      console.log('Category creation result:', result);
+
       if (result.success) {
         setCategoryForm({ subject_id: '', class_fk_id: '', name: '' });
-        toast.success('Category created successfully! It will now appear in the Unit dropdown.');
+        // Force refresh to update categories list BEFORE showing success
+        if (onRefresh) {
+          console.log('Refreshing categories list after creation...');
+          await onRefresh();
+          console.log('Categories refreshed, count:', categories?.length);
+        }
+        toast.success(`✅ Category created! You now have ${categories?.length || 0} categories. Switch to "Add Unit" tab to use it.`);
       } else {
         // Handle backend validation errors
         let errorMsg = result.message || 'Failed to create category';
@@ -116,22 +162,26 @@ const ManageUnits = ({
             errorMsg = fieldErrors;
           }
         }
-        toast.error(errorMsg);
+        console.error('Category creation failed:', errorMsg);
+        toast.error(`❌ ${errorMsg}`);
       }
     } catch (error) {
-      toast.error(error.message || 'Failed to create category');
+      console.error('Category creation error:', error);
+      toast.error(`❌ ${error.message || 'Failed to create category'}`);
     } finally {
       setLoading(false);
     }
   };
 
   const handleCreateUnit = async () => {
+    console.log('handleCreateUnit called with unitForm:', unitForm);
     if (!unitForm.category_id || !unitForm.name) {
       toast.error('Please fill all required fields');
       return;
     }
     setLoading(true);
     try {
+      console.log('Sending unitForm to backend:', unitForm);
       const result = await onUnitCreated(unitForm);
       if (result.success) {
         setUnitForm({ category_id: '', name: '' });
@@ -162,12 +212,14 @@ const ManageUnits = ({
   };
 
   const handleCreateSubunit = async () => {
+    console.log('handleCreateSubunit called with subunitForm:', subunitForm);
     if (!subunitForm.unit_id || !subunitForm.name) {
       toast.error('Please fill all required fields');
       return;
     }
     setLoading(true);
     try {
+      console.log('Sending subunitForm to backend:', subunitForm);
       const result = await onSubunitCreated(subunitForm);
       if (result.success) {
         setSubunitForm({ unit_id: '', name: '' });
@@ -235,7 +287,10 @@ const ManageUnits = ({
           {['category', 'unit', 'subunit'].map((tab) => (
             <Button
               key={tab}
-              onClick={() => setActiveTab(tab)}
+              onClick={() => {
+                console.log(`Switching to ${tab} tab`);
+                setActiveTab(tab);
+              }}
               variant={activeTab === tab ? 'contained' : 'text'}
               size="small"
             >
@@ -350,18 +405,31 @@ const ManageUnits = ({
         {/* Unit Form */}
         {activeTab === 'unit' && (
           <Box>
+            {console.log('Unit tab - Available categories:', categories?.length || 0, categories)}
             <Typography variant="h6" sx={{ mb: 2 }}>
               Create New Unit
             </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              Available categories: {categories?.length || 0}
+            </Typography>
+            {(!categories || categories.length === 0) && (
+              <Typography variant="body2" color="warning.main" sx={{ mb: 2, p: 2, bgcolor: 'warning.light', borderRadius: 1 }}>
+                ⚠️ No categories available. Please go to "Add Category" tab and create a category first.
+                <br />
+                <small>Debug: categories prop is {categories === undefined ? 'undefined' : `array with ${categories.length} items`}</small>
+              </Typography>
+            )}
             <Grid container spacing={2}>
               <Grid item xs={12}>
                 <FormControl fullWidth>
                   <InputLabel>Category *</InputLabel>
                   <Select
                     value={unitForm.category_id}
-                    onChange={(e) =>
-                      setUnitForm({ ...unitForm, category_id: e.target.value })
-                    }
+                    onChange={(e) => {
+                      console.log('Category selected:', e.target.value, 'Type:', typeof e.target.value);
+                      console.log('Selected category object:', categories.find(c => c.id === e.target.value));
+                      setUnitForm({ ...unitForm, category_id: e.target.value });
+                    }}
                     label="Category *"
                   >
                     {categories.length === 0 && (
@@ -434,23 +502,43 @@ const ManageUnits = ({
         {/* Subunit Form */}
         {activeTab === 'subunit' && (
           <Box>
+            {console.log('Sub-unit tab - Available units:', units?.length || 0, units)}
             <Typography variant="h6" sx={{ mb: 2 }}>
               Create New Sub-unit
             </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              Available units: {units?.length || 0}
+            </Typography>
+            {(!units || units.length === 0) && (
+              <Typography variant="body2" color="warning.main" sx={{ mb: 2, p: 2, bgcolor: 'warning.light', borderRadius: 1 }}>
+                ⚠️ No units available. Please go to "Add Unit" tab and create a unit first.
+                <br />
+                <small>Debug: units prop is {units === undefined ? 'undefined' : `array with ${units.length} items`}</small>
+              </Typography>
+            )}
             <Grid container spacing={2}>
               <Grid item xs={12}>
                 <FormControl fullWidth>
                   <InputLabel>Unit *</InputLabel>
                   <Select
                     value={subunitForm.unit_id}
-                    onChange={(e) =>
-                      setSubunitForm({ ...subunitForm, unit_id: e.target.value })
-                    }
+                    onChange={(e) => {
+                      const selectedValue = e.target.value;
+                      console.log('Unit selected:', selectedValue, 'Type:', typeof selectedValue);
+                      console.log('Selected unit object:', units.find(u => u.id === selectedValue));
+                      setSubunitForm({ ...subunitForm, unit_id: selectedValue });
+                    }}
                     label="Unit *"
+                    disabled={!units || units.length === 0}
                   >
+                    {units.length === 0 && (
+                      <MenuItem disabled>
+                        No units available. Please create a unit first.
+                      </MenuItem>
+                    )}
                     {units.map((unit) => (
                       <MenuItem key={unit.id} value={unit.id}>
-                        {unit.name} ({unit.category?.name})
+                        {unit.name} ({unit.category_details?.name || unit.category?.name || 'N/A'})
                       </MenuItem>
                     ))}
                   </Select>
@@ -482,17 +570,26 @@ const ManageUnits = ({
             <Divider sx={{ my: 3 }} />
 
             <Typography variant="subtitle1" sx={{ mb: 2 }}>
-              Existing Sub-units
+              Existing Sub-units ({subunits?.length || 0})
             </Typography>
+            {(!subunits || subunits.length === 0) && (
+              <Typography variant="body2" color="text.secondary">
+                No sub-units created yet.
+              </Typography>
+            )}
             <List dense>
-              {subunits.map((sub) => (
-                <ListItem key={sub.id}>
-                  <ListItemText
-                    primary={sub.name}
-                    secondary={`Unit: ${sub.unit?.name}`}
-                  />
-                </ListItem>
-              ))}
+              {subunits.map((sub) => {
+                // Handle different possible data structures from backend
+                const unitName = sub.unit_details?.name || sub.unit?.name || 'Unknown Unit';
+                return (
+                  <ListItem key={sub.id}>
+                    <ListItemText
+                      primary={sub.name}
+                      secondary={`Unit: ${unitName}`}
+                    />
+                  </ListItem>
+                );
+              })}
             </List>
           </Box>
         )}

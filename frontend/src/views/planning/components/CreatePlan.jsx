@@ -21,6 +21,7 @@ import GetToken from 'utils/auth-token';
 import PropTypes from 'prop-types';
 import { TaskProgress } from 'ui-component/steppers/Stepper';
 import DrogaButton from 'ui-component/buttons/DrogaButton';
+import { useSelector } from 'react-redux';
 
 function formatToBackendDateTime(date, time = '00:00:00') {
   let dt;
@@ -64,6 +65,11 @@ export const CreatePlan = ({ add, onClose, onSucceed, defaultValues }) => {
   const [terms, setTerms] = React.useState([]);
   const [classes, setClasses] = React.useState([]);
   const [objectives, setObjectives] = React.useState([]);
+  const [teacherAssignments, setTeacherAssignments] = React.useState([]);
+
+  // Get current user from Redux
+  const userData = useSelector((state) => state?.user?.user || state?.auth?.user || {});
+  const currentUserId = userData?.id || userData?.user_id;
 
   useEffect(() => {
     if (defaultValues) {
@@ -83,7 +89,7 @@ export const CreatePlan = ({ add, onClose, onSucceed, defaultValues }) => {
   }, [defaultValues]);
 
   function filterById(items, targetId) {
-   
+
     return items.filter((item) => item.id === targetId);
   }
 
@@ -109,12 +115,43 @@ export const CreatePlan = ({ add, onClose, onSucceed, defaultValues }) => {
         const termsData = await termsRes.json();
         setTerms(termsData?.data || []);
 
-        // Classes
-        const ClassesAPI =
-          Backend.api + Backend.classes + '?subject_id=' + subjectId;
-        const classesRes = await fetch(ClassesAPI, { headers });
-        const classesData = await classesRes.json();
-        setClasses(classesData?.data || []);
+        // Fetch from overview_dashboard endpoint (same as teacher dashboard)
+        const overviewAPI = Backend.auth + Backend.teachersOverviewDashboard;
+        const overviewRes = await fetch(overviewAPI, { headers });
+        const overviewData = await overviewRes.json();
+        console.log('CreatePlan - Overview dashboard response:', overviewData);
+
+        // Extract classes from subjects (each subject has class_id, class_name)
+        const subjectsData = overviewData?.data?.subjects || [];
+        console.log('CreatePlan - Subjects from overview:', subjectsData.length, subjectsData);
+
+        const classesFromSubjects = [];
+        const classIdsAdded = new Set();
+
+        subjectsData.forEach((subject, index) => {
+          if (subject.class_id && !classIdsAdded.has(subject.class_id)) {
+            classIdsAdded.add(subject.class_id);
+            classesFromSubjects.push({
+              id: subject.class_id,
+              name: subject.class_name,
+              grade: subject.class_name,
+              section_id: subject.section_id,
+              section_name: subject.section_name
+            });
+            console.log(`CreatePlan - Added class from subject ${index}:`, subject.class_name);
+          }
+        });
+
+        console.log('CreatePlan - Classes extracted from subjects:', classesFromSubjects.length, classesFromSubjects);
+
+        // Use classes from subjects
+        if (classesFromSubjects.length > 0) {
+          console.log('CreatePlan - Using classes from subjects');
+          setClasses(classesFromSubjects);
+        } else {
+          console.log('CreatePlan - No classes available - teacher may not have assignments');
+          setClasses([]);
+        }
       } catch (err) {
         console.error('Fetch error', err);
         toast.error('Failed to load initial data');
@@ -136,7 +173,7 @@ export const CreatePlan = ({ add, onClose, onSucceed, defaultValues }) => {
           headers,
         });
         const data = await res.json();
-        setUnits((defaultValues ? data?.data : (classes ? data?.data?.filter((u) => u?.class_details?.id === classes[0]?.id) : []) ) || []);
+        setUnits((defaultValues ? data?.data : (classes ? data?.data?.filter((u) => u?.class_details?.id === classes[0]?.id) : [])) || []);
       } catch (err) {
         toast.error('Failed to load units');
       }
@@ -353,10 +390,14 @@ export const CreatePlan = ({ add, onClose, onSucceed, defaultValues }) => {
             label="Class"
             value={learnerGroupId}
             onChange={(e) => setLearnerGroupId(e.target.value)}
+            helperText={classes.length === 0 ? "No classes available" : "Select your class"}
           >
+            <MenuItem value="">
+              <em>{classes.length === 0 ? "No classes available" : "Select Class"}</em>
+            </MenuItem>
             {classes.map((c) => (
               <MenuItem key={c.id} value={c.id}>
-                Grade {c.grade}
+                Grade {c.grade || c.name || 'N/A'}
               </MenuItem>
             ))}
           </TextField>

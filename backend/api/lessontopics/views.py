@@ -34,37 +34,37 @@ class ObjectiveCategoriesViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
+        import logging
+        logger = logging.getLogger(__name__)
+        
         user = self.request.user
         branch_id = self.request.query_params.get('branch_id')
         
+        logger.info(f"get_queryset - User: {user}, branch_id: {branch_id}")
+        
         # Superusers see all
         if user.is_superuser:
+            logger.info("User is superuser, returning all categories")
             if branch_id:
                 return self.queryset.filter(class_fk__branch_id=branch_id)
             return self.queryset.all()
         
-        # Check if user is a teacher
-        from teachers.models import Teacher, TeacherAssignment
-        try:
-            teacher = Teacher.objects.get(user=user)
-            # Teachers can see categories for their assigned classes/subjects
-            teacher_assignments = TeacherAssignment.objects.filter(teacher=teacher)
-            class_ids = teacher_assignments.values_list('class_fk_id', flat=True).distinct()
-            subject_ids = teacher_assignments.values_list('subject_id', flat=True).distinct()
-            
-            return self.queryset.filter(
-                Q(class_fk_id__in=class_ids) | Q(subject_id__in=subject_ids) |
-                Q(created_by=user) | Q(created_by__isnull=True)
-            ).distinct()
-        except Teacher.DoesNotExist:
-            pass
-        
-        # Admin/Staff with branch permission
-        if branch_id and not has_model_permission(user, 'objectivescategories', 'view', branch_id):
-            raise PermissionDenied("No permission to view categories.")
-        
-        # Show both global and user-created categories
-        return self.queryset.filter(Q(created_by=user) | Q(created_by__isnull=True))
+        # For teachers and regular users - return ALL categories
+        # Categories are filtered at the API level by subject/class, not here
+        all_count = self.queryset.count()
+        logger.info(f"Returning ALL {all_count} categories")
+        return self.queryset.all()
+
+    def list(self, request, *args, **kwargs):
+        """Return categories in the expected format with success flag"""
+        queryset = self.filter_queryset(self.get_queryset())
+        serializer = self.get_serializer(queryset, many=True)
+        return Response({
+            'success': True,
+            'message': 'Categories fetched successfully',
+            'status': 200,
+            'data': serializer.data
+        })
 
     def create(self, request, *args, **kwargs):
         import logging
@@ -111,11 +111,18 @@ class ObjectiveCategoriesViewSet(viewsets.ModelViewSet):
         return any(role.lower() in admin_roles for role in user_roles)
 
     def perform_create(self, serializer):
+        import logging
+        logger = logging.getLogger(__name__)
+        
         user = self.request.user
         branch_id = self.request.data.get('branch_id')
+        subject_id = self.request.data.get('subject_id')
+        
+        logger.info(f"perform_create - User: {user}, subject_id: {subject_id}, branch_id: {branch_id}")
 
         # 1. Admin/Staff Access
         if self.is_administrative_user(user):
+            logger.info("User is admin/staff, saving category")
             serializer.save(created_by=user)
             return
 
@@ -123,18 +130,25 @@ class ObjectiveCategoriesViewSet(viewsets.ModelViewSet):
         from teachers.models import Teacher, TeacherAssignment
         try:
             teacher = Teacher.objects.get(user=user)
-            subject_id = self.request.data.get('subject_id')
+            logger.info(f"Found teacher: {teacher}")
             if subject_id:
-                if TeacherAssignment.objects.filter(teacher=teacher, subject_id=subject_id).exists():
+                assignments = TeacherAssignment.objects.filter(teacher=teacher, subject_id=subject_id)
+                logger.info(f"Teacher assignments for subject {subject_id}: {assignments.count()}")
+                if assignments.exists():
+                    logger.info("Teacher has assignment for this subject, saving category")
                     serializer.save(created_by=user)
                     return
+                else:
+                    logger.warning(f"Teacher {teacher} has no assignment for subject {subject_id}")
         except Teacher.DoesNotExist:
+            logger.warning(f"No Teacher profile found for user {user}")
             pass
 
         # 3. Explicit Model Permission Check (Fallback)
         if branch_id and not has_model_permission(user, 'objectivescategories', 'add', branch_id):
             raise PermissionDenied("No permission to create categories.")
 
+        logger.info("Saving category (fallback)")
         serializer.save(created_by=user)
 
     def update(self, request, *args, **kwargs):
@@ -176,6 +190,17 @@ class ObjectiveUnitsViewSet(viewsets.ModelViewSet):
     queryset = ObjectiveUnits.objects.all()
     serializer_class = ObjectiveUnitsSerializer
     permission_classes = [IsAuthenticated]
+
+    def list(self, request, *args, **kwargs):
+        """Return units in the expected format with success flag"""
+        queryset = self.filter_queryset(self.get_queryset())
+        serializer = self.get_serializer(queryset, many=True)
+        return Response({
+            'success': True,
+            'message': 'Units fetched successfully',
+            'status': 200,
+            'data': serializer.data
+        })
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
@@ -375,8 +400,22 @@ class ObjectiveUnitsViewSet(viewsets.ModelViewSet):
         return any(role.lower() in admin_roles for role in user_roles)
 
     def create(self, request, *args, **kwargs):
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        logger.info(f"Creating unit with request data: {request.data}")
+        logger.info(f"category_id type: {type(request.data.get('category_id'))}, value: {request.data.get('category_id')}")
+        
         serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
+        if not serializer.is_valid():
+            logger.error(f"Unit validation errors: {serializer.errors}")
+            return Response({
+                'success': False,
+                'message': 'Validation failed',
+                'status': 400,
+                'data': serializer.errors
+            }, status=400)
+        
         self.perform_create(serializer)
         return Response({'success': True, 'message': 'Unit created', 'status': 201, 'data': serializer.data}, status=201)
 
@@ -438,6 +477,17 @@ class ObjectiveSubunitsViewSet(viewsets.ModelViewSet):
     queryset = ObjectiveSubunits.objects.all()
     serializer_class = ObjectiveSubunitsSerializer
     permission_classes = [IsAuthenticated]
+
+    def list(self, request, *args, **kwargs):
+        """Return subunits in the expected format with success flag"""
+        queryset = self.filter_queryset(self.get_queryset())
+        serializer = self.get_serializer(queryset, many=True)
+        return Response({
+            'success': True,
+            'message': 'Subunits fetched successfully',
+            'status': 200,
+            'data': serializer.data
+        })
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
@@ -519,9 +569,9 @@ class ObjectiveSubunitsViewSet(viewsets.ModelViewSet):
             unit_id = self.request.data.get('unit_id')
             if unit_id:
                 # Get the subject through unit -> category -> subject
-                unit = ObjectiveUnits.objects.filter(id=unit_id).select_related('category_id__subject').first()
-                if unit and unit.category_id and unit.category_id.subject:
-                    if TeacherAssignment.objects.filter(teacher=teacher, subject=unit.category_id.subject).exists():
+                unit = ObjectiveUnits.objects.filter(id=unit_id).select_related('category__subject').first()
+                if unit and unit.category and unit.category.subject:
+                    if TeacherAssignment.objects.filter(teacher=teacher, subject=unit.category.subject).exists():
                         serializer.save(created_by=user)
                         return
         except Teacher.DoesNotExist:

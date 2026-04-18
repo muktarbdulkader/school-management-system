@@ -192,11 +192,19 @@ const AddDailyLesson = ({
               onChange={handleClassChange}
               label="Class"
             >
+              <MenuItem value="">
+                <em>{learnerGroups.length === 0 ? "No classes available" : "Select Class"}</em>
+              </MenuItem>
               {learnerGroups.map((group) => (
                 <MenuItem key={group.id} value={group.id}>
                   {group.name || `Class ${group.grade}`}
                 </MenuItem>
               ))}
+              {learnerGroups.length === 0 && (
+                <MenuItem disabled>
+                  No classes assigned. Please contact administrator.
+                </MenuItem>
+              )}
             </Select>
           </FormControl>
         </Grid>

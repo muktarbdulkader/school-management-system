@@ -3,7 +3,7 @@ from students.models import Student
 from teachers.serializers import TeacherSerializer
 from users.models import Branch
 from users.serializers import BranchSerializer
-from .models import Class, ClassElectiveOffering, ClassExtraOffering, ClassSubject, CourseType, Section, Subject, Term, GlobalSubject
+from .models import Class, ClassElectiveOffering, ClassExtraOffering, ClassSubject, CourseType, GlobalSubject, Section, Subject, Term
 from students.models import StudentElectiveChoice, StudentExtraChoice, StudentSubject
 from teachers.models import Teacher
 
@@ -125,8 +125,7 @@ class SectionsSerializer(serializers.ModelSerializer):
         } for ta in assignments]
 
     def validate_class_fk(self, value):
-        if not value.branch_id:
-            raise serializers.ValidationError("The selected class must be associated with a branch.")
+        # Class branch is optional (nullable in model), so no validation needed
         return value
 
 class ClassCreateSerializer(serializers.Serializer):
@@ -177,13 +176,16 @@ class ClassCreateSerializer(serializers.Serializer):
             branch = Branch.objects.filter(id=branch_id).first() if branch_id else None
             grade = Class.objects.create(grade=str(grade_number), branch=branch)
 
-            # Step 2: Generate sections (A, B, C, ...)
+            # Step 2: Generate sections (A, B, C, ...) with unique room numbers
             sections = []
             for i in range(sections_count):
                 section_name = chr(65 + i)  # A=65, B=66, etc.
+                # Generate unique room number based on grade and section
+                room_number = f"R{grade_number}{section_name}"
                 section = Section.objects.create(
                     class_fk=grade,
                     name=section_name,
+                    room_number=room_number,
                     capacity=30
                 )
                 sections.append(section)
@@ -191,9 +193,24 @@ class ClassCreateSerializer(serializers.Serializer):
             # Step 3: Assign courses to the grade (if provided)
             assigned_courses = []
             for subject_id in courses:
+                # Get the subject to find its global_subject
+                subject = Subject.objects.filter(id=subject_id).first()
+                global_subject = subject.global_subject if subject else None
+                
+                # If subject has no global_subject, create one from subject name
+                if subject and not global_subject:
+                    global_subject, _ = GlobalSubject.objects.get_or_create(
+                        name=subject.name,
+                        defaults={'description': f'Auto-created from subject {subject.name}'}
+                    )
+                    # Link the subject to the global_subject for future use
+                    subject.global_subject = global_subject
+                    subject.save(update_fields=['global_subject'])
+                
                 ClassSubject.objects.create(
                     class_fk=grade,
-                    subject_id=subject_id
+                    subject_id=subject_id,
+                    global_subject=global_subject  # Also set for new subject management
                 )
                 assigned_courses.append(subject_id)
 

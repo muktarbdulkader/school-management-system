@@ -30,18 +30,23 @@ function SectionsPage() {
 
   const fetchSections = async () => {
     setLoading(true);
+    setSections([]); // Clear sections immediately to prevent showing stale data
     try {
       const token = await GetToken();
-      const response = await fetch(`${Backend.api}${Backend.sections}`, {
+      // Add timestamp to prevent browser caching
+      const timestamp = Date.now();
+      const response = await fetch(`${Backend.api}${Backend.sections}?_t=${timestamp}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       const data = await response.json();
+      console.log('[fetchSections] Loaded', data.data?.length || 0, 'sections');
       if (data.success) {
         setSections(data.data || []);
       } else {
         toast.error(data.message || 'Failed to fetch sections');
       }
     } catch (error) {
+      console.error('[fetchSections] Error:', error);
       toast.error('Error fetching sections');
     } finally {
       setLoading(false);
@@ -133,7 +138,12 @@ function SectionsPage() {
         payload.class_teacher = formData.class_teacher;
       }
 
-      const response = await fetch(url, {
+      console.log(`[SectionSave] ${editMode ? 'UPDATE' : 'CREATE'} URL:`, url);
+      console.log('[SectionSave] Payload:', payload);
+
+      // Add cache-busting timestamp for update operations
+      const fetchUrl = editMode ? `${url}?_t=${Date.now()}` : url;
+      const response = await fetch(fetchUrl, {
         method: editMode ? 'PATCH' : 'POST',
         headers: {
           Authorization: `Bearer ${token}`,
@@ -143,14 +153,19 @@ function SectionsPage() {
       });
 
       const data = await response.json();
+      console.log('[SectionSave] Response:', data);
+
       if (data.success) {
         toast.success(data.message || `Section ${editMode ? 'updated' : 'created'} successfully`);
         handleCloseDialog();
-        fetchSections();
+        // Wait for database commit then refresh
+        setTimeout(() => fetchSections(), 800);
       } else {
+        console.error('[SectionSave] Failed:', data);
         toast.error(data.message || 'Operation failed');
       }
     } catch (error) {
+      console.error('[SectionSave] Error:', error);
       toast.error('Error saving section');
     }
   };
@@ -158,21 +173,40 @@ function SectionsPage() {
   const handleDelete = async (id) => {
     if (!window.confirm('Are you sure you want to delete this section?')) return;
 
+    console.log('[handleDelete] Deleting section:', id);
+
     try {
       const token = await GetToken();
-      const response = await fetch(`${Backend.api}${Backend.sections}${id}/`, {
+      // Add cache-busting timestamp
+      const response = await fetch(`${Backend.api}${Backend.sections}${id}/?_t=${Date.now()}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` }
       });
 
+      console.log('[handleDelete] Response status:', response.status);
+
+      // Handle 404 - section already deleted or not found
+      if (response.status === 404) {
+        toast.info('Section was already deleted');
+        setTimeout(() => fetchSections(), 500);
+        return;
+      }
+
       const data = await response.json();
-      if (data.success || response.status === 204) {
+      console.log('[handleDelete] Response:', data);
+
+      if (data.success) {
         toast.success('Section deleted successfully');
-        fetchSections();
+        // Wait for database commit then refresh
+        setTimeout(() => {
+          console.log('[handleDelete] Refreshing sections...');
+          fetchSections();
+        }, 800);
       } else {
         toast.error(data.message || 'Failed to delete section');
       }
     } catch (error) {
+      console.error('[handleDelete] Error:', error);
       toast.error('Error deleting section');
     }
   };

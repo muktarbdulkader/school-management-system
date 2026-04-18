@@ -62,6 +62,7 @@ class ObjectiveCategoriesSerializer(serializers.ModelSerializer):
 class ObjectiveUnitsSerializer(serializers.ModelSerializer):
     category_id = serializers.PrimaryKeyRelatedField(
         queryset=ObjectiveCategories.objects.all(),
+        source='category',
         write_only=True,
         required=True
     )
@@ -75,10 +76,20 @@ class ObjectiveUnitsSerializer(serializers.ModelSerializer):
 
     def validate_name(self, value):
         """Ensure unit name is unique per category"""
-        if 'category_id' in self.initial_data:
-            category = self.initial_data['category_id']
+        # Get category_id from initial_data (during validation, validated_data is not available)
+        category_id = self.initial_data.get('category_id')
+        
+        if category_id:
+            # category_id might be a UUID string or a model instance
+            if isinstance(category_id, ObjectiveCategories):
+                category_id_value = category_id.id
+            elif isinstance(category_id, str):
+                category_id_value = category_id
+            else:
+                category_id_value = str(category_id)
+            
             if ObjectiveUnits.objects.filter(
-                category_id=category, 
+                category_id=category_id_value, 
                 name__iexact=value
             ).exclude(id=self.instance.id if self.instance else None).exists():
                 raise serializers.ValidationError(
@@ -90,6 +101,7 @@ class ObjectiveUnitsSerializer(serializers.ModelSerializer):
 class ObjectiveSubunitsSerializer(serializers.ModelSerializer):
     unit_id = serializers.PrimaryKeyRelatedField(
         queryset=ObjectiveUnits.objects.all(),
+        source='unit',
         write_only=True,
         required=True
     )
@@ -103,10 +115,20 @@ class ObjectiveSubunitsSerializer(serializers.ModelSerializer):
 
     def validate_name(self, value):
         """Ensure subunit name is unique per unit"""
-        if 'unit_id' in self.initial_data:
-            unit = self.initial_data['unit_id']
+        # Get unit_id from initial_data (during validation, validated_data is not available)
+        unit_id = self.initial_data.get('unit_id')
+        
+        if unit_id:
+            # unit_id might be a UUID string or a model instance
+            if isinstance(unit_id, ObjectiveUnits):
+                unit_id_value = unit_id.id
+            elif isinstance(unit_id, str):
+                unit_id_value = unit_id
+            else:
+                unit_id_value = str(unit_id)
+            
             if ObjectiveSubunits.objects.filter(
-                unit_id=unit, 
+                unit_id=unit_id_value, 
                 name__iexact=value
             ).exclude(id=self.instance.id if self.instance else None).exists():
                 raise serializers.ValidationError(
