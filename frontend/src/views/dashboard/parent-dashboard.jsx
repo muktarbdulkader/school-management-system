@@ -273,25 +273,47 @@ export default function ParentDashboard() {
         const ratingsArray = [];
         console.log('Student Data in useEffect:', studentData);
 
-        // Process behavior ratings by category
+        // Process behavior ratings - handle flat values from backend
         if (studentData.behavior_ratings) {
-          Object.entries(studentData.behavior_ratings).forEach(
-            ([label, value]) => {
-              ratingsArray.push({
-                percentage: value?.average || 0,
-                color: label.toLowerCase().includes('overall')
-                  ? '#2196f3'
-                  : '#3b82f6', // highlight overall
-                label,
-              });
-            },
-          );
+          const br = studentData.behavior_ratings;
+
+          // Map specific behavior rating fields to display
+          if (br.average_rating !== undefined) {
+            ratingsArray.push({
+              percentage: br.average_rating,
+              color: '#2196f3',
+              label: 'Behavior Score',
+            });
+          }
+          if (br.raw_average !== undefined) {
+            ratingsArray.push({
+              percentage: (br.raw_average / 5) * 100, // Convert 1-5 scale to percentage
+              color: '#3b82f6',
+              label: 'Raw Rating',
+            });
+          }
+          if (br.total_ratings !== undefined) {
+            ratingsArray.push({
+              percentage: Math.min(br.total_ratings * 20, 100), // Scale: 5 ratings = 100%
+              color: '#8b5cf6',
+              label: 'Total Ratings',
+            });
+          }
+          if (br.recent_incidents_count !== undefined) {
+            ratingsArray.push({
+              percentage: Math.max(0, 100 - (br.recent_incidents_count * 20)), // Fewer incidents = higher score
+              color: '#ef4444',
+              label: 'Incident Score',
+            });
+          }
         }
 
         // Add attendance as a separate metric
         if (studentData.attendance) {
+          const att = studentData.attendance;
+          const attPercentage = att.summary?.percentage || att.average_attendance || 0;
           ratingsArray.push({
-            percentage: studentData.attendance.average_attendance || 0,
+            percentage: attPercentage,
             color: '#22C55E',
             label: 'Average Attendance',
           });

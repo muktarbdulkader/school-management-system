@@ -126,9 +126,13 @@ export default function ChildProfilePage() {
             progress: data.data.progress || {},
             enrolled_subjects_count: isTeacher ? teacherSubjects.length : (data.data.enrolled_subjects_count || 0),
             all_students: data.data.all_students || [],
-            // Behavior ratings placeholder (if available from other source)
-            behavior_ratings: {
-              average_rating: data.data.progress?.overall_average || 0,
+            // Behavior ratings from backend (real data)
+            behavior_ratings: data.data.behavior_ratings || {
+              average_rating: 0,
+              raw_average: 0,
+              total_ratings: 0,
+              recent_incidents_count: 0,
+              category_averages: {}
             },
             // For teacher view - store which subjects they teach
             teacher_subject_ids: teacherSubjects,

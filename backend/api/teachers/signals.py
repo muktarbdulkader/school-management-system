@@ -16,45 +16,44 @@ def update_teacher_exam_metrics(sender, instance, **kwargs):
     teacher_assignment = instance.teacher_assignment
     teacher = teacher_assignment.teacher
     term = instance.exam.term
-    
-    # Get or create metrics for this teacher-term
+    # Use first day of the month from term's start_date
+    month = term.start_date.replace(day=1)
+
+    # Get or create metrics for this teacher-month
     metrics, created = TeacherMetrics.objects.get_or_create(
         teacher=teacher,
-        term=term,
+        month=month,
         defaults={
-            'average_exam_score': 0,
-            'student_pass_rate': 0,
-            'total_exams_conducted': 0,
-            'total_students_evaluated': 0,
-            'assignment_completion_rate': 0,
-            'average_attendance_percentage': 0,
-            'classroom_observation_score': 0,
-            'parent_satisfaction_score': 0,
-            'peer_review_score': 0,
-            'professional_development_hours': 0,
+            'average_student_performance': Decimal('0'),
+            'attendance_percentage': Decimal('100'),
+            'total_working_days': 0,
+            'days_present': 0,
+            'days_absent': 0,
+            'task_completion_rate': Decimal('0'),
+            'total_tasks_assigned': 0,
+            'total_tasks_completed': 0,
+            'tasks_overdue': 0,
+            'lesson_coverage_percentage': Decimal('0'),
+            'lessons_planned': 0,
+            'lessons_completed': 0,
+            'average_rating': None,
+            'total_ratings_received': 0,
         }
     )
-    
+
     # Calculate exam metrics for this teacher in this term
     exam_results = ExamResults.objects.filter(
         teacher_assignment__teacher=teacher,
         exam__term=term
     )
-    
+
     if exam_results.exists():
         avg_score = exam_results.aggregate(avg=Avg('percentage'))['avg'] or 0
         total_exams = exam_results.values('exam').distinct().count()
         total_students = exam_results.values('student').distinct().count()
-        
-        # Calculate pass rate (>= 60%)
-        passed = exam_results.filter(percentage__gte=60).count()
-        total = exam_results.count()
-        pass_rate = (passed / total * 100) if total > 0 else 0
-        
-        metrics.average_exam_score = Decimal(str(avg_score))
-        metrics.student_pass_rate = Decimal(str(pass_rate))
-        metrics.total_exams_conducted = total_exams
-        metrics.total_students_evaluated = total_students
+
+        # Store exam-derived metrics in average_student_performance field
+        metrics.average_student_performance = Decimal(str(avg_score))
         metrics.save()
 
 
@@ -93,10 +92,11 @@ def update_teacher_attendance_metrics(sender, instance, **kwargs):
             ).distinct()
             
             for term in terms:
+                month = term.start_date.replace(day=1)
                 metrics, _ = TeacherMetrics.objects.get_or_create(
                     teacher=teacher,
-                    term=term,
-                    defaults={'average_attendance_percentage': Decimal('0')}
+                    month=month,
+                    defaults={'attendance_percentage': Decimal('0')}
                 )
-                metrics.average_attendance_percentage = Decimal(str(avg_attendance))
+                metrics.attendance_percentage = Decimal(str(avg_attendance))
                 metrics.save()

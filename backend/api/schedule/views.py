@@ -1315,8 +1315,11 @@ class ExamsViewSet(viewsets.ModelViewSet):
         section_id = self.request.query_params.get('section_id')
         subject_id = self.request.query_params.get('subject_id')
 
+        # Use select_related to properly load related objects
+        base_queryset = self.queryset.select_related('subject', 'term', 'class_fk', 'section', 'branch')
+
         if user.is_superuser:
-            queryset = self.queryset.all()
+            queryset = base_queryset.all()
         else:
             # Check if user is a teacher - allow them to see exams for their assigned classes
             from teachers.models import Teacher
@@ -1342,18 +1345,18 @@ class ExamsViewSet(viewsets.ModelViewSet):
                             subject=assignment.subject
                         )
                 if q_objects:
-                    queryset = self.queryset.filter(q_objects).distinct()
+                    queryset = base_queryset.filter(q_objects).distinct()
                     print(f"[ExamsViewSet] Teacher {teacher.teacher_id} found {queryset.count()} exams from {assignments.count()} assignments")
                 else:
                     print(f"[ExamsViewSet] Teacher {teacher.teacher_id} has no valid assignments")
-                    queryset = self.queryset.none()
+                    queryset = base_queryset.none()
             elif student_id:
                 if not ParentStudent.objects.filter(parent__user=user, student_id=student_id).exists():
                     raise PermissionDenied("You do not have permission to view this student's exams.")
                 student = Student.objects.get(id=student_id)
-                queryset = self.queryset.filter(class_fk=student.grade, section=student.section)
+                queryset = base_queryset.filter(class_fk=student.grade, section=student.section)
             else:
-                queryset = self.queryset
+                queryset = base_queryset
                 if branch_id:
                     if not has_model_permission(user, 'exams', 'view_exams', branch_id):
                         raise PermissionDenied("You do not have permission to view exams in this branch.")
@@ -1412,7 +1415,20 @@ class ExamsViewSet(viewsets.ModelViewSet):
                     raise PermissionDenied("Branch ID is required.")
 
             from users.models import UserBranchAccess
-            if not UserBranchAccess.objects.filter(user=user, branch_id=branch_id).exists():
+            from teachers.models import Teacher
+            
+            # Check if user has branch access OR is a teacher assigned to this branch
+            has_branch_access = UserBranchAccess.objects.filter(user=user, branch_id=branch_id).exists()
+            
+            teacher = Teacher.objects.filter(user=user).first()
+            is_teacher_for_branch = teacher and teacher.branch and str(teacher.branch.id) == str(branch_id)
+            
+            if not has_branch_access and not is_teacher_for_branch:
+                print(f"[ExamsViewSet] Access denied: User {user.email} has no access to branch {branch_id}")
+                print(f"  - Has UserBranchAccess: {has_branch_access}")
+                print(f"  - Is teacher for branch: {is_teacher_for_branch}")
+                if teacher:
+                    print(f"  - Teacher branch: {teacher.branch_id if teacher.branch else 'None'}")
                 raise PermissionDenied("You do not have permission to create exams in this branch.")
 
         serializer = self.get_serializer(data=request.data)
@@ -1435,7 +1451,13 @@ class ExamsViewSet(viewsets.ModelViewSet):
         # Branch validation for non-superusers
         if not user.is_superuser:
             from users.models import UserBranchAccess
-            if not UserBranchAccess.objects.filter(user=user, branch_id=instance.branch_id).exists():
+            from teachers.models import Teacher
+            
+            has_branch_access = UserBranchAccess.objects.filter(user=user, branch_id=instance.branch_id).exists()
+            teacher = Teacher.objects.filter(user=user).first()
+            is_teacher_for_branch = teacher and teacher.branch and str(teacher.branch.id) == str(instance.branch_id)
+            
+            if not has_branch_access and not is_teacher_for_branch:
                 raise PermissionDenied("You do not have permission to update exams in this branch.")
 
         serializer = self.get_serializer(instance, data=request.data, partial=True)
@@ -1457,7 +1479,13 @@ class ExamsViewSet(viewsets.ModelViewSet):
         # Branch validation for non-superusers
         if not user.is_superuser:
             from users.models import UserBranchAccess
-            if not UserBranchAccess.objects.filter(user=user, branch_id=instance.branch_id).exists():
+            from teachers.models import Teacher
+            
+            has_branch_access = UserBranchAccess.objects.filter(user=user, branch_id=instance.branch_id).exists()
+            teacher = Teacher.objects.filter(user=user).first()
+            is_teacher_for_branch = teacher and teacher.branch and str(teacher.branch.id) == str(instance.branch_id)
+            
+            if not has_branch_access and not is_teacher_for_branch:
                 raise PermissionDenied("You do not have permission to delete exams in this branch.")
 
         instance.delete()

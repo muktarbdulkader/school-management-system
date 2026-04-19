@@ -151,21 +151,60 @@ const PlanCard = ({ open, onClose, plan, onUpdated, onEdit, onDelete }) => {
     );
   }
 
+  // Get first activity data if available
+  const activity = plan?.activities?.[0];
+
+  // Parse learner activities from the combined text
+  const parseLearnerActivities = (text) => {
+    if (!text) return {};
+    const groups = {};
+    const lines = text.split('\n');
+    lines.forEach(line => {
+      const match = line.match(/^(group\d+):\s*(.+)/i);
+      if (match) {
+        const [, groupName, activities] = match;
+        groups[groupName] = activities.split(';').map(a => a.trim()).filter(Boolean);
+      }
+    });
+    return groups;
+  };
+
+  // Parse formative assessment to extract fields
+  const parseFormativeAssessment = (text) => {
+    if (!text) return {};
+    const result = {};
+    const lines = text.split('\n');
+    lines.forEach(line => {
+      if (line.startsWith('Success Criteria:')) {
+        result.success_criteria = line.replace('Success Criteria:', '').trim();
+      } else if (line.startsWith('Accommodation:')) {
+        result.accomodation = line.replace('Accommodation:', '').trim();
+      } else if (line.startsWith('Extra Challenges:')) {
+        result.extra_challenges = line.replace('Extra Challenges:', '').trim();
+      } else if (line.startsWith('Activity Sheet:')) {
+        result.activity_sheet = line.replace('Activity Sheet:', '').trim();
+      }
+    });
+    return result;
+  };
+
+  const learnerActivities = parseLearnerActivities(activity?.learner_activity);
+  const assessmentParts = parseFormativeAssessment(activity?.formative_assessment);
+
+  // Get evaluation data from evaluations array
+  const evaluation = plan?.evaluations?.[0] || plan?._evaluation;
+  const workedWell = plan?.worked_well || evaluation?.worked_well;
+  const toBeImproved = plan?.to_be_improved || evaluation?.to_be_improved;
+
   const evaluationExists =
     Boolean(plan?.section_details) ||
-    Boolean(plan?.worked_well) ||
-    Boolean(plan?.to_be_improved);
+    Boolean(workedWell) ||
+    Boolean(toBeImproved) ||
+    Boolean(plan?.evaluations?.length > 0);
 
   const activityExists =
-    Boolean(plan?.learning_statement) ||
-    Boolean(plan?.activity_sheet) ||
-    Boolean(plan?.topic_content) ||
-    Boolean(plan?.learner_activities) ||
-    Boolean(plan?.success_criteria) ||
-    Boolean(plan?.extra_challenges) ||
-    Boolean(plan?.accomodation) ||
-    Boolean(plan?.formative_assessment) ||
-    Boolean(plan?.materials);
+    Boolean(activity) ||
+    Boolean(plan?.activities?.length > 0);
 
   return (
     <Modal open={open} onClose={onClose}>
@@ -291,25 +330,6 @@ const PlanCard = ({ open, onClose, plan, onUpdated, onEdit, onDelete }) => {
                 gap: 1,
               }}
             >
-              <PersonIcon fontSize="small" />
-              <Typography variant="caption">
-                Teacher:{' '}
-                {plan?.created_by_details?.teacher_details?.user_details
-                  ?.full_name || 'N/A'}
-              </Typography>
-            </Paper>
-          </Grid>
-          <Grid item>
-            <Paper
-              variant="outlined"
-              sx={{
-                px: 2,
-                py: 1,
-                display: 'flex',
-                alignItems: 'center',
-                gap: 1,
-              }}
-            >
               <Typography variant="caption">
                 Block: {plan?.block || 'N/A'}
               </Typography>
@@ -328,6 +348,25 @@ const PlanCard = ({ open, onClose, plan, onUpdated, onEdit, onDelete }) => {
             >
               <Typography variant="caption">
                 Week: {plan?.week || 'N/A'}
+              </Typography>
+            </Paper>
+          </Grid>
+          <Grid item>
+            <Paper
+              variant="outlined"
+              sx={{
+                px: 2,
+                py: 1,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 1,
+              }}
+            >
+              <PersonIcon fontSize="small" />
+              <Typography variant="caption">
+                Teacher:{' '}
+                {plan?.created_by_details?.teacher_details?.user_details
+                  ?.full_name || 'N/A'}
               </Typography>
             </Paper>
           </Grid>
@@ -524,12 +563,13 @@ const PlanCard = ({ open, onClose, plan, onUpdated, onEdit, onDelete }) => {
                   </Typography>
                   <Typography variant="body2" fontWeight={600}>
                     {plan?.section_details?.name ||
-                      plan?.created_by_details?.section_details?.name ||
+                      plan?.evaluations?.[0]?.section_details?.name ||
+                      plan?._evaluation?.section_details?.name ||
                       'N/A'}
                   </Typography>
-                  {plan?.section_details?.room_number && (
+                  {(plan?.section_details?.room_number || plan?.evaluations?.[0]?.section_details?.room_number) && (
                     <Typography variant="caption" color="text.secondary">
-                      Room {plan.section_details.room_number}
+                      Room {plan?.section_details?.room_number || plan?.evaluations?.[0]?.section_details?.room_number}
                     </Typography>
                   )}
                 </Box>
@@ -546,7 +586,7 @@ const PlanCard = ({ open, onClose, plan, onUpdated, onEdit, onDelete }) => {
                 <Typography variant="caption" color="text.secondary">
                   What worked well
                 </Typography>
-                {plan?.worked_well && plan.worked_well.length > 120 && (
+                {workedWell && workedWell.length > 120 && (
                   <IconButton
                     onClick={() => toggle('worked')}
                     aria-expanded={expanded.worked}
@@ -563,12 +603,12 @@ const PlanCard = ({ open, onClose, plan, onUpdated, onEdit, onDelete }) => {
                 )}
               </Box>
 
-              {plan?.worked_well ? (
+              {workedWell ? (
                 <Box sx={{ mb: 1.5, mt: 0.5 }}>
                   <Typography variant="body2" sx={{ whiteSpace: 'pre-line' }}>
-                    {!expanded.worked && plan.worked_well.length > 120
-                      ? previewText(plan.worked_well, 120)
-                      : plan.worked_well}
+                    {!expanded.worked && workedWell.length > 120
+                      ? previewText(workedWell, 120)
+                      : workedWell}
                   </Typography>
                 </Box>
               ) : (
@@ -592,7 +632,7 @@ const PlanCard = ({ open, onClose, plan, onUpdated, onEdit, onDelete }) => {
                 <Typography variant="caption" color="text.secondary">
                   To be improved
                 </Typography>
-                {plan?.to_be_improved && plan.to_be_improved.length > 120 && (
+                {toBeImproved && toBeImproved.length > 120 && (
                   <IconButton
                     onClick={() => toggle('improved')}
                     aria-expanded={expanded.improved}
@@ -609,12 +649,12 @@ const PlanCard = ({ open, onClose, plan, onUpdated, onEdit, onDelete }) => {
                 )}
               </Box>
 
-              {plan?.to_be_improved ? (
+              {toBeImproved ? (
                 <Box sx={{ mb: 1.5, mt: 0.5 }}>
                   <Typography variant="body2" sx={{ whiteSpace: 'pre-line' }}>
-                    {!expanded.improved && plan.to_be_improved.length > 120
-                      ? previewText(plan.to_be_improved, 120)
-                      : plan.to_be_improved}
+                    {!expanded.improved && toBeImproved.length > 120
+                      ? previewText(toBeImproved, 120)
+                      : toBeImproved}
                   </Typography>
                 </Box>
               ) : (
@@ -669,90 +709,42 @@ const PlanCard = ({ open, onClose, plan, onUpdated, onEdit, onDelete }) => {
 
               <Divider sx={{ mb: 2 }} />
 
-              {/* Activity details (grouped and expandable) */}
-              <Box
-                sx={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'start',
-                }}
-              >
-                <Box sx={{ display: 'flex', gap: 1 }}>
-                  <ArticleIcon />
-                  <Box>
-                    <Typography variant="caption" color="text.secondary">
-                      Learning statement
-                    </Typography>
-                    <Typography variant="body2" sx={{ whiteSpace: 'pre-line' }}>
-                      {!plan?.learning_statement
-                        ? '—'
-                        : plan.learning_statement.length > 180 &&
-                            !expanded.activityDetails
-                          ? previewText(plan.learning_statement, 180)
-                          : plan.learning_statement}
-                    </Typography>
-                  </Box>
-                </Box>
-
-                {plan?.learning_statement &&
-                  plan.learning_statement.length > 180 && (
-                    <IconButton
-                      onClick={() => toggle('activityDetails')}
-                      aria-expanded={expanded.activityDetails}
-                      size="small"
-                      sx={{
-                        transform: expanded.activityDetails
-                          ? 'rotate(180deg)'
-                          : 'rotate(0deg)',
-                        transition: 'transform 200ms',
-                      }}
-                    >
-                      <ExpandMoreIcon />
-                    </IconButton>
-                  )}
-              </Box>
-
-              <Collapse
-                in={expanded.activityDetails}
-                timeout="auto"
-                unmountOnExit
-              >
-                {/* Topic */}
-                {plan?.topic_content && (
-                  <Box sx={{ mt: 2, display: 'flex', gap: 1 }}>
-                    <LightbulbIcon />
-                    <Box>
-                      <Typography variant="caption" color="text.secondary">
-                        Topic
-                      </Typography>
-                      <Typography
-                        variant="body2"
-                        sx={{ whiteSpace: 'pre-line' }}
-                      >
-                        {plan.topic_content}
-                      </Typography>
-                    </Box>
-                  </Box>
-                )}
-
-                {/* Activity sheet */}
-                {plan?.activity_sheet && (
-                  <Box sx={{ mt: 2, display: 'flex', gap: 1 }}>
+              {/* Activity details from backend activity data */}
+              {activity ? (
+                <>
+                  {/* Learning Statement / Topic Content */}
+                  <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
                     <ArticleIcon />
                     <Box>
                       <Typography variant="caption" color="text.secondary">
-                        Activity sheet
+                        Learning Statement
                       </Typography>
-                      <Typography
-                        variant="body2"
-                        sx={{ whiteSpace: 'pre-line' }}
-                      >
-                        {plan.activity_sheet}
+                      <Typography variant="body2" sx={{ whiteSpace: 'pre-line' }}>
+                        {activity?.topic_content || '—'}
                       </Typography>
                     </Box>
                   </Box>
-                )}
-              </Collapse>
+
+                  {/* Activity Sheet */}
+                  {assessmentParts.activity_sheet && (
+                    <Box sx={{ mt: 2, display: 'flex', gap: 1 }}>
+                      <ArticleIcon />
+                      <Box>
+                        <Typography variant="caption" color="text.secondary">
+                          Activity Sheet
+                        </Typography>
+                        <Typography variant="body2" sx={{ whiteSpace: 'pre-line' }}>
+                          {assessmentParts.activity_sheet}
+                        </Typography>
+                      </Box>
+                    </Box>
+                  )}
+                </>
+              ) : (
+                <Typography variant="body2" color="text.secondary">
+                  No activity details available
+                </Typography>
+              )}
 
               {/* Learner activities (expandable) */}
               <Divider sx={{ my: 1 }} />
@@ -769,7 +761,7 @@ const PlanCard = ({ open, onClose, plan, onUpdated, onEdit, onDelete }) => {
                     Learner Activities
                   </Typography>
                 </Stack>
-                {plan?.learner_activities && (
+                {Object.keys(learnerActivities).length > 0 && (
                   <IconButton
                     onClick={() => toggle('learner')}
                     aria-expanded={expanded.learner}
@@ -788,12 +780,12 @@ const PlanCard = ({ open, onClose, plan, onUpdated, onEdit, onDelete }) => {
 
               <Collapse in={expanded.learner} timeout="auto" unmountOnExit>
                 <Box sx={{ mt: 1 }}>
-                  {renderLearnerActivities(plan.learner_activities)}
+                  {renderLearnerActivities(learnerActivities)}
                 </Box>
               </Collapse>
 
               {/* Activity success criteria */}
-              {plan?.success_criteria && (
+              {assessmentParts.success_criteria && (
                 <>
                   <Divider sx={{ my: 1 }} />
                   <Box
@@ -806,10 +798,10 @@ const PlanCard = ({ open, onClose, plan, onUpdated, onEdit, onDelete }) => {
                     <Stack direction="row" spacing={1} alignItems="center">
                       <QuizIcon />
                       <Typography variant="subtitle2" fontWeight={700}>
-                        Activity Success Criteria
+                        Success Criteria
                       </Typography>
                     </Stack>
-                    {plan.success_criteria.length > 120 && (
+                    {assessmentParts.success_criteria.length > 120 && (
                       <IconButton
                         onClick={() => toggle('activitySuccess')}
                         aria-expanded={expanded.activitySuccess}
@@ -831,9 +823,9 @@ const PlanCard = ({ open, onClose, plan, onUpdated, onEdit, onDelete }) => {
                     timeout="auto"
                     unmountOnExit
                   >
-                    <List dense>
-                      {renderSuccessCriteria(plan.success_criteria)}
-                    </List>
+                    <Typography variant="body2" sx={{ whiteSpace: 'pre-line', mt: 1 }}>
+                      {assessmentParts.success_criteria}
+                    </Typography>
                   </Collapse>
                 </>
               )}
@@ -874,12 +866,12 @@ const PlanCard = ({ open, onClose, plan, onUpdated, onEdit, onDelete }) => {
                 </Box>
 
                 <Collapse in={expanded.extra} timeout="auto" unmountOnExit>
-                  {plan?.extra_challenges && (
+                  {assessmentParts.extra_challenges && (
                     <Typography variant="body2" sx={{ whiteSpace: 'pre-line' }}>
-                      {plan.extra_challenges}
+                      {assessmentParts.extra_challenges}
                     </Typography>
                   )}
-                  {plan?.accomodation && (
+                  {assessmentParts.accomodation && (
                     <Box sx={{ mt: 1, display: 'flex', gap: 1 }}>
                       <AccessibilityNewIcon />
                       <Box>
@@ -890,30 +882,30 @@ const PlanCard = ({ open, onClose, plan, onUpdated, onEdit, onDelete }) => {
                           variant="body2"
                           sx={{ whiteSpace: 'pre-line' }}
                         >
-                          {plan.accomodation}
+                          {assessmentParts.accomodation}
                         </Typography>
                       </Box>
                     </Box>
                   )}
 
-                  {plan?.formative_assessment && (
+                  {activity?.formative_assessment && (
                     <Box sx={{ mt: 1, display: 'flex', gap: 1 }}>
                       <QuizIcon />
                       <Box>
                         <Typography variant="caption" color="text.secondary">
-                          Formative assessment
+                          Formative Assessment
                         </Typography>
                         <Typography
                           variant="body2"
                           sx={{ whiteSpace: 'pre-line' }}
                         >
-                          {plan.formative_assessment}
+                          {activity.formative_assessment}
                         </Typography>
                       </Box>
                     </Box>
                   )}
 
-                  {plan?.materials && (
+                  {activity?.materials && (
                     <Box sx={{ mt: 1, display: 'flex', gap: 1 }}>
                       <Inventory2Icon />
                       <Box>
@@ -924,7 +916,7 @@ const PlanCard = ({ open, onClose, plan, onUpdated, onEdit, onDelete }) => {
                           variant="body2"
                           sx={{ whiteSpace: 'pre-line' }}
                         >
-                          {plan.materials}
+                          {activity.materials}
                         </Typography>
                       </Box>
                     </Box>

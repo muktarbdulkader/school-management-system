@@ -101,14 +101,8 @@ export const CreatePlan = ({ add, onClose, onSucceed, defaultValues }) => {
         Authorization: `Bearer ${token}`,
         accept: 'application/json',
       };
-      const API = Backend.api + Backend.subjects;
 
       try {
-        // Subjects
-        const subjectsRes = await fetch(API, { headers });
-        const subjectsData = await subjectsRes.json();
-        setSubjects(subjectsData?.data || []);
-
         // Terms
         const termsAPI = Backend.api + Backend.terms;
         const termsRes = await fetch(termsAPI, { headers });
@@ -121,14 +115,18 @@ export const CreatePlan = ({ add, onClose, onSucceed, defaultValues }) => {
         const overviewData = await overviewRes.json();
         console.log('CreatePlan - Overview dashboard response:', overviewData);
 
-        // Extract classes from subjects (each subject has class_id, class_name)
-        const subjectsData = overviewData?.data?.subjects || [];
-        console.log('CreatePlan - Subjects from overview:', subjectsData.length, subjectsData);
+        // Extract subjects from overview - these have class_id for filtering
+        const overviewSubjectsData = overviewData?.data?.subjects || [];
+        console.log('CreatePlan - Subjects from overview:', overviewSubjectsData.length, overviewSubjectsData);
 
+        // Use subjects from overview (these have class_id)
+        setSubjects(overviewSubjectsData);
+
+        // Extract classes from subjects (each subject has class_id, class_name)
         const classesFromSubjects = [];
         const classIdsAdded = new Set();
 
-        subjectsData.forEach((subject, index) => {
+        overviewSubjectsData.forEach((subject, index) => {
           if (subject.class_id && !classIdsAdded.has(subject.class_id)) {
             classIdsAdded.add(subject.class_id);
             classesFromSubjects.push({
@@ -161,19 +159,35 @@ export const CreatePlan = ({ add, onClose, onSucceed, defaultValues }) => {
     fetchData();
   }, []);
 
+  // Reset subject, unit and subunit when class changes
+  useEffect(() => {
+    setSubjectId('');
+    setUnitId('');
+    setSubunitId('');
+    setUnits([]);
+    setSubunits([]);
+  }, [learnerGroupId]);
+
+  // Reset unit and subunit when subject changes
+  useEffect(() => {
+    setUnitId('');
+    setSubunitId('');
+    setUnits([]);
+    setSubunits([]);
+  }, [subjectId]);
+
   // Fetch units when subject changes
   useEffect(() => {
     if (!subjectId) return;
     const fetchUnits = async () => {
       const token = await GetToken();
       const headers = { Authorization: `Bearer ${token}` };
-      const API = Backend.api + Backend.objectiveUnits + '?' + subjectId;
+      const API = Backend.api + Backend.objectiveUnits + '?subject_id=' + subjectId;
       try {
-        const res = await fetch(API, {
-          headers,
-        });
+        const res = await fetch(API, { headers });
         const data = await res.json();
-        setUnits((defaultValues ? data?.data : (classes ? data?.data?.filter((u) => u?.class_details?.id === classes[0]?.id) : [])) || []);
+        console.log('CreatePlan - Units fetched for subject', subjectId, ':', data?.data);
+        setUnits(data?.data || []);
       } catch (err) {
         toast.error('Failed to load units');
       }
@@ -182,20 +196,24 @@ export const CreatePlan = ({ add, onClose, onSucceed, defaultValues }) => {
     fetchUnits();
   }, [subjectId]);
 
+  // Reset subunit when unit changes
+  useEffect(() => {
+    setSubunitId('');
+    setSubunits([]);
+  }, [unitId]);
+
   // Fetch subunits when unit changes
   useEffect(() => {
     if (!unitId) return;
     const fetchSubunits = async () => {
       const token = await GetToken();
       const headers = { Authorization: `Bearer ${token}` };
-      const API =
-        Backend.api + Backend.objectiveSubunits + '?unit_id=' + unitId;
+      const API = Backend.api + Backend.objectiveSubunits + '?unit_id=' + unitId;
       try {
-        const res = await fetch(API, {
-          headers,
-        });
+        const res = await fetch(API, { headers });
         const data = await res.json();
-        setSubunits(data?.data?.filter((su) => su?.unit_details?.id === unitId) || []);
+        console.log('CreatePlan - Subunits fetched for unit', unitId, ':', data?.data);
+        setSubunits(data?.data || []);
       } catch (err) {
         toast.error('Failed to load subunits');
       }
@@ -237,19 +255,14 @@ export const CreatePlan = ({ add, onClose, onSucceed, defaultValues }) => {
         if (!subjectId) return 'Please select a subject';
         if (!unitId) return 'Please select a unit';
         if (!subunitId) return 'Please select a subunit';
-        if (!date) return 'Please select a date';
         break;
       case 1: // Class & Term
         if (!learnerGroupId) return 'Please select a class';
         if (!termId) return 'Please select a term';
-        if (!week) return 'Please enter a week';
         break;
       case 2: // Lesson Details
         if (!duration || duration <= 0) return 'Please enter a valid duration';
-        if (!block) return 'Please enter a block';
-        if (!lessonStructure) return 'Please select a lesson structure';
         if (!lessonAims) return 'Please enter lesson aims';
-        if (!learningObjective) return 'Please select a learning objective';
         break;
       default:
         return '';
@@ -281,7 +294,7 @@ export const CreatePlan = ({ add, onClose, onSucceed, defaultValues }) => {
       const Api =
         Backend.api +
         Backend.lessonPlans +
-        (defaultValues ? `${defaultValues.id}` : '');
+        (defaultValues ? `${defaultValues.id}/` : '');
       const headers = {
         Authorization: `Bearer ${token}`,
         accept: 'application/json',
@@ -289,18 +302,15 @@ export const CreatePlan = ({ add, onClose, onSucceed, defaultValues }) => {
       };
       const data = {
         subject_id: subjectId,
-        unit_id: unitId,
-        subunit_id: subunitId,
-        date,
-        learner_group_id: learnerGroupId,
-        duration,
-        block,
-        lesson_structure: lessonStructure,
+        unit_id: unitId || null,
+        subunit_id: subunitId || null,
+        class_fk: learnerGroupId,
+        learner_group_id: learnerGroupId || null,
+        duration: duration || null,
+        block: block || null,
+        week: week || null,
         lesson_aims: lessonAims,
-        learning_objectives: learningObjective,
-        created_by: token?.user_id,
         term_id: termId,
-        week,
       };
       const method = defaultValues ? 'PATCH' : 'POST';
       console.log('Submitting data:', data);
@@ -310,13 +320,18 @@ export const CreatePlan = ({ add, onClose, onSucceed, defaultValues }) => {
         body: JSON.stringify(data),
       });
 
+      const responseData = await response.json();
+      console.log('Response:', responseData);
+
       if (response.ok) {
-        toast.success(response.message || 'Plan created!');
+        toast.success(responseData.message || 'Plan created!');
         onSucceed?.();
         onClose?.();
       } else {
-        toast.error(response.data?.message || 'Error creating plan');
-        console.error('Error response:', response);
+        const errorMsg = responseData.message || responseData.data?.message || JSON.stringify(responseData.data) || 'Error creating plan';
+        setError({ state: true, message: errorMsg });
+        toast.error(errorMsg);
+        console.error('Error response:', responseData);
       }
     } catch (error) {
       toast.error(error.message);
@@ -334,15 +349,36 @@ export const CreatePlan = ({ add, onClose, onSucceed, defaultValues }) => {
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
           <TextField
             select
+            label="Class"
+            value={learnerGroupId}
+            onChange={(e) => setLearnerGroupId(e.target.value)}
+            helperText={classes.length === 0 ? "No classes available" : "Select your class first"}
+          >
+            <MenuItem value="">
+              <em>{classes.length === 0 ? "No classes available" : "Select Class"}</em>
+            </MenuItem>
+            {classes.map((c) => (
+              <MenuItem key={c.id} value={c.id}>
+                Grade {c.grade || c.name || 'N/A'}
+              </MenuItem>
+            ))}
+          </TextField>
+
+          <TextField
+            select
             label="Subject"
             value={subjectId}
             onChange={(e) => setSubjectId(e.target.value)}
+            disabled={!learnerGroupId}
+            helperText={!learnerGroupId ? "Select a class first" : "Select subject for this class"}
           >
-            {subjects.map((s) => (
-              <MenuItem key={s.id} value={s.id}>
-                {s.name}
-              </MenuItem>
-            ))}
+            {subjects
+              .filter((s) => !learnerGroupId || s.class_id === learnerGroupId)
+              .map((s) => (
+                <MenuItem key={s.id} value={s.id}>
+                  {s.name}
+                </MenuItem>
+              ))}
           </TextField>
 
           <TextField
@@ -353,7 +389,7 @@ export const CreatePlan = ({ add, onClose, onSucceed, defaultValues }) => {
           >
             {units.map((u) => (
               <MenuItem key={u.id} value={u.id}>
-                {u?.category_details?.name}
+                {u?.name || u?.category_details?.name}
               </MenuItem>
             ))}
           </TextField>
@@ -387,23 +423,6 @@ export const CreatePlan = ({ add, onClose, onSucceed, defaultValues }) => {
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
           <TextField
             select
-            label="Class"
-            value={learnerGroupId}
-            onChange={(e) => setLearnerGroupId(e.target.value)}
-            helperText={classes.length === 0 ? "No classes available" : "Select your class"}
-          >
-            <MenuItem value="">
-              <em>{classes.length === 0 ? "No classes available" : "Select Class"}</em>
-            </MenuItem>
-            {classes.map((c) => (
-              <MenuItem key={c.id} value={c.id}>
-                Grade {c.grade || c.name || 'N/A'}
-              </MenuItem>
-            ))}
-          </TextField>
-
-          <TextField
-            select
             label="Term"
             value={termId}
             onChange={(e) => setTermId(e.target.value)}
@@ -414,12 +433,6 @@ export const CreatePlan = ({ add, onClose, onSucceed, defaultValues }) => {
               </MenuItem>
             ))}
           </TextField>
-
-          <TextField
-            label="Week"
-            value={week}
-            onChange={(e) => setWeek(e.target.value)}
-          />
         </Box>
       ),
     },
@@ -427,18 +440,30 @@ export const CreatePlan = ({ add, onClose, onSucceed, defaultValues }) => {
       name: 'Lesson Details',
       component: (
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-          <TextField
-            type="number"
-            label="Duration (minutes)"
-            value={duration}
-            onChange={(e) => setDuration(Number(e.target.value))}
-          />
-
-          <TextField
-            label="Block"
-            value={block}
-            onChange={(e) => setBlock(e.target.value)}
-          />
+          <Box sx={{ display: 'flex', gap: 2 }}>
+            <TextField
+              type="number"
+              label="Duration (minutes)"
+              value={duration}
+              onChange={(e) => setDuration(Number(e.target.value))}
+              fullWidth
+            />
+            <TextField
+              label="Block (e.g., Morning, Afternoon)"
+              value={block}
+              onChange={(e) => setBlock(e.target.value)}
+              fullWidth
+              placeholder="e.g., Morning Block"
+            />
+            <TextField
+              type="number"
+              label="Week"
+              value={week}
+              onChange={(e) => setWeek(Number(e.target.value))}
+              fullWidth
+              placeholder="Week number"
+            />
+          </Box>
 
           <TextField
             select

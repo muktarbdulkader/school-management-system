@@ -105,11 +105,11 @@ export default function OverviewTab({
                         fontWeight="bold"
                         color="primary.dark"
                       >
-                        {data.grade || '0'}
+                        {data.student?.grade || data.grade || 'N/A'}
                       </Typography>
                     </Box>
                     <Typography variant="body2" color="text.secondary">
-                      Grade Level: {data.profile?.grade || '0'}
+                      Student ID: {data.student?.student_id || 'N/A'}
                     </Typography>
                   </Box>
                 </Grid>
@@ -288,7 +288,7 @@ export default function OverviewTab({
                     >
                       <MuiCircularProgress
                         variant="determinate"
-                        value={data.attendance?.average_attendance || 0}
+                        value={data.attendance?.summary?.percentage || 0}
                         size={60}
                         thickness={6}
                         sx={{ color: 'success.main' }}
@@ -310,11 +310,13 @@ export default function OverviewTab({
                           component="div"
                           fontWeight="bold"
                         >
-                          {data.attendance?.average_attendance || 'N/A'}%
+                          {data.attendance?.summary?.percentage || 'N/A'}%
                         </Typography>
                       </Box>
                     </Box>
-                    <Typography variant="body2">This Semester</Typography>
+                    <Typography variant="body2">
+                      Present: {data.attendance?.summary?.present || 0} / {data.attendance?.summary?.total || 0} days
+                    </Typography>
                   </Box>
                 </Grid>
               </Grid>

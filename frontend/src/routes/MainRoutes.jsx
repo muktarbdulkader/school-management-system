@@ -344,7 +344,7 @@ const MainRoutes = {
     {
       path: 'grades',
       element: (
-        <Protected>
+        <Protected requiredRole="teacher">
           <Grades />
         </Protected>
       ),
@@ -352,7 +352,7 @@ const MainRoutes = {
     {
       path: 'attendance',
       element: (
-        <Protected>
+        <Protected requiredRole="teacher">
           <Attendance />
         </Protected>
       ),
@@ -864,7 +864,7 @@ const MainRoutes = {
     {
       path: 'teacher-tasks',
       element: (
-        <Protected>
+        <Protected requiredRole="teacher">
           <MyTasks />
         </Protected>
       ),
@@ -880,7 +880,7 @@ const MainRoutes = {
     {
       path: 'myreport',
       element: (
-        <Protected>
+        <Protected requiredRole="teacher">
           <MyReports />
         </Protected>
       ),
@@ -888,7 +888,7 @@ const MainRoutes = {
     {
       path: 'teacher-reports',
       element: (
-        <Protected>
+        <Protected requiredRole="teacher">
           <MyReports />
         </Protected>
       ),
@@ -896,16 +896,8 @@ const MainRoutes = {
     {
       path: 'myperformance',
       element: (
-        <Protected>
+        <Protected requiredRole="teacher">
           <MyPerformance />
-        </Protected>
-      ),
-    },
-    {
-      path: 'teacher-tasks',
-      element: (
-        <Protected>
-          <MyTasks />
         </Protected>
       ),
     },

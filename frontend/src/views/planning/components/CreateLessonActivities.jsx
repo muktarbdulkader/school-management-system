@@ -189,7 +189,7 @@ const FeedbackPopup = ({ open, onClose, lessonPlanId, onSuccess }) => {
         lesson_plan_id: lessonPlanId,
         ...form,
       };
-      console.log("Submitting payload:",  payload);
+      console.log("Submitting payload:", payload);
       const res = await fetch(`${API}`, {
         method: "POST",
         headers: {
@@ -342,11 +342,13 @@ const FeedbackPopup = ({ open, onClose, lessonPlanId, onSuccess }) => {
 
           {/* Learner Activities - full width */}
           <Grid item xs={12}>
-            <Paper elevation={2} sx={{ p: 2, borderRadius: 3 }}>
+            <Paper elevation={2} sx={{ p: 2, borderRadius: 3, bgcolor: 'grey.50' }}>
               <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 1 }}>
-                <Typography variant="h6">👥 Learner Activities</Typography>
+                <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <span role="img" aria-label="groups">👥</span> Learner Activities
+                </Typography>
                 <Typography variant="caption" color="text.secondary">
-                  Add activities per group — each filled activity must be at least {MIN_ACTIVITY_LEN} characters.
+                  Add activities per group — minimum {MIN_ACTIVITY_LEN} characters each
                 </Typography>
               </Box>
               <Divider sx={{ mb: 2 }} />
@@ -357,51 +359,68 @@ const FeedbackPopup = ({ open, onClose, lessonPlanId, onSuccess }) => {
                 </Typography>
               )}
 
-              {["group1", "group2", "group3"].map((group, gIdx) => (
-                <Box key={group} sx={{ mb: 2 }}>
-                  <Box sx={{ display: "flex", alignItems: "center", mb: 1 }}>
-                    <Typography variant="subtitle1" sx={{ fontWeight: 600, mr: 1 }}>
-                      {`Group ${gIdx + 1}`}
-                    </Typography>
-                    <Tooltip title="Add activity">
-                      <IconButton size="small" onClick={() => addActivity(group)}>
-                        <AddCircleOutlineIcon />
-                      </IconButton>
-                    </Tooltip>
-                  </Box>
-
-                  {form.learner_activities[group].map((act, idx) => {
-                    const trimmed = (act ?? "").trim();
-                    const actError =
-                      trimmed.length > 0 && trimmed.length < MIN_ACTIVITY_LEN
-                        ? `Must be at least ${MIN_ACTIVITY_LEN} characters.`
-                        : "";
-
-                    return (
-                      <Box key={`${group}-${idx}`} sx={{ display: "flex", gap: 1, alignItems: "flex-start", mb: 1 }}>
-                        <TextField
-                          value={act}
-                          placeholder={`Activity ${idx + 1}`}
-                          onChange={(e) => handleGroupChange(group, idx, e.target.value)}
-                          fullWidth
-                          error={Boolean(actError)}
-                          helperText={actError || ""}
-                        />
-                        <Tooltip title={form.learner_activities[group].length > 1 ? "Remove activity" : "Clear activity"}>
-                          <IconButton
-                            size="small"
-                            color="error"
-                            onClick={() => removeActivity(group, idx)}
-                            sx={{ mt: "8px" }}
-                          >
-                            <RemoveCircleOutlineIcon />
+              <Grid container spacing={2}>
+                {[
+                  { key: "group1", label: "Group 1", color: "primary", bg: "#e3f2fd" },
+                  { key: "group2", label: "Group 2", color: "success", bg: "#e8f5e9" },
+                  { key: "group3", label: "Group 3", color: "warning", bg: "#fff3e0" },
+                ].map(({ key: group, label, color, bg }, gIdx) => (
+                  <Grid item xs={12} md={4} key={group}>
+                    <Box sx={{ mb: 2, p: 2, bgcolor: bg, borderRadius: 2, border: `1px solid`, borderColor: `${color}.light` }}>
+                      <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 2 }}>
+                        <Typography variant="subtitle1" sx={{ fontWeight: 700, color: `${color}.dark` }}>
+                          {label}
+                        </Typography>
+                        <Tooltip title="Add activity">
+                          <IconButton size="small" color={color} onClick={() => addActivity(group)}>
+                            <AddCircleOutlineIcon />
                           </IconButton>
                         </Tooltip>
                       </Box>
-                    );
-                  })}
-                </Box>
-              ))}
+
+                      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                        {form.learner_activities[group].map((act, idx) => {
+                          const trimmed = (act ?? "").trim();
+                          const actError =
+                            trimmed.length > 0 && trimmed.length < MIN_ACTIVITY_LEN
+                              ? `Min ${MIN_ACTIVITY_LEN} chars`
+                              : "";
+
+                          return (
+                            <Box key={`${group}-${idx}`} sx={{ display: "flex", gap: 1, alignItems: "flex-start" }}>
+                              <TextField
+                                value={act}
+                                placeholder={`Activity ${idx + 1}`}
+                                onChange={(e) => handleGroupChange(group, idx, e.target.value)}
+                                fullWidth
+                                size="small"
+                                error={Boolean(actError)}
+                                helperText={actError || ""}
+                                sx={{
+                                  '& .MuiOutlinedInput-root': {
+                                    bgcolor: 'white',
+                                    borderRadius: 1.5
+                                  }
+                                }}
+                              />
+                              <Tooltip title={form.learner_activities[group].length > 1 ? "Remove" : "Clear"}>
+                                <IconButton
+                                  size="small"
+                                  color="error"
+                                  onClick={() => removeActivity(group, idx)}
+                                  sx={{ mt: "4px" }}
+                                >
+                                  <RemoveCircleOutlineIcon fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
+                            </Box>
+                          );
+                        })}
+                      </Box>
+                    </Box>
+                  </Grid>
+                ))}
+              </Grid>
             </Paper>
           </Grid>
         </Grid>

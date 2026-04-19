@@ -89,6 +89,8 @@ export default function GradeBookPage() {
     remarks: '',
   });
 
+  const [teacherProfile, setTeacherProfile] = useState(null);
+
   const user = useSelector((state) => state?.user?.user);
 
   const location = useLocation();
@@ -134,6 +136,19 @@ export default function GradeBookPage() {
     }
   }, [grade, section, subject, term]);
 
+  // Debug: Log students data when it changes
+  useEffect(() => {
+    if (students.length > 0) {
+      console.log('[Gradebook] Students loaded:', students.length);
+      console.log('[Gradebook] First student structure:', students[0]);
+      console.log('[Gradebook] First student name fields:', {
+        name: students[0].name,
+        user_details: students[0].user_details,
+        user: students[0].user
+      });
+    }
+  }, [students]);
+
   const fetchInitialData = async () => {
     try {
       const token = await GetToken();
@@ -142,6 +157,18 @@ export default function GradeBookPage() {
         accept: 'application/json',
         'Content-Type': 'application/json',
       };
+
+      // Fetch teacher profile first (for branch info)
+      try {
+        const teacherRes = await fetch(`${Backend.api}${Backend.teacherMe}`, { headers: header });
+        const teacherData = await teacherRes.json();
+        if (teacherData.success) {
+          setTeacherProfile(teacherData.data);
+          console.log('Teacher profile loaded:', teacherData.data);
+        }
+      } catch (e) {
+        console.error('Failed to fetch teacher profile:', e);
+      }
 
       // Fetch terms
       const termsRes = await fetch(`${Backend.api}${Backend.terms}`, { headers: header });
@@ -288,10 +315,14 @@ export default function GradeBookPage() {
         'Content-Type': 'application/json',
       };
 
-      // Fetch students in this class/section
+      // Fetch students in this class/section with query parameters
       let studentsList = [];
       try {
-        const studentsRes = await fetch(`${Backend.api}${Backend.students}`, { headers: header });
+        const queryParams = new URLSearchParams();
+        queryParams.append('grade_id', grade);
+        if (section) queryParams.append('section_id', section);
+
+        const studentsRes = await fetch(`${Backend.api}${Backend.students}?${queryParams}`, { headers: header });
         const studentsData = await studentsRes.json();
         studentsList = studentsData.success ? studentsData.data || [] : [];
         console.log('Students from API:', studentsList.length);
@@ -299,50 +330,24 @@ export default function GradeBookPage() {
         console.error('Failed to fetch students:', e);
       }
 
-      // Filter students by grade and section
-      studentsList = studentsList.filter(s => {
-        const studentGrade = s.grade_details?.id || s.grade?.id || s.grade;
-        const studentSection = s.section_details?.id || s.section?.id || s.section;
-
-        // If no grade match, skip
-        if (!studentGrade || String(studentGrade) !== String(grade)) {
-          return false;
-        }
-
-        // If section is selected, match it; otherwise include all students in the grade
-        if (section && studentSection) {
-          return String(studentSection) === String(section);
-        }
-
-        // Include students with no section assigned when no section is selected
-        return true;
-      });
-
-      console.log('Filtered students:', studentsList.length);
       setStudents(studentsList);
 
-      // Fetch exams for this class/section/subject
+      // Fetch exams for this class/section/subject with query parameters
       let examsList = [];
       try {
-        const examsRes = await fetch(`${Backend.api}${Backend.exams}`, { headers: header });
+        const examsQueryParams = new URLSearchParams();
+        examsQueryParams.append('class_id', grade);
+        if (section) examsQueryParams.append('section_id', section);
+        if (subject) examsQueryParams.append('subject_id', subject);
+
+        const examsRes = await fetch(`${Backend.api}${Backend.exams}?${examsQueryParams}`, { headers: header });
         const examsData = await examsRes.json();
         examsList = examsData.success ? examsData.data || [] : [];
         console.log('Exams from API:', examsList.length);
-
-        // Filter exams by class, section, and subject
-        examsList = examsList.filter(e => {
-          const examClass = e.class_details?.id || e.class_id?.id || e.class_id;
-          const examSection = e.section_details?.id || e.section_id?.id || e.section_id;
-          const examSubject = e.subject_details?.id || e.subject_id?.id || e.subject_id;
-          return String(examClass) === String(grade) &&
-            (!section || String(examSection) === String(section)) &&
-            String(examSubject) === String(subject);
-        });
       } catch (e) {
         console.error('Failed to fetch exams:', e);
       }
 
-      console.log('Filtered exams:', examsList.length);
       setExams(examsList);
 
       // Fetch exam results
@@ -452,9 +457,11 @@ export default function GradeBookPage() {
     return `${classObj?.grade || ''} ${sectionObj?.name || ''} ${subjectObj?.name || ''}`;
   };
 
-  const filteredStudents = students.filter(student =>
-    student.user?.full_name?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredStudents = students.filter(student => {
+    // Student serializer provides 'name' field (source='user.full_name') or user_details
+    const studentName = student.name || student.user_details?.full_name || student.user?.full_name || '';
+    return studentName.toLowerCase().includes(searchTerm.toLowerCase());
+  });
 
   // Handle Create Exam
   const handleCreateExam = async () => {
@@ -477,25 +484,13 @@ export default function GradeBookPage() {
         'Content-Type': 'application/json',
       };
 
-      // Get branch_id - try from user or use a default
-      let branchId = user?.branch_id;
+      // Get branch_id from cached teacher profile
+      const branchId = teacherProfile?.branch_id;
       if (!branchId) {
-        // Fetch user's branch from their profile or use first available branch
-        try {
-          const branchRes = await fetch(`${Backend.api}${Backend.branches}`, { headers: header });
-          const branchData = await branchRes.json();
-          if (branchData.success && branchData.data.length > 0) {
-            branchId = branchData.data[0].id;
-          }
-        } catch (e) {
-          console.error('Error fetching branches:', e);
-        }
-      }
-
-      if (!branchId) {
-        toast.error('Branch information is required. Please contact administrator.');
+        toast.error('Branch information is required. Please ensure your teacher profile has a branch assigned.');
         return;
       }
+      console.log('Using branch_id from cached teacher profile:', branchId);
 
       const payload = {
         name: examForm.name,
@@ -798,11 +793,11 @@ export default function GradeBookPage() {
                             <TableCell>
                               <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                                 <Avatar sx={{ width: 32, height: 32 }}>
-                                  {student.user?.full_name?.charAt(0) || 'S'}
+                                  {(student.name || student.user_details?.full_name || 'S').charAt(0)}
                                 </Avatar>
                                 <Box>
                                   <Typography variant="body2" fontWeight="medium">
-                                    {student.user?.full_name || 'Unknown'}
+                                    {student.name || student.user_details?.full_name || 'Unknown'}
                                   </Typography>
                                   <Typography variant="caption" color="text.secondary" display="block">
                                     ID: {student.student_id || 'N/A'} • Section: {student.section_details?.name || 'N/A'}

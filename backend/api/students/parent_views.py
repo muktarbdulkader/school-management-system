@@ -289,9 +289,11 @@ class ParentDashboardView(APIView):
         return StudentSubject.objects.filter(student=student).count()
 
     def _get_schedule(self, student):
-        """Get schedule for student - show all classes for the week"""
+        """Get schedule for student - show all classes for the week with lesson plan info"""
         from schedule.models import ClassScheduleSlot
+        from lessontopics.models import LessonPlans
         from datetime import datetime
+        import pytz
         
         if not student.grade or not student.section:
             return []
@@ -300,20 +302,60 @@ class ParentDashboardView(APIView):
         schedule_slots = ClassScheduleSlot.objects.filter(
             class_fk=student.grade,
             section=student.section
-        ).select_related('subject', 'teacher').order_by('day_of_week', 'start_time')[:20]
+        ).select_related('subject', 'classroom', 'teacher_assignment', 'teacher_assignment__teacher', 'teacher_assignment__teacher__user').order_by('day_of_week', 'start_time')[:20]
         
-        return [
-            {
+        # Get current time for status calculation
+        now = datetime.now(pytz.UTC)
+        current_time = now.time()
+        today = now.strftime('%A').lower()
+        
+        schedule_list = []
+        for slot in schedule_slots:
+            # Get teacher info
+            teacher_name = None
+            if slot.teacher_assignment and slot.teacher_assignment.teacher and slot.teacher_assignment.teacher.user:
+                teacher_name = slot.teacher_assignment.teacher.user.full_name
+            
+            # Calculate class status based on current time
+            status = 'Scheduled'
+            if slot.day_of_week.lower() == today and slot.start_time and slot.end_time:
+                if slot.start_time <= current_time <= slot.end_time:
+                    status = 'In Progress'
+                elif current_time > slot.end_time:
+                    status = 'Completed'
+            
+            # Get current lesson plan for this slot
+            current_unit = None
+            try:
+                lesson_plan = LessonPlans.objects.filter(
+                    class_fk=student.grade,
+                    section=student.section,
+                    subject=slot.subject
+                ).select_related('unit').first()
+                
+                if lesson_plan and lesson_plan.unit:
+                    current_unit = {
+                        'id': str(lesson_plan.unit.id),
+                        'name': lesson_plan.unit.name
+                    }
+            except:
+                pass
+            
+            schedule_list.append({
                 'id': str(slot.id),
                 'day_of_week': slot.day_of_week,
                 'start_time': slot.start_time.strftime('%H:%M') if slot.start_time else None,
                 'end_time': slot.end_time.strftime('%H:%M') if slot.end_time else None,
-                'subject': slot.subject.name if slot.subject else None,
-                'teacher': slot.teacher.user.full_name if slot.teacher and slot.teacher.user else None,
-                'room': slot.room,
-            }
-            for slot in schedule_slots
-        ]
+                'subject': slot.subject.name if slot.subject else 'Unknown Subject',
+                'teacher_name': teacher_name or 'Not assigned',
+                'teacher_id': str(slot.teacher_assignment.teacher.id) if slot.teacher_assignment and slot.teacher_assignment.teacher else None,
+                'room': slot.classroom.name if slot.classroom else 'TBD',
+                'period_number': slot.period_number,
+                'status': status,
+                'current_unit': current_unit,
+            })
+        
+        return schedule_list
 
     def _get_exams(self, student):
         """Get upcoming exams for student's class/section"""

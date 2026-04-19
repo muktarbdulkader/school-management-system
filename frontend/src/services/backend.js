@@ -47,6 +47,7 @@ const Backend = {
 
   // Teachers
   teachers: 'teachers/',
+  teacherMe: 'teachers/me/',
   teachersOverviewDashboard: 'teachers/overview_dashboard/',
   teachersClassDashboard: 'teachers/class_dashboard',
   teachersMyStudents: 'teachers/my_students/',
@@ -193,6 +194,7 @@ const Backend = {
   teacherRankings: 'teacher-reports/rankings/',
   teacherAssignmentDetail: 'teacher_assignments/teacher-detail/',
   classSubjects: 'class_subjects/',
+  classSubjectManagement: 'class_subject_management/',
 
   // Custom Student/Parent Actions
   studentMe: 'students/me/',

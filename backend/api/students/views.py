@@ -1456,6 +1456,7 @@ class ParentStudentViewSet(viewsets.ModelViewSet):
                 'start_date': current_term.start_date.isoformat(),
                 'end_date': current_term.end_date.isoformat(),
                 'is_current': current_term.is_current,
+                'is_active': current_term.is_current,  # For frontend compatibility
                 'remaining_weeks': remaining_weeks
             }
         else:

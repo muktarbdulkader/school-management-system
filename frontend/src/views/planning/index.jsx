@@ -255,6 +255,7 @@ const Planning = () => {
   const refreshPlans = () => {
     fetchPlans();
     fetchPlansEvaluation();
+    fetchPlansActivities();
   };
 
   const handleClosePlan = () => {
@@ -482,7 +483,7 @@ const Planning = () => {
           onClose={() => setFeedbackModalOpen(false)}
           onSucceed={refreshPlans}
           planId={selectedPlan.id}
-          classId={selectedPlan?.unit_details?.class_details?.id}
+          classId={selectedPlan?.class_fk_details?.id || selectedPlan?.learner_group_details?.id}
         />
       )}
       {selectedPlan && (

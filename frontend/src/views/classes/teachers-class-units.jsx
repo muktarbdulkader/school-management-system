@@ -468,28 +468,47 @@ const TeachersClassUnits = () => {
           </Box>
 
           {/* Action Buttons */}
-          <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
+          <Box sx={{ display: 'flex', gap: 1, mb: 2, flexWrap: 'wrap' }}>
             {/* Toggle Current Button - Only show for upcoming units */}
             {status === 'upcoming' && (
-              <Button
-                variant="outlined"
-                size="small"
-                startIcon={
-                  isLoading ? <CircularProgress size={16} /> : <SwapHoriz />
-                }
-                onClick={() =>
-                  handleToggleCurrentUnit(unit.id, unit.is_current)
-                }
-                disabled={isLoading}
-                color={unit.is_current ? 'secondary' : 'primary'}
-                sx={{ textTransform: 'none' }}
-              >
-                {isLoading
-                  ? 'Updating...'
-                  : unit.is_current
-                    ? 'Remove Current'
-                    : 'Set as Current'}
-              </Button>
+              <>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  startIcon={
+                    isLoading ? <CircularProgress size={16} /> : <SwapHoriz />
+                  }
+                  onClick={() =>
+                    handleToggleCurrentUnit(unit.id, unit.is_current)
+                  }
+                  disabled={isLoading}
+                  color={unit.is_current ? 'secondary' : 'primary'}
+                  sx={{ textTransform: 'none' }}
+                >
+                  {isLoading
+                    ? 'Updating...'
+                    : unit.is_current
+                      ? 'Remove Current'
+                      : 'Set as Current'}
+                </Button>
+
+                {/* Mark Complete Button - Also show for upcoming units */}
+                <Button
+                  variant="contained"
+                  size="small"
+                  startIcon={
+                    isLoading ? <CircularProgress size={16} /> : <DoneAll />
+                  }
+                  onClick={() =>
+                    handleToggleCompleteUnit(unit.id, false)
+                  }
+                  disabled={isLoading}
+                  color="success"
+                  sx={{ textTransform: 'none' }}
+                >
+                  {isLoading ? 'Updating...' : 'Mark as Completed'}
+                </Button>
+              </>
             )}
 
             {/* Toggle Complete Button - Only show for current units */}

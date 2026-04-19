@@ -45,7 +45,11 @@ const AssignSubjectDialog = ({ open, onClose, teacherId, onAssignmentSuccess }) 
     if (selectedClass) {
       fetchSections(selectedClass);
       // Filter subjects for selected class
-      const classSubjects = classSubjectsMap[selectedClass] || [];
+      // Convert selectedClass to string for UUID comparison
+      const selectedClassStr = String(selectedClass);
+      const classSubjects = classSubjectsMap[selectedClassStr] || [];
+      console.log('Selected class:', selectedClassStr, 'Subjects found:', classSubjects);
+      console.log('classSubjectsMap keys:', Object.keys(classSubjectsMap));
       setFilteredSubjects(classSubjects);
       setSelectedSubject('');
     } else {
@@ -68,7 +72,7 @@ const AssignSubjectDialog = ({ open, onClose, teacherId, onAssignmentSuccess }) 
         fetch(`${Backend.api}${Backend.classes}`, {
           headers: { Authorization: `Bearer ${token}` }
         }),
-        fetch(`${Backend.api}${Backend.classSubjects}`, {
+        fetch(`${Backend.api}${Backend.classSubjectManagement}`, {
           headers: { Authorization: `Bearer ${token}` }
         }),
         fetch(`${Backend.api}${Backend.terms}`, {
@@ -98,26 +102,39 @@ const AssignSubjectDialog = ({ open, onClose, teacherId, onAssignmentSuccess }) 
         }
       }
 
-      // Build class-subjects mapping from class_subjects API
+      // Build class-subjects mapping from class_subject_management API
       if (classSubjectsRes.ok) {
         const data = await classSubjectsRes.json();
         const classSubjectsData = data.data || data.results || [];
+        console.log('class_subject_management data:', classSubjectsData);
         const classSubjects = {};
         classSubjectsData.forEach(mapping => {
           // class_fk is write_only in serializer, use class_details instead
           const classId = mapping.class_fk || mapping.class_id || mapping.class_details?.id;
-          if (classId) {
-            if (!classSubjects[classId]) {
-              classSubjects[classId] = [];
+          // Convert classId to string for consistent UUID comparison
+          const classIdStr = String(classId);
+          console.log('Processing mapping, classId:', classIdStr, 'class_details:', mapping.class_details);
+          if (classIdStr && classIdStr !== 'undefined') {
+            if (!classSubjects[classIdStr]) {
+              classSubjects[classIdStr] = [];
             }
-            // Use subject_details or subject from the mapping
-            const subject = mapping.subject_details || mapping.subject;
-            if (subject && !classSubjects[classId].find(s => s.id === subject.id)) {
-              classSubjects[classId].push(subject);
+            // Use global_subject_details for SubjectManagement subjects
+            const subject = mapping.global_subject_details || mapping.global_subject;
+            console.log('Subject found:', subject);
+            if (subject && !classSubjects[classIdStr].find(s => s.id === subject.id)) {
+              classSubjects[classIdStr].push({
+                id: String(subject.id),
+                name: subject.name,
+                code: mapping.subject_code || ''
+              });
             }
           }
         });
+        console.log('Built classSubjects map:', classSubjects);
         setClassSubjectsMap(classSubjects);
+      } else {
+        const errorText = await classSubjectsRes.text();
+        console.error('class_subject_management API error:', classSubjectsRes.status, errorText);
       }
     } catch (e) {
       console.error('Error fetching data:', e);

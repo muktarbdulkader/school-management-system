@@ -4,7 +4,6 @@ import {
   Typography,
   Box,
   Grid,
-  Chip,
   LinearProgress,
   CircularProgress,
 } from '@mui/material';
@@ -166,99 +165,6 @@ export function AcademicSummary({ data }) {
             </Box>
           </Grid>
 
-          {/* Current Term Info */}
-          <Grid item xs={12} md={4}>
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-              <Typography
-                variant="subtitle2"
-                color="text.secondary"
-                fontWeight="500"
-              >
-                Current Term
-              </Typography>
-              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                <Box
-                  sx={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                  }}
-                >
-                  <Typography variant="body2">Term Name</Typography>
-                  <Typography variant="body2" fontWeight="600">
-                    {currentTerm.name || 'N/A'}
-                  </Typography>
-                </Box>
-                <Box
-                  sx={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                  }}
-                >
-                  <Typography variant="body2">Academic Year</Typography>
-                  <Typography variant="body2" fontWeight="600">
-                    {currentTerm.academic_year || 'N/A'}
-                  </Typography>
-                </Box>
-                <Box
-                  sx={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                  }}
-                >
-                  <Typography variant="body2">Status</Typography>
-                  <Chip
-                    label={currentTerm.is_active ? 'Active' : 'Inactive'}
-                    size="small"
-                    color={currentTerm.is_active ? 'success' : 'default'}
-                    sx={{ fontSize: '0.75rem' }}
-                  />
-                </Box>
-              </Box>
-
-              <Box sx={{ mt: 2, p: 2, bgcolor: 'grey.100', borderRadius: 2 }}>
-                <Typography variant="subtitle2" fontWeight="500" gutterBottom>
-                  Term Progress
-                </Typography>
-                <Box
-                  sx={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    mb: 1,
-                  }}
-                >
-                  <Typography variant="caption" color="text.secondary">
-                    Start Date
-                  </Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    {completionPercentage}% Complete
-                  </Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    End Date
-                  </Typography>
-                </Box>
-                <LinearProgress
-                  variant="determinate"
-                  value={completionPercentage}
-                  sx={{
-                    height: 8,
-                    borderRadius: 4,
-                    backgroundColor: 'grey.300',
-                    '& .MuiLinearProgress-bar': {
-                      backgroundColor:
-                        completionPercentage > 70
-                          ? 'success.main'
-                          : completionPercentage > 40
-                            ? 'warning.main'
-                            : 'error.main',
-                    },
-                  }}
-                />
-              </Box>
-            </Box>
-          </Grid>
         </Grid>
       </CardContent>
     </Card>

@@ -14,16 +14,6 @@ import GetToken from 'utils/auth-token';
 import Backend from 'services/backend';
 import { toast } from 'react-toastify';
 
-function getSectionsByClassId(classes, classId) {
-  const selectedClass = classes.find((cls) => cls.class_id === classId);
-  if (!selectedClass) return [];
-
-  return selectedClass.sections.map((sec) => ({
-    section_id: sec.section_id,
-    section_name: sec.section_name,
-  }));
-}
-
 export default function LessonFeedbackModal({
   open,
   onClose,
@@ -38,7 +28,49 @@ export default function LessonFeedbackModal({
   const [loading, setLoading] = useState(false);
   const [posting, setPosting] = useState(false);
 
-  // Fetch sections (replace placeholder API)
+  // Fetch sections for the class
+  const fetchSections = async () => {
+    if (!classId) {
+      console.log('No classId provided');
+      return;
+    }
+
+    try {
+      const token = await GetToken();
+      setLoading(true);
+
+      // Fetch sections for this class
+      const API = `${Backend.api}${Backend.sections}?class_id=${classId}`;
+
+      const res = await fetch(API, {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      const data = await res.json();
+      console.log('Sections API response:', data);
+
+      if (data.success && data.data) {
+        const formattedSections = data.data.map((sec) => ({
+          section_id: sec.id,
+          section_name: sec.name || `Section ${sec.name}`,
+        }));
+        setSections(formattedSections);
+      } else {
+        // Fallback: try to use class_fk_details from plan if available
+        console.log('No sections found in API, trying alternative...');
+        setSections([]);
+      }
+    } catch (err) {
+      toast.error('Failed to fetch sections');
+      console.error('Failed to fetch sections', err);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const fetchFeedback = async () => {
     const API = `${Backend.api}${Backend.lessonPlanEvaluations}`;
@@ -71,33 +103,6 @@ export default function LessonFeedbackModal({
 
   useEffect(() => {
     if (!open) return;
-
-    async function fetchSections() {
-      try {
-        const API = Backend.api + Backend.teachersMyClasses;
-        const token = await GetToken();
-
-        setLoading(true);
-
-        const res = await fetch(API, {
-          method: 'GET',
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-        });
-
-        const data = await res.json();
-        const dataSections = getSectionsByClassId(data.data || [], classId);
-        setSections(dataSections);
-      } catch (err) {
-        toast.error('Failed to fetch sections');
-        console.error('Failed to fetch sections', err);
-      } finally {
-        setLoading(false);
-      }
-    }
-
     fetchSections();
   }, [open, classId]);
 
@@ -148,12 +153,18 @@ export default function LessonFeedbackModal({
           <>
             <TextField
               select
-              label="Section"
+              label="Class Section"
               fullWidth
               margin="normal"
               value={section}
               onChange={(e) => setSection(e.target.value)}
+              helperText="Select which class section this feedback is for (e.g., Section A, B, C)"
             >
+              {sections.length === 0 && (
+                <MenuItem disabled value="">
+                  No sections available for this class
+                </MenuItem>
+              )}
               {sections.map((s) => (
                 <MenuItem key={s.section_id} value={s.section_id}>
                   {s.section_name}
@@ -187,7 +198,7 @@ export default function LessonFeedbackModal({
         <Button onClick={() => onClose(false)}>Cancel</Button>
         <Button
           onClick={handleSubmit}
-          disabled={posting || !section || !workedWell || !toBeImproved}
+          disabled={posting || !workedWell || !toBeImproved}
           variant="contained"
         >
           {posting ? <CircularProgress size={20} /> : 'Submit'}

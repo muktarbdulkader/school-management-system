@@ -327,22 +327,22 @@ class LeaveRequestSerializer(serializers.ModelSerializer):
         return data
 
 class ExamsSerializer(serializers.ModelSerializer):
-    subject_id = serializers.PrimaryKeyRelatedField(queryset=Subject.objects.all(), write_only=True)
-    subject = SubjectSerializer(source='subject_id', read_only=True)
-    term_id = serializers.PrimaryKeyRelatedField(queryset=Term.objects.all(), write_only=True)
+    subject_id = serializers.PrimaryKeyRelatedField(queryset=Subject.objects.all(), source='subject', write_only=True)
+    subject = SubjectSerializer(read_only=True)
+    term_id = serializers.PrimaryKeyRelatedField(queryset=Term.objects.all(), source='term', write_only=True)
     term_details = TermsSerializer(source='term', read_only=True)
-    class_id = serializers.PrimaryKeyRelatedField(queryset=Class.objects.all(), write_only=True)
-    class_details = ClassSerializer(source='class_id', read_only=True)
-    section_id = serializers.PrimaryKeyRelatedField(queryset=Section.objects.all(), write_only=True)
-    section_details = SectionSerializer(source='section_id', read_only=True)
+    class_id = serializers.PrimaryKeyRelatedField(queryset=Class.objects.all(), source='class_fk', write_only=True)
+    class_details = ClassSerializer(source='class_fk', read_only=True)
+    section_id = serializers.PrimaryKeyRelatedField(queryset=Section.objects.all(), source='section', write_only=True)
+    section_details = SectionSerializer(source='section', read_only=True)
 
     class Meta:
         model = Exam
         fields = ['id', 'name', 'term_id', 'term_details', 'exam_type', 'subject_id', 'subject', 'class_id', 'class_details', 'section_id', 'section_details', 'branch_id', 'start_date', 'end_date', 'start_time', 'end_time', 'max_score', 'description']
 
 class SubjectExamDaysSerializer(serializers.ModelSerializer):
-    subject_id = serializers.PrimaryKeyRelatedField(queryset=Subject.objects.all(), write_only=True)
-    subject = SubjectSerializer(source='subject_id', read_only=True)
+    subject_id = serializers.PrimaryKeyRelatedField(queryset=Subject.objects.all(), source='subject', write_only=True)
+    subject = SubjectSerializer(read_only=True)
 
     class Meta:
         model = SubjectExamDay
