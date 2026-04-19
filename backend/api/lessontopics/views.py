@@ -222,12 +222,19 @@ class ObjectiveUnitsViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         user = self.request.user
         branch_id = self.request.query_params.get('branch_id')
+        subject_id = self.request.query_params.get('subject_id')
+        
+        queryset = self.queryset
+        
+        # Filter by subject_id if provided
+        if subject_id:
+            queryset = queryset.filter(category_id__subject_id=subject_id)
         
         # Superusers see all
         if user.is_superuser:
             if branch_id:
-                return self.queryset.filter(category_id__class_fk__branch_id=branch_id)
-            return self.queryset.all()
+                return queryset.filter(category_id__class_fk__branch_id=branch_id)
+            return queryset.all()
         
         # Check if user is a teacher
         from teachers.models import Teacher, TeacherAssignment
@@ -238,7 +245,7 @@ class ObjectiveUnitsViewSet(viewsets.ModelViewSet):
             class_ids = teacher_assignments.values_list('class_fk_id', flat=True).distinct()
             subject_ids = teacher_assignments.values_list('subject_id', flat=True).distinct()
             
-            return self.queryset.filter(
+            return queryset.filter(
                 Q(category_id__class_fk_id__in=class_ids) | Q(category_id__subject_id__in=subject_ids) |
                 Q(created_by=user) | Q(created_by__isnull=True)
             ).distinct()
@@ -250,7 +257,7 @@ class ObjectiveUnitsViewSet(viewsets.ModelViewSet):
             raise PermissionDenied("No permission to view units.")
         
         # Show both global and user-created units
-        return self.queryset.filter(Q(created_by=user) | Q(created_by__isnull=True))
+        return queryset.filter(Q(created_by=user) | Q(created_by__isnull=True))
 
     @action(detail=False, methods=['get'], url_path='teachers_class_units/(?P<class_id>[^/.]+)/(?P<section_id>[^/.]+)/(?P<subject_id>[^/.]+)')
     def teachers_class_units(self, request, class_id=None, section_id=None, subject_id=None):
@@ -379,17 +386,87 @@ class ObjectiveUnitsViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['post'], url_path='mark_unit_completed/(?P<class_id>[^/.]+)/(?P<section_id>[^/.]+)/(?P<unit_id>[^/.]+)')
     def mark_unit_completed(self, request, class_id=None, section_id=None, unit_id=None):
-        from .models import ClassUnitProgress
-        prog, _ = ClassUnitProgress.objects.get_or_create(
+        from .models import ClassUnitProgress, ClassSubunitProgress, LessonPlans
+        from django.utils import timezone
+        
+        # Get or create progress record
+        prog, created = ClassUnitProgress.objects.get_or_create(
             class_id_id=class_id,
             section_id_id=section_id if section_id != 'null' else None,
             subject_id=ObjectiveUnits.objects.get(id=unit_id).category_id.subject_id,
             unit_id_id=unit_id
         )
+        
+        # Toggle completion status
         prog.is_completed = not prog.is_completed
         prog.is_current = False if prog.is_completed else prog.is_current
+        if prog.is_completed:
+            prog.completed_at = timezone.now()
+        else:
+            prog.completed_at = None
         prog.save()
-        return Response({'success': True, 'message': 'Status updated'})
+        
+        # Get unit details
+        unit = ObjectiveUnits.objects.get(id=unit_id)
+        
+        # Get subunits and their completion status
+        subunits = ObjectiveSubunits.objects.filter(unit=unit)
+        subunit_data = []
+        completed_subunits = 0
+        
+        for sub in subunits:
+            sub_prog = ClassSubunitProgress.objects.filter(
+                class_id_id=class_id,
+                section_id_id=section_id if section_id != 'null' else None,
+                subunit=sub
+            ).first()
+            
+            is_completed = sub_prog.is_completed if sub_prog else False
+            if is_completed:
+                completed_subunits += 1
+            
+            # Get lesson plans for this subunit
+            lessons = LessonPlans.objects.filter(
+                class_fk_id=class_id,
+                subunit=sub
+            ).select_related('created_by', 'created_by__teacher', 'created_by__teacher__user')
+            
+            lesson_data = []
+            for lesson in lessons:
+                lesson_data.append({
+                    'lesson_id': str(lesson.id),
+                    'lesson_aims': lesson.lesson_aims,
+                    'duration': lesson.duration,
+                    'teacher_name': lesson.created_by.teacher.user.full_name if lesson.created_by and lesson.created_by.teacher and lesson.created_by.teacher.user else 'Unknown',
+                    'created_at': lesson.created_at.isoformat() if lesson.created_at else None,
+                })
+            
+            subunit_data.append({
+                'subunit_id': str(sub.id),
+                'subunit_name': sub.name,
+                'is_completed': is_completed,
+                'completed_at': sub_prog.completed_at.isoformat() if sub_prog and sub_prog.completed_at else None,
+                'lessons': lesson_data
+            })
+        
+        # Calculate progress
+        total_subunits = len(subunits)
+        completion_percentage = int((completed_subunits / total_subunits * 100)) if total_subunits > 0 else (100 if prog.is_completed else 0)
+        
+        return Response({
+            'success': True,
+            'message': f"Unit {'completed' if prog.is_completed else 'marked as incomplete'}",
+            'unit_progress': {
+                'unit_id': str(unit_id),
+                'unit_name': unit.name,
+                'is_completed': prog.is_completed,
+                'completed_at': prog.completed_at.isoformat() if prog.completed_at else None,
+                'completed_subunits': completed_subunits,
+                'total_subunits': total_subunits,
+                'completion_percentage': completion_percentage,
+                'subunits': subunit_data
+            }
+        })
 
     def is_administrative_user(self, user):
         """Helper to check if user has admin, super_admin, or staff roles"""
@@ -509,12 +586,19 @@ class ObjectiveSubunitsViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         user = self.request.user
         branch_id = self.request.query_params.get('branch_id')
+        unit_id = self.request.query_params.get('unit_id')
+        
+        queryset = self.queryset
+        
+        # Filter by unit_id if provided
+        if unit_id:
+            queryset = queryset.filter(unit_id=unit_id)
         
         # Superusers see all
         if user.is_superuser:
             if branch_id:
-                return self.queryset.filter(unit_id__category_id__class_fk__branch_id=branch_id)
-            return self.queryset.all()
+                return queryset.filter(unit_id__category_id__class_fk__branch_id=branch_id)
+            return queryset.all()
         
         # Check if user is a teacher
         from teachers.models import Teacher, TeacherAssignment
@@ -525,7 +609,7 @@ class ObjectiveSubunitsViewSet(viewsets.ModelViewSet):
             class_ids = teacher_assignments.values_list('class_fk_id', flat=True).distinct()
             subject_ids = teacher_assignments.values_list('subject_id', flat=True).distinct()
             
-            return self.queryset.filter(
+            return queryset.filter(
                 Q(unit_id__category_id__class_fk_id__in=class_ids) | Q(unit_id__category_id__subject_id__in=subject_ids) |
                 Q(created_by=user) | Q(created_by__isnull=True)
             ).distinct()
@@ -537,7 +621,7 @@ class ObjectiveSubunitsViewSet(viewsets.ModelViewSet):
             raise PermissionDenied("No permission to view subunits.")
         
         # Show both global and user-created subunits
-        return self.queryset.filter(Q(created_by=user) | Q(created_by__isnull=True))
+        return queryset.filter(Q(created_by=user) | Q(created_by__isnull=True))
 
     def is_administrative_user(self, user):
         """Helper to check if user has admin, super_admin, or staff roles"""
@@ -610,16 +694,52 @@ class ObjectiveSubunitsViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['post'], url_path='mark_subunit_completed/(?P<class_id>[^/.]+)/(?P<section_id>[^/.]+)/(?P<subunit_id>[^/.]+)')
     def mark_subunit_completed(self, request, class_id=None, section_id=None, subunit_id=None):
-        from .models import ClassSubunitProgress
+        from .models import ClassSubunitProgress, LessonPlans
+        from django.utils import timezone
+        
+        subunit = ObjectiveSubunits.objects.get(id=subunit_id)
+        
         prog, _ = ClassSubunitProgress.objects.get_or_create(
             class_id_id=class_id,
             section_id_id=section_id if section_id != 'null' else None,
-            subject_id=ObjectiveSubunits.objects.get(id=subunit_id).unit_id.category_id.subject_id,
+            subject_id=subunit.unit_id.category_id.subject_id,
             subunit_id_id=subunit_id
         )
         prog.is_completed = not prog.is_completed
+        if prog.is_completed:
+            prog.completed_at = timezone.now()
+        else:
+            prog.completed_at = None
         prog.save()
-        return Response({'success': True, 'message': 'Subunit status updated'})
+        
+        # Get lessons for this subunit
+        lessons = LessonPlans.objects.filter(
+            class_fk_id=class_id,
+            subunit=subunit
+        ).select_related('created_by', 'created_by__teacher', 'created_by__teacher__user')
+        
+        lesson_data = []
+        for lesson in lessons:
+            lesson_data.append({
+                'lesson_id': str(lesson.id),
+                'lesson_aims': lesson.lesson_aims,
+                'duration': lesson.duration,
+                'teacher_name': lesson.created_by.teacher.user.full_name if lesson.created_by and lesson.created_by.teacher and lesson.created_by.teacher.user else 'Unknown',
+                'created_at': lesson.created_at.isoformat() if lesson.created_at else None,
+            })
+        
+        return Response({
+            'success': True,
+            'message': f"Subunit {'completed' if prog.is_completed else 'marked as incomplete'}",
+            'subunit_progress': {
+                'subunit_id': str(subunit_id),
+                'subunit_name': subunit.name,
+                'is_completed': prog.is_completed,
+                'completed_at': prog.completed_at.isoformat() if prog.completed_at else None,
+                'lessons_count': len(lesson_data),
+                'lessons': lesson_data
+            }
+        })
 
 class LearningObjectivesViewSet(viewsets.ModelViewSet):
     queryset = LearningObjectives.objects.all()
@@ -792,8 +912,14 @@ class LessonPlansViewSet(viewsets.ModelViewSet):
             return Response({'success': False, 'message': 'Teacher profile not found', 'status': 404, 'data': {}}, status=404)
 
         data = request.data.copy()
+        print(f'Received data: {data}')
         subject_id = data.get('subject_id')
-        class_id = data.get('learner_group_id')
+        class_id = data.get('learner_group_id') or data.get('class_fk')
+        print(f'subject_id: {subject_id}, class_id: {class_id}')
+
+        # Ensure class_fk_id is set (model requires it)
+        if class_id and not data.get('class_fk_id'):
+            data['class_fk_id'] = class_id
 
         # Validate teacher is assigned to this subject and class
         # Use filter().first() to handle multiple assignment records gracefully
@@ -806,9 +932,17 @@ class LessonPlansViewSet(viewsets.ModelViewSet):
         if not teacher_assignment:
             raise PermissionDenied("You are not authorized to create lesson plans for this subject and class.")
 
-        data['created_by'] = str(teacher_assignment.id)
+        data['created_by_id'] = teacher_assignment.id
+        print(f'Final data for serializer: {data}')
         serializer = self.get_serializer(data=data)
-        serializer.is_valid(raise_exception=True)
+        if not serializer.is_valid():
+            print(f'Validation errors: {serializer.errors}')
+            return Response({
+                'success': False,
+                'message': 'Validation failed',
+                'status': 400,
+                'data': serializer.errors
+            }, status=status.HTTP_400_BAD_REQUEST)
         self.perform_create(serializer)
         return Response({
             'success': True,
@@ -829,8 +963,15 @@ class LessonPlansViewSet(viewsets.ModelViewSet):
         instance = self.get_object()
         # Allow superusers or the teacher who created it
         if not (user.is_superuser or user.is_staff):
-            if not is_teacher(user) or instance.created_by.teacher_id.user != user:
-                raise PermissionDenied("Only the creating teacher can update this lesson plan.")
+            if not is_teacher(user):
+                raise PermissionDenied("Only teachers can update lesson plans.")
+            # Check if the current user is the teacher who created this plan
+            try:
+                teacher = Teacher.objects.get(user=user)
+                if instance.created_by.teacher != teacher:
+                    raise PermissionDenied("Only the creating teacher can update this lesson plan.")
+            except Teacher.DoesNotExist:
+                raise PermissionDenied("Teacher profile not found.")
 
         serializer = self.get_serializer(instance, data=request.data, partial=kwargs.pop('partial', False))
         serializer.is_valid(raise_exception=True)
@@ -853,7 +994,7 @@ class LessonPlansViewSet(viewsets.ModelViewSet):
 
         instance = self.get_object()
         if not (user.is_superuser or user.is_staff):
-            if not is_teacher(user) or instance.created_by.teacher_id.user != user:
+            if not is_teacher(user) or instance.created_by.teacher.user != user:
                 raise PermissionDenied("Only the creating teacher can delete this lesson plan.")
 
         self.perform_destroy(instance)
@@ -917,12 +1058,19 @@ class LessonActivitiesViewSet(viewsets.ModelViewSet):
         lesson_plan = LessonPlans.objects.get(id=lesson_plan_id)
 
         # Validate teacher is the creator of the lesson plan
-        if lesson_plan.created_by.teacher_id.user != user:
+        if lesson_plan.created_by.teacher.user != user:
             raise PermissionDenied("Only the creating teacher can add activities to this lesson plan.")
 
-
+        print(f'Creating lesson activity with data: {data}')
         serializer = self.get_serializer(data=data)
-        serializer.is_valid(raise_exception=True)
+        if not serializer.is_valid():
+            print(f'Validation errors: {serializer.errors}')
+            return Response({
+                'success': False,
+                'message': 'Validation failed',
+                'status': 400,
+                'data': serializer.errors
+            }, status=status.HTTP_400_BAD_REQUEST)
         self.perform_create(serializer)
         return Response({
             'success': True,
@@ -942,7 +1090,7 @@ class LessonActivitiesViewSet(viewsets.ModelViewSet):
 
         instance = self.get_object()
         lesson_plan = instance.lesson_plan_id
-        if not is_teacher(user) or lesson_plan.created_by.teacher_id.user != user:
+        if not is_teacher(user) or lesson_plan.created_by.teacher.user != user:
             raise PermissionDenied("Only the creating teacher can update this lesson activity.")
 
         serializer = self.get_serializer(instance, data=request.data, partial=kwargs.pop('partial', False))
@@ -967,7 +1115,7 @@ class LessonActivitiesViewSet(viewsets.ModelViewSet):
 
         instance = self.get_object()
         lesson_plan = instance.lesson_plan_id
-        if not is_teacher(user) or lesson_plan.created_by.teacher_id.user != user:
+        if not is_teacher(user) or lesson_plan.created_by.teacher.user != user:
             raise PermissionDenied("Only the creating teacher can delete this lesson activity.")
 
         self.perform_destroy(instance)
@@ -1020,7 +1168,7 @@ class LessonPlanEvaluationsViewSet(viewsets.ModelViewSet):
         lesson_plan = LessonPlans.objects.get(id=lesson_plan_id)
 
         # Validate teacher is the creator of the lesson plan
-        if lesson_plan.created_by.teacher_id.user != user:
+        if lesson_plan.created_by.teacher.user != user:
             raise PermissionDenied("Only the creating teacher can add evaluations to this lesson plan.")
 
         serializer = self.get_serializer(data=data)
@@ -1044,7 +1192,7 @@ class LessonPlanEvaluationsViewSet(viewsets.ModelViewSet):
 
         instance = self.get_object()
         lesson_plan = instance.lesson_plan_id
-        if not is_teacher(user) or lesson_plan.created_by.teacher_id.user != user:
+        if not is_teacher(user) or lesson_plan.created_by.teacher.user != user:
             raise PermissionDenied("Only the creating teacher can update this lesson plan evaluation.")
 
         serializer = self.get_serializer(instance, data=request.data, partial=kwargs.pop('partial', False))
@@ -1068,7 +1216,7 @@ class LessonPlanEvaluationsViewSet(viewsets.ModelViewSet):
 
         instance = self.get_object()
         lesson_plan = instance.lesson_plan_id
-        if not is_teacher(user) or lesson_plan.created_by.teacher_id.user != user:
+        if not is_teacher(user) or lesson_plan.created_by.teacher.user != user:
             raise PermissionDenied("Only the creating teacher can delete this lesson plan evaluation.")
 
         self.perform_destroy(instance)
@@ -1112,7 +1260,7 @@ class LessonPlanObjectivesViewSet(viewsets.ModelViewSet):
             raise PermissionDenied("Only teachers can create lesson plan objectives.")
 
         lesson_plan_id = request.data.get('lesson_plan_id')
-        if not lesson_plan_id or LessonPlans.objects.get(id=lesson_plan_id).created_by.teacher_id.user != user:
+        if not lesson_plan_id or LessonPlans.objects.get(id=lesson_plan_id).created_by.teacher.user != user:
             raise PermissionDenied("Only the creating teacher can add objectives to this lesson plan.")
 
         serializer = self.get_serializer(data=request.data)
@@ -1135,7 +1283,7 @@ class LessonPlanObjectivesViewSet(viewsets.ModelViewSet):
             raise PermissionDenied("No permission to update lesson plan objectives.")
 
         instance = self.get_object()
-        if not is_teacher(user) or instance.lesson_plan_id.created_by.teacher_id.user != user:
+        if not is_teacher(user) or instance.lesson_plan_id.created_by.teacher.user != user:
             raise PermissionDenied("Only the creating teacher can update this lesson objective performance.")
 
         serializer = self.get_serializer(instance, data=request.data, partial=kwargs.pop('partial', False))
@@ -1158,7 +1306,7 @@ class LessonPlanObjectivesViewSet(viewsets.ModelViewSet):
             raise PermissionDenied("No permission to delete lesson plan objectives.")
 
         instance = self.get_object()
-        if not is_teacher(user) or instance.lesson_plan_id.created_by.teacher_id.user != user:
+        if not is_teacher(user) or instance.lesson_plan_id.created_by.teacher.user != user:
             raise PermissionDenied("Only the creating teacher can delete this lesson objective performance.")
 
         self.perform_destroy(instance)
@@ -1504,15 +1652,15 @@ class StudentAssignmentsViewSet(viewsets.ModelViewSet):
         if branch_id and not has_model_permission(self.request.user, 'studentassignments', 'add', branch_id):
             raise PermissionDenied("No permission to create student assignments.")
 
-        assignment = serializer.validated_data['assignment_id']
-        student = serializer.validated_data['student_id']
+        assignment = serializer.validated_data['assignment']
+        student = serializer.validated_data['student']
         submission_url = serializer.validated_data.get('submission_url')
 
         if assignment.is_group_assignment:
             for group_student in assignment.students.all():
                 StudentAssignments.objects.get_or_create(
-                    assignment_id=assignment,
-                    student_id=group_student,
+                    assignment=assignment,
+                    student=group_student,
                     defaults={'submission_url': submission_url}
                 )
         else:

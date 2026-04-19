@@ -1311,46 +1311,66 @@ class ExamsViewSet(viewsets.ModelViewSet):
         user = self.request.user
         student_id = self.request.query_params.get('student_id')
         branch_id = self.request.query_params.get('branch_id')
+        class_id = self.request.query_params.get('class_id') or self.request.query_params.get('grade_id')
+        section_id = self.request.query_params.get('section_id')
+        subject_id = self.request.query_params.get('subject_id')
 
         if user.is_superuser:
-            return self.queryset.all()
-
-        # Check if user is a teacher - allow them to see exams for their assigned classes
-        from teachers.models import Teacher
-        from teachers.models import TeacherAssignment
-        teacher = Teacher.objects.filter(user=user).first()
-        
-        if teacher:
-            # Get teacher's class-subject assignments
-            assignments = TeacherAssignment.objects.filter(teacher=teacher)
-            q_objects = Q()
-            for assignment in assignments:
-                q_objects |= Q(
-                    class_fk=assignment.class_fk,
-                    section=assignment.section,
-                    subject=assignment.subject
-                )
-            if q_objects:
-                return self.queryset.filter(q_objects).distinct()
-            return self.queryset.none()
-
-        if student_id and not ParentStudent.objects.filter(parent__user=user, student_id=student_id).exists():
-            raise PermissionDenied("You do not have permission to view this student's exams.")
-
-        queryset = self.queryset
-        if student_id:
-            student = Student.objects.get(id=student_id)
-            queryset = queryset.filter(class_fk=student.grade, section=student.section)
-
-        if branch_id:
-            if not has_model_permission(user, 'exams', 'view_exams', branch_id):
-                raise PermissionDenied("You do not have permission to view exams in this branch.")
-            queryset = queryset.filter(branch_id=branch_id)
+            queryset = self.queryset.all()
         else:
-            accessible_branches = UserBranchAccess.objects.filter(user=user).values_list('branch_id', flat=True)
-            if not accessible_branches:
-                raise PermissionDenied("You do not have access to any branches.")
-            queryset = queryset.filter(branch_id__in=accessible_branches)
+            # Check if user is a teacher - allow them to see exams for their assigned classes
+            from teachers.models import Teacher
+            from teachers.models import TeacherAssignment
+            teacher = Teacher.objects.filter(user=user).first()
+            
+            if teacher:
+                # Get teacher's class-subject assignments
+                assignments = TeacherAssignment.objects.filter(teacher=teacher, is_active=True)
+                q_objects = Q()
+                for assignment in assignments:
+                    if assignment.section:
+                        # Teacher assigned to specific section
+                        q_objects |= Q(
+                            class_fk=assignment.class_fk,
+                            section=assignment.section,
+                            subject=assignment.subject
+                        )
+                    else:
+                        # Teacher assigned to ALL sections of this class
+                        q_objects |= Q(
+                            class_fk=assignment.class_fk,
+                            subject=assignment.subject
+                        )
+                if q_objects:
+                    queryset = self.queryset.filter(q_objects).distinct()
+                    print(f"[ExamsViewSet] Teacher {teacher.teacher_id} found {queryset.count()} exams from {assignments.count()} assignments")
+                else:
+                    print(f"[ExamsViewSet] Teacher {teacher.teacher_id} has no valid assignments")
+                    queryset = self.queryset.none()
+            elif student_id:
+                if not ParentStudent.objects.filter(parent__user=user, student_id=student_id).exists():
+                    raise PermissionDenied("You do not have permission to view this student's exams.")
+                student = Student.objects.get(id=student_id)
+                queryset = self.queryset.filter(class_fk=student.grade, section=student.section)
+            else:
+                queryset = self.queryset
+                if branch_id:
+                    if not has_model_permission(user, 'exams', 'view_exams', branch_id):
+                        raise PermissionDenied("You do not have permission to view exams in this branch.")
+                    queryset = queryset.filter(branch_id=branch_id)
+                else:
+                    accessible_branches = UserBranchAccess.objects.filter(user=user).values_list('branch_id', flat=True)
+                    if not accessible_branches:
+                        raise PermissionDenied("You do not have access to any branches.")
+                    queryset = queryset.filter(branch_id__in=accessible_branches)
+
+        # Apply additional filters
+        if class_id:
+            queryset = queryset.filter(class_fk_id=class_id)
+        if section_id:
+            queryset = queryset.filter(section_id=section_id)
+        if subject_id:
+            queryset = queryset.filter(subject_id=subject_id)
 
         return queryset
 

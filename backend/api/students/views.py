@@ -192,6 +192,8 @@ class StudentViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         user = self.request.user
         branch_id = self.request.query_params.get('branch_id')
+        grade_id = self.request.query_params.get('grade_id') or self.request.query_params.get('class_id')
+        section_id = self.request.query_params.get('section_id')
         search = self.request.query_params.get('search')
         queryset = self.queryset
 
@@ -222,16 +224,41 @@ class StudentViewSet(viewsets.ModelViewSet):
                 queryset = queryset.filter(branch_id__in=accessible_branches)
         elif hasattr(user, 'student_profile'): # Changed from student_profiles
             queryset = queryset.filter(user=user)
-        elif hasattr(user, 'teacher_profile'): # Changed from teacher_profiles
-            from users.models import UserBranchAccess
-            accessible_branches = UserBranchAccess.objects.filter(user=user).values_list('branch_id', flat=True)
-            queryset = queryset.filter(branch_id__in=accessible_branches)
+        elif hasattr(user, 'teacher_profiles'):  # Uses related_name='teacher_profiles' from Teacher model
+            # Teachers see students from their assigned classes/sections
+            from teachers.models import Teacher, TeacherAssignment
+            teacher = Teacher.objects.filter(user=user).first()
+            if teacher:
+                assignments = TeacherAssignment.objects.filter(teacher=teacher, is_active=True)
+                q_objects = Q()
+                for assignment in assignments:
+                    if assignment.section:
+                        # Teacher assigned to specific section
+                        q_objects |= Q(grade=assignment.class_fk, section=assignment.section)
+                    else:
+                        # Teacher assigned to ALL sections of this class
+                        q_objects |= Q(grade=assignment.class_fk)
+                if q_objects:
+                    queryset = queryset.filter(q_objects).distinct()
+                    print(f"[StudentViewSet] Teacher {teacher.teacher_id} found {queryset.count()} students from {assignments.count()} assignments")
+                else:
+                    print(f"[StudentViewSet] Teacher {teacher.teacher_id} has no valid assignments")
+                    queryset = queryset.none()
+            else:
+                print(f"[StudentViewSet] No teacher profile found for user {user.email}")
+                queryset = queryset.none()
         elif hasattr(user, 'parent_profile'): # Changed from parent_profiles
             from .models import ParentStudent
             children_ids = ParentStudent.objects.filter(parent__user=user).values_list('student_id', flat=True)
             queryset = queryset.filter(id__in=children_ids)
         else:
             queryset = queryset.none()
+
+        # 2. Additional filters (applied after access filtering)
+        if grade_id:
+            queryset = queryset.filter(grade_id=grade_id)
+        if section_id:
+            queryset = queryset.filter(section_id=section_id)
 
         # 2. Search Logic
         if search:
@@ -1045,6 +1072,19 @@ class ParentStudentViewSet(viewsets.ModelViewSet):
 
         lesson_plans = LessonPlans.objects.filter(
             class_fk=student.grade
+        ).prefetch_related(
+            'lessonactivities_set',
+            'lessonplanevaluations_set',
+            'lessonplanobjectives_set',
+            'subject',
+            'unit',
+            'subunit',
+            'class_fk',
+            'learning_objectives',
+            'created_by',
+            'created_by__teacher',
+            'created_by__teacher__user',
+            'term'
         ).order_by('-created_at')[:5]
         lesson_plans_data = LessonPlansSerializer(lesson_plans, many=True).data
 
@@ -1429,12 +1469,94 @@ class ParentStudentViewSet(viewsets.ModelViewSet):
                 'remaining_weeks': 0
             }
 
-        # Academic summary (placeholder)
+        # Calculate REAL academic summary from actual data
+        from lessontopics.models import ExamResults, StudentAssignments, Assignments
+        from django.db.models import Avg, Count, Q
+        
+        # Debug student info
+        print(f"[DEBUG] Student ID: {student.id}")
+        print(f"[DEBUG] Student Grade: {student.grade} (ID: {student.grade.id if student.grade else None})")
+        print(f"[DEBUG] Student Section: {student.section} (ID: {student.section.id if student.section else None})")
+        
+        # 1. Calculate Average Grade from ExamResults
+        exam_results = ExamResults.objects.filter(student=student)
+        print(f"[DEBUG] ExamResults query count: {exam_results.count()}")
+        avg_percentage = exam_results.aggregate(Avg('percentage'))['percentage__avg']
+        print(f"[DEBUG] Average percentage: {avg_percentage}")
+        
+        # Convert percentage to letter grade
+        def percentage_to_grade(pct):
+            if pct is None:
+                return "N/A"
+            if pct >= 90:
+                return "A"
+            elif pct >= 80:
+                return "B"
+            elif pct >= 70:
+                return "C"
+            elif pct >= 60:
+                return "D"
+            else:
+                return "F"
+        
+        average_grade = percentage_to_grade(avg_percentage) if avg_percentage else "N/A"
+        
+        # 2. Calculate Completion Rate from Assignments
+        # Get all assignments for this student's class/section OR directly assigned to student
+        total_assignments = Assignments.objects.filter(
+            Q(class_fk=student.grade) | 
+            Q(section=student.section) |
+            Q(students=student)
+        ).distinct().count()
+        
+        # Count completed assignments (any StudentAssignments record means submitted)
+        completed_assignments = StudentAssignments.objects.filter(
+            student=student
+        ).count()
+        
+        if total_assignments > 0:
+            completion_rate = f"{int((completed_assignments / total_assignments) * 100)}%"
+        else:
+            completion_rate = "0%"
+        
+        # 3. Calculate Overall Progress (based on exam results + assignments)
+        if avg_percentage:
+            overall_progress = f"{round(avg_percentage, 1)}%"
+        else:
+            overall_progress = "0%"
+        
+        # 4. Get Behavior Ratings Average
+        behavior_ratings = BehaviorRatings.objects.filter(student=student)
+        behavior_avg = behavior_ratings.aggregate(Avg('rating'))['rating__avg']
+        # Convert 1-5 scale to percentage
+        behavior_percentage = (behavior_avg / 5 * 100) if behavior_avg else 0
+        
+        # Debug info to help diagnose data issues
+        exam_count = exam_results.count()
+        behavior_count = behavior_ratings.count()
+        student_assignments_count = StudentAssignments.objects.filter(student=student).count()
+        
         academic_summary = {
-            'average_grade': "N/A", 
-            'completion_rate': "N/A",
-            'overall_progress': "N/A",
-            'learning_progress': "N/A"
+            'average_grade': average_grade, 
+            'completion_rate': completion_rate,
+            'overall_progress': overall_progress,
+            'learning_progress': overall_progress,
+            'exam_average': round(avg_percentage, 1) if avg_percentage else 0,
+            'behavior_rating': round(behavior_percentage, 1),
+            'total_assignments': total_assignments,
+            'completed_assignments': completed_assignments,
+            # Debug fields
+            '_debug': {
+                'exam_results_count': exam_count,
+                'behavior_ratings_count': behavior_count,
+                'assignments_count': total_assignments,
+                'student_assignments_count': student_assignments_count,
+                'student_id': str(student.id),
+                'student_class': str(student.grade.grade) if student.grade else None,
+                'student_class_id': str(student.grade.id) if student.grade else None,
+                'student_section_id': str(student.section.id) if student.section else None,
+                'has_data': exam_count > 0 or behavior_count > 0 or total_assignments > 0
+            }
         }
 
         # Subjects with teachers
@@ -1465,6 +1587,11 @@ class ParentStudentViewSet(viewsets.ModelViewSet):
         # Add count to academic summary
         academic_summary['enrolled_subjects_count'] = len(subjects_data)
 
+        # Get behavior ratings summary for consistency
+        behavior_ratings = BehaviorRatings.objects.filter(student=student)
+        behavior_avg = behavior_ratings.aggregate(Avg('rating'))['rating__avg']
+        behavior_percentage = (behavior_avg / 5 * 100) if behavior_avg else 0
+        
         response_data = {
             'success': True,
             'message': 'OK',
@@ -1473,7 +1600,12 @@ class ParentStudentViewSet(viewsets.ModelViewSet):
                 'academic_summary': academic_summary,
                 'current_term': term_data,
                 'subjects': subjects_data,
-                'enrolled_subjects_count': len(subjects_data)
+                'enrolled_subjects_count': len(subjects_data),
+                'behavior_ratings': {
+                    'average_rating': round(behavior_percentage, 1),
+                    'raw_average': round(behavior_avg, 1) if behavior_avg else 0,
+                    'total_ratings': behavior_ratings.count()
+                }
             }
         }
         return Response(response_data)

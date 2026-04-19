@@ -286,8 +286,8 @@ class StudentScheduleOverridesSerializer(serializers.ModelSerializer):
         return data
 
 class AttendanceSerializer(serializers.ModelSerializer):
-    student_id = serializers.PrimaryKeyRelatedField(queryset=Student.objects.all(), write_only=True)
-    student_details = StudentSerializer(source = 'student_id', read_only=True)
+    student_id = serializers.PrimaryKeyRelatedField(queryset=Student.objects.all(), source='student', write_only=True)
+    student_details = StudentSerializer(source='student', read_only=True)
     subject_id = serializers.PrimaryKeyRelatedField(queryset=Subject.objects.all(), write_only=True)
     subject = SubjectSerializer(source='subject_id', read_only=True)
     status = serializers.ChoiceField(choices=Attendance.STATUS_CHOICES)

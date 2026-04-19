@@ -63,6 +63,8 @@ def update_teacher_exam_metrics(sender, instance, **kwargs):
 def update_teacher_attendance_metrics(sender, instance, **kwargs):
     """Update teacher attendance-related metrics"""
     teacher_assignment = instance.teacher_assignment
+    if not teacher_assignment:
+        return
     teacher = teacher_assignment.teacher
     
     # Calculate average attendance percentage for classes taught by this teacher

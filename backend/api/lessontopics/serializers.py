@@ -174,81 +174,6 @@ class LearningObjectivesSerializer(serializers.ModelSerializer):
                 return []
         return []
 
-# ==================== Lesson Plans ====================
-class LessonPlansSerializer(serializers.ModelSerializer):
-    subject_id = serializers.PrimaryKeyRelatedField(
-        queryset=Subject.objects.all(),
-        write_only=True,
-        required=True
-    )
-    subject_details = SubjectSerializer(source='subject', read_only=True)
-    unit_id = serializers.PrimaryKeyRelatedField(
-        queryset=ObjectiveUnits.objects.all(),
-        write_only=True,
-        allow_null=True,
-        required=False
-    )
-    unit_details = ObjectiveUnitsSerializer(source='unit', read_only=True)
-    subunit_id = serializers.PrimaryKeyRelatedField(
-        queryset=ObjectiveSubunits.objects.all(),
-        write_only=True,
-        allow_null=True,
-        required=False
-    )
-    subunit_details = ObjectiveSubunitsSerializer(source='subunit', read_only=True)
-    learner_group_id = serializers.PrimaryKeyRelatedField(
-        queryset=Class.objects.all(),
-        write_only=True,
-        allow_null=True,
-        required=False
-    )
-    learner_group_details = ClassSerializer(source='learner_group', read_only=True)
-    learning_objectives = serializers.PrimaryKeyRelatedField(
-        queryset=LearningObjectives.objects.all(),
-        many=True,
-        write_only=True,
-        required=False
-    )
-    learning_objectives_details = LearningObjectivesSerializer(
-        source='learning_objectives', 
-        many=True, 
-        read_only=True
-    )
-    created_by = serializers.PrimaryKeyRelatedField(
-        queryset=TeacherAssignment.objects.all(),
-        write_only=True,
-        required=True
-    )
-    created_by_details = TeacherAssignmentSerializer(source='created_by', read_only=True)
-    term_id = serializers.PrimaryKeyRelatedField(
-        queryset=Term.objects.all(),
-        write_only=True,
-        required=True
-    )
-    term_details = TermsSerializer(source='term', read_only=True)
-
-    class Meta:
-        model = LessonPlans
-        fields = '__all__'
-
-    def validate(self, data):
-        """Validate lesson plan data"""
-        # Validate that if subunit is provided, unit is also provided
-        if data.get('subunit_id') and not data.get('unit_id'):
-            raise serializers.ValidationError({
-                'unit_id': 'Unit is required when subunit is specified.'
-            })
-
-        # Validate that learning objectives belong to the same unit/subunit
-        if 'learning_objectives' in data and data.get('unit_id'):
-            for objective in data['learning_objectives']:
-                if objective.unit_id != data['unit_id']:
-                    raise serializers.ValidationError({
-                        'learning_objectives': f'Objective {objective.framework_code} does not belong to the selected unit.'
-                    })
-
-        return data
-
 # ==================== Lesson Activities ====================
 class LessonActivitiesSerializer(serializers.ModelSerializer):
     lesson_plan_id = serializers.PrimaryKeyRelatedField(
@@ -257,16 +182,93 @@ class LessonActivitiesSerializer(serializers.ModelSerializer):
         required=True
     )
     lesson_plan_details = serializers.StringRelatedField(source='lesson_plan', read_only=True)
+    # Make model fields optional (defaults set in validate)
+    order_number = serializers.IntegerField(required=False)
+    time_slot = serializers.CharField(required=False, allow_blank=True)
+    learner_activity = serializers.CharField(required=False, allow_blank=True)
+    lesson_plan = serializers.PrimaryKeyRelatedField(queryset=LessonPlans.objects.all(), required=False, write_only=True)
+    # Frontend field mappings
+    learning_statement = serializers.CharField(write_only=True, required=False)
+    activity_sheet = serializers.CharField(write_only=True, required=False)
+    accomodation = serializers.CharField(write_only=True, required=False)
+    extra_challenges = serializers.CharField(write_only=True, required=False)
+    success_criteria = serializers.CharField(write_only=True, required=False)
+    learner_activities = serializers.JSONField(write_only=True, required=False)
 
     class Meta:
         model = LessonActivities
         fields = '__all__'
+
+    def validate(self, data):
+        """Map frontend fields to model fields and set defaults"""
+        # Set defaults for required fields if not provided
+        if 'order_number' not in data:
+            data['order_number'] = 1
+        if 'time_slot' not in data:
+            data['time_slot'] = '00:00-00:00'
+        
+        # Map lesson_plan_id to lesson_plan
+        if 'lesson_plan_id' in data:
+            data['lesson_plan'] = data.pop('lesson_plan_id')
+        
+        # Combine learner_activities into learner_activity
+        if 'learner_activities' in data:
+            activities = data.pop('learner_activities')
+            activity_text = ''
+            if isinstance(activities, dict):
+                for group, items in activities.items():
+                    activity_text += f"{group}: {'; '.join(items)}\n"
+            else:
+                activity_text = str(activities)
+            data['learner_activity'] = activity_text
+        
+        # Map topic_content from learning_statement
+        if 'learning_statement' in data:
+            learning_stmt = data.pop('learning_statement')
+            if 'topic_content' not in data:
+                data['topic_content'] = learning_stmt
+        
+        # Build formative_assessment from success_criteria, accomodation, etc.
+        assessment_parts = []
+        if 'success_criteria' in data:
+            assessment_parts.append(f"Success Criteria: {data.pop('success_criteria')}")
+        if 'accomodation' in data:
+            assessment_parts.append(f"Accommodation: {data.pop('accomodation')}")
+        if 'extra_challenges' in data:
+            assessment_parts.append(f"Extra Challenges: {data.pop('extra_challenges')}")
+        if 'activity_sheet' in data:
+            assessment_parts.append(f"Activity Sheet: {data.pop('activity_sheet')}")
+        
+        if assessment_parts and 'formative_assessment' not in data:
+            data['formative_assessment'] = '\n'.join(assessment_parts)
+        
+        return data
 
     def validate_duration_minutes(self, value):
         """Ensure duration is positive"""
         if value and value <= 0:
             raise serializers.ValidationError("Duration must be greater than 0.")
         return value
+
+    def create(self, validated_data):
+        """Create after removing any remaining frontend-only fields"""
+        # Remove any frontend-only fields that might still be present
+        frontend_only_fields = ['learning_statement', 'activity_sheet', 'accomodation', 
+                                'extra_challenges', 'success_criteria', 'learner_activities']
+        for field in frontend_only_fields:
+            validated_data.pop(field, None)
+        
+        return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        """Update after removing any remaining frontend-only fields"""
+        # Remove any frontend-only fields that might still be present
+        frontend_only_fields = ['learning_statement', 'activity_sheet', 'accomodation', 
+                                'extra_challenges', 'success_criteria', 'learner_activities']
+        for field in frontend_only_fields:
+            validated_data.pop(field, None)
+        
+        return super().update(instance, validated_data)
 
 # ==================== Lesson Plan Evaluations ====================
 class LessonPlanEvaluationsSerializer(serializers.ModelSerializer):
@@ -352,6 +354,129 @@ class LessonPlanObjectivesSerializer(serializers.ModelSerializer):
         instance.save()
         return instance
 
+# ==================== Lesson Plans ====================
+class LessonPlansSerializer(serializers.ModelSerializer):
+    subject_id = serializers.PrimaryKeyRelatedField(
+        queryset=Subject.objects.all(),
+        write_only=True,
+        required=True,
+        source='subject'
+    )
+    subject_details = SubjectSerializer(source='subject', read_only=True)
+    unit_id = serializers.PrimaryKeyRelatedField(
+        queryset=ObjectiveUnits.objects.all(),
+        write_only=True,
+        allow_null=True,
+        required=False,
+        source='unit'
+    )
+    unit_details = ObjectiveUnitsSerializer(source='unit', read_only=True)
+    subunit_id = serializers.PrimaryKeyRelatedField(
+        queryset=ObjectiveSubunits.objects.all(),
+        write_only=True,
+        allow_null=True,
+        required=False,
+        source='subunit'
+    )
+    subunit_details = ObjectiveSubunitsSerializer(source='subunit', read_only=True)
+    class_fk_id = serializers.PrimaryKeyRelatedField(
+        queryset=Class.objects.all(),
+        write_only=True,
+        required=True,
+        source='class_fk'
+    )
+    class_fk_details = ClassSerializer(source='class_fk', read_only=True)
+    learner_group_id = serializers.PrimaryKeyRelatedField(
+        queryset=Class.objects.all(),
+        write_only=True,
+        allow_null=True,
+        required=False,
+        source='learner_group'
+    )
+    learner_group_details = ClassSerializer(source='learner_group', read_only=True)
+    learning_objectives_id = serializers.PrimaryKeyRelatedField(
+        queryset=LearningObjectives.objects.all(),
+        write_only=True,
+        allow_null=True,
+        required=False,
+        source='learning_objectives'
+    )
+    learning_objectives_details = LearningObjectivesSerializer(
+        source='learning_objectives', 
+        read_only=True
+    )
+    created_by_id = serializers.PrimaryKeyRelatedField(
+        queryset=TeacherAssignment.objects.all(),
+        write_only=True,
+        required=True,
+        source='created_by'
+    )
+    created_by_details = TeacherAssignmentSerializer(source='created_by', read_only=True)
+    term_id = serializers.PrimaryKeyRelatedField(
+        queryset=Term.objects.all(),
+        write_only=True,
+        required=True,
+        source='term'
+    )
+    term_details = TermsSerializer(source='term', read_only=True)
+    activities = serializers.SerializerMethodField()
+    evaluations = serializers.SerializerMethodField()
+    objectives = serializers.SerializerMethodField()
+
+    block = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    week = serializers.IntegerField(required=False, allow_null=True)
+
+    class Meta:
+        model = LessonPlans
+        fields = [
+            'id', 'duration', 'block', 'week', 'lesson_aims', 'created_at', 'updated_at',
+            'subject_id', 'subject_details',
+            'unit_id', 'unit_details',
+            'subunit_id', 'subunit_details',
+            'class_fk_id', 'class_fk_details',
+            'learner_group_id', 'learner_group_details',
+            'learning_objectives_id', 'learning_objectives_details',
+            'created_by_id', 'created_by_details',
+            'term_id', 'term_details',
+            'activities', 'evaluations', 'objectives',
+        ]
+
+    def get_activities(self, obj):
+        activities = obj.lessonactivities_set.all()
+        if activities:
+            return LessonActivitiesSerializer(activities, many=True).data
+        return []
+
+    def get_evaluations(self, obj):
+        evaluations = obj.lessonplanevaluations_set.all()
+        if evaluations:
+            return LessonPlanEvaluationsSerializer(evaluations, many=True).data
+        return []
+
+    def get_objectives(self, obj):
+        objectives = obj.lessonplanobjectives_set.all()
+        if objectives:
+            return LessonPlanObjectivesSerializer(objectives, many=True).data
+        return []
+
+    def validate(self, data):
+        """Validate lesson plan data"""
+        # Validate that if subunit is provided, unit is also provided
+        if data.get('subunit') and not data.get('unit'):
+            raise serializers.ValidationError({
+                'unit_id': 'Unit is required when subunit is specified.'
+            })
+
+        # Validate that learning objective belongs to the same unit
+        if data.get('learning_objectives') and data.get('unit'):
+            objective = data['learning_objectives']
+            if objective.unit_id != data['unit'].id:
+                raise serializers.ValidationError({
+                    'learning_objectives_id': f'Objective {objective.framework_code} does not belong to the selected unit.'
+                })
+
+        return data
+
 # ==================== Assignments ====================
 class SimpleAssignmentsSerializer(serializers.ModelSerializer):
     """Lightweight serializer for dashboard use - avoids heavy nested student data"""
@@ -366,7 +491,7 @@ class SimpleAssignmentsSerializer(serializers.ModelSerializer):
         fields = ['id', 'title', 'description', 'assigned_date', 'due_date', 
                   'file_url', 'is_group_assignment', 'group_name', 'max_score', 
                   'is_active', 'subject_name', 'class_name', 'section_name', 
-                  'teacher_name', 'student_count', 'status']
+                  'teacher_name', 'student_count']
     
     def get_student_count(self, obj):
         return obj.students.count()
@@ -554,12 +679,14 @@ class AssignmentsSerializer(serializers.ModelSerializer):
 class StudentAssignmentsSerializer(serializers.ModelSerializer):
     assignment_id = serializers.PrimaryKeyRelatedField(
         queryset=Assignments.objects.all(), 
+        source='assignment',
         write_only=True,
         required=True
     )
     assignment_details = serializers.SerializerMethodField()
     student_id = serializers.PrimaryKeyRelatedField(
         queryset=Student.objects.all(), 
+        source='student',
         write_only=True,
         required=True
     )
@@ -568,13 +695,13 @@ class StudentAssignmentsSerializer(serializers.ModelSerializer):
     def get_assignment_details(self, obj):
         """Get assignment details with optimization"""
         return {
-            'id': obj.assignment_id.id,
-            'title': obj.assignment_id.title,
-            'description': obj.assignment_id.description,
-            'subject': SubjectSerializer(obj.assignment_id.teacher_assignment.subject).data if obj.assignment_id.teacher_assignment and obj.assignment_id.teacher_assignment.subject else None,
-            'due_date': obj.assignment_id.due_date,
-            'is_group_assignment': obj.assignment_id.is_group_assignment,
-            'group_name': obj.assignment_id.group_name
+            'id': str(obj.assignment.id),
+            'title': obj.assignment.title,
+            'description': obj.assignment.description,
+            'subject': SubjectSerializer(obj.assignment.teacher_assignment.subject).data if obj.assignment.teacher_assignment and obj.assignment.teacher_assignment.subject else None,
+            'due_date': obj.assignment.due_date,
+            'is_group_assignment': obj.assignment.is_group_assignment,
+            'group_name': obj.assignment.group_name
         }
 
     class Meta:
@@ -585,8 +712,8 @@ class StudentAssignmentsSerializer(serializers.ModelSerializer):
 
     def validate(self, data):
         """Validate student assignment submission"""
-        assignment = data.get('assignment_id')
-        student = data.get('student_id')
+        assignment = data.get('assignment')
+        student = data.get('student')
 
         if not assignment or not student:
             return data
@@ -599,8 +726,8 @@ class StudentAssignmentsSerializer(serializers.ModelSerializer):
 
         # Check for existing submission
         if StudentAssignments.objects.filter(
-            assignment_id=assignment, 
-            student_id=student
+            assignment=assignment, 
+            student=student
         ).exclude(id=self.instance.id if self.instance else None).exists():
             raise serializers.ValidationError(
                 "You have already submitted this assignment."

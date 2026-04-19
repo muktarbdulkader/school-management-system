@@ -237,6 +237,33 @@ class TeacherViewSet(viewsets.ModelViewSet):
         }
         return Response(response_data, status=204)
 
+    @action(detail=False, methods=['get'], url_path='me')
+    def me(self, request):
+        """Get current teacher's profile including branch info"""
+        user = request.user
+        try:
+            teacher = Teacher.objects.select_related('branch').get(user=user)
+            return Response({
+                'success': True,
+                'message': 'OK',
+                'status': 200,
+                'data': {
+                    'id': str(teacher.id),
+                    'teacher_id': teacher.teacher_id,
+                    'full_name': teacher.user.full_name,
+                    'email': teacher.user.email,
+                    'branch_id': str(teacher.branch.id) if teacher.branch else None,
+                    'branch_name': teacher.branch.name if teacher.branch else None,
+                }
+            })
+        except Teacher.DoesNotExist:
+            return Response({
+                'success': False,
+                'message': 'No teacher profile found for this user',
+                'status': 404,
+                'data': {}
+            }, status=404)
+
     @action(detail=False, methods=['get'], url_path='overview_dashboard')
     def overview_dashboard(self, request):
         """

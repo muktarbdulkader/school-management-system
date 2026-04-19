@@ -159,7 +159,7 @@ class ParentDashboardView(APIView):
                         'student_id': student.student_id,
                         'full_name': student.user.full_name,
                         'email': student.user.email,
-                        'grade': student.grade.name if student.grade else None,
+                        'grade': student.grade.grade if student.grade else None,
                         'section': student.section.name if student.section else None,
                         'gender': student.gender,
                         'birth_date': student.birth_date,
@@ -170,7 +170,7 @@ class ParentDashboardView(APIView):
                             'id': str(ps.student.id),
                             'student_id': ps.student.student_id,
                             'full_name': ps.student.user.full_name,
-                            'grade': ps.student.grade.name if ps.student.grade else None,
+                            'grade': ps.student.grade.grade if ps.student.grade else None,
                             'section': ps.student.section.name if ps.student.section else None,
                             'relationship': ps.relationship.name if ps.relationship else None,
                         }
@@ -184,16 +184,20 @@ class ParentDashboardView(APIView):
                     'exams': self._get_exams(student),
                     'exam_results': self._get_exam_results(student),
                     'progress': self._get_progress(student),
+                    'behavior_ratings': self._get_behavior_ratings_summary(student),
                 }
             except Exception as e:
                 # If there's an error gathering dashboard data, return basic student info only
+                import traceback
+                print(f"[PARENT DASHBOARD ERROR] {str(e)}")
+                print(f"[PARENT DASHBOARD TRACEBACK] {traceback.format_exc()}")
                 dashboard_data = {
                     'student': {
                         'id': str(student.id),
                         'student_id': student.student_id,
                         'full_name': student.user.full_name,
                         'email': student.user.email,
-                        'grade': student.grade.name if student.grade else None,
+                        'grade': student.grade.grade if student.grade else None,
                         'section': student.section.name if student.section else None,
                     },
                     'all_students': [
@@ -201,7 +205,7 @@ class ParentDashboardView(APIView):
                             'id': str(ps.student.id),
                             'student_id': ps.student.student_id,
                             'full_name': ps.student.user.full_name,
-                            'grade': ps.student.grade.name if ps.student.grade else None,
+                            'grade': ps.student.grade.grade if ps.student.grade else None,
                             'section': ps.student.section.name if ps.student.section else None,
                             'relationship': ps.relationship.name if ps.relationship else None,
                         }
@@ -212,6 +216,13 @@ class ParentDashboardView(APIView):
                     'assignments': [],
                     'announcements': [],
                     'progress': {},
+                    'behavior_ratings': {
+                        'average_rating': 0,
+                        'raw_average': 0,
+                        'total_ratings': 0,
+                        'recent_incidents_count': 0,
+                        'category_averages': {}
+                    },
                 }
             
             return Response({
@@ -237,16 +248,22 @@ class ParentDashboardView(APIView):
     
     def _get_attendance(self, student):
         """Get attendance summary for student"""
-        from attendance.models import Attendance
+        from schedule.models import Attendance
+        from django.db.models import Count, Q
         
-        attendance_records = Attendance.objects.filter(student=student).order_by('-date')[:30]
+        # Get all records for counting (filter before slicing)
+        all_records = Attendance.objects.filter(student=student)
         
-        present_count = attendance_records.filter(status='present').count()
-        absent_count = attendance_records.filter(status='absent').count()
-        late_count = attendance_records.filter(status='late').count()
-        total = attendance_records.count()
+        # Calculate counts from full queryset
+        present_count = all_records.filter(status='present').count()
+        absent_count = all_records.filter(status='absent').count()
+        late_count = all_records.filter(status='late').count()
+        total = all_records.count()
         
         attendance_percentage = (present_count / total * 100) if total > 0 else 0
+        
+        # Get recent records (slice after filtering)
+        recent_records = all_records.order_by('-date')[:30]
         
         return {
             'summary': {
@@ -262,7 +279,7 @@ class ParentDashboardView(APIView):
                     'status': record.status,
                     'notes': record.notes,
                 }
-                for record in attendance_records[:10]
+                for record in recent_records[:10]
             ]
         }
     
@@ -272,43 +289,31 @@ class ParentDashboardView(APIView):
         return StudentSubject.objects.filter(student=student).count()
 
     def _get_schedule(self, student):
-        """Get weekly schedule for student"""
+        """Get schedule for student - show all classes for the week"""
         from schedule.models import ClassScheduleSlot
         from datetime import datetime
-        import pytz
-
+        
         if not student.grade or not student.section:
             return []
-
-        # Get today's schedule
-        today = datetime.now(pytz.UTC).strftime('%A')
-
-        schedules = ClassScheduleSlot.objects.filter(
+        
+        # Get schedule slots for student's class/section (all days)
+        schedule_slots = ClassScheduleSlot.objects.filter(
             class_fk=student.grade,
-            section=student.section,
-            day_of_week=today
-        ).select_related('subject', 'teacher_assignment', 'classroom').order_by('start_time')
-
-        schedule_list = []
-        for slot in schedules:
-            teacher_name = None
-            if slot.teacher_assignment and slot.teacher_assignment.teacher:
-                teacher_name = slot.teacher_assignment.teacher.user.full_name
-
-            schedule_list.append({
+            section=student.section
+        ).select_related('subject', 'teacher').order_by('day_of_week', 'start_time')[:20]
+        
+        return [
+            {
                 'id': str(slot.id),
-                'subject': slot.subject.name if slot.subject else None,
-                'subject_details': {'name': slot.subject.name} if slot.subject else None,
-                'teacher': teacher_name,
-                'teacher_details': {'teacher_id': {'user': {'full_name': teacher_name}}} if teacher_name else None,
+                'day_of_week': slot.day_of_week,
                 'start_time': slot.start_time.strftime('%H:%M') if slot.start_time else None,
                 'end_time': slot.end_time.strftime('%H:%M') if slot.end_time else None,
-                'classroom': slot.classroom.name if slot.classroom else None,
-                'day_of_week': slot.day_of_week,
-                'period_number': slot.period_number,
-            })
-
-        return schedule_list
+                'subject': slot.subject.name if slot.subject else None,
+                'teacher': slot.teacher.user.full_name if slot.teacher and slot.teacher.user else None,
+                'room': slot.room,
+            }
+            for slot in schedule_slots
+        ]
 
     def _get_exams(self, student):
         """Get upcoming exams for student's class/section"""
@@ -321,13 +326,16 @@ class ParentDashboardView(APIView):
 
         today = datetime.now(pytz.UTC).date()
 
-        exams = Exam.objects.filter(
+        # Build query filters first, then slice
+        exams_query = Exam.objects.filter(
             class_fk=student.grade,
             start_date__gte=today
-        ).select_related('subject', 'term').order_by('start_date', 'start_time')[:10]
-
+        )
+        
         if student.section:
-            exams = exams.filter(section=student.section)
+            exams_query = exams_query.filter(section=student.section)
+        
+        exams = exams_query.select_related('subject', 'term').order_by('start_date', 'start_time')[:10]
 
         return [
             {
@@ -382,16 +390,18 @@ class ParentDashboardView(APIView):
     
     def _get_assignments(self, student):
         """Get assignments for student's grade/section"""
-        from tasks.models import Task
+        from lessontopics.models import Assignments
+        from django.db.models import Q
         
         if not student.grade or not student.section:
             return []
         
-        assignments = Task.objects.filter(
-            grade=student.grade,
-            section=student.section,
-            task_type='assignment'
-        ).order_by('-created_at')[:10]
+        # Get assignments by class/section OR class-only OR directly assigned to student
+        assignments = Assignments.objects.filter(
+            Q(class_fk=student.grade, section=student.section) |  # Class + section specific
+            Q(class_fk=student.grade, section__isnull=True) |      # Class-level (no section)
+            Q(students=student)                                     # Directly assigned
+        ).distinct().order_by('-created_at')[:10]
         
         return [
             {
@@ -399,26 +409,18 @@ class ParentDashboardView(APIView):
                 'title': assignment.title,
                 'description': assignment.description,
                 'due_date': assignment.due_date.isoformat() if assignment.due_date else None,
-                'subject': assignment.subject.name if assignment.subject else None,
-                'status': assignment.status,
+                'subject': assignment.teacher_assignment.subject.name if assignment.teacher_assignment and assignment.teacher_assignment.subject else None,
+                'is_active': assignment.is_active,
             }
             for assignment in assignments
         ]
     
     def _get_announcements(self, student):
-        """Get announcements filtered by student's grade/section"""
+        """Get announcements for student"""
         from communication.models import Announcement
         
-        announcements = Announcement.objects.filter(
-            target_audience='all'
-        ).order_by('-created_at')[:10]
-        
-        # Filter by grade/section if specified
-        if student.grade:
-            grade_announcements = Announcement.objects.filter(
-                target_grade=student.grade
-            ).order_by('-created_at')[:10]
-            announcements = announcements.union(grade_announcements)
+        # Get recent announcements (announcement model has audience_roles, not target_audience)
+        announcements = Announcement.objects.all().order_by('-created_at')[:10]
         
         return [
             {
@@ -429,25 +431,33 @@ class ParentDashboardView(APIView):
                 'event_date': ann.event_date.isoformat() if ann.event_date else None,
                 'created_at': ann.created_at.isoformat() if ann.created_at else None,
             }
-            for ann in announcements[:10]
+            for ann in announcements
         ]
     
     def _get_progress(self, student):
-        """Get academic progress for student"""
-        from academics.models import Grade
+        """Get academic progress for student using ExamResults"""
+        from lessontopics.models import ExamResults
+        from django.db.models import Avg
         
-        grades = Grade.objects.filter(student=student).select_related('subject')
+        # Get exam results for the student
+        exam_results = ExamResults.objects.filter(student=student).select_related('subject', 'teacher_assignment')
         
         subject_progress = {}
-        for grade in grades:
-            subject_name = grade.subject.name if grade.subject else 'Unknown'
+        for result in exam_results:
+            # Get subject name from either subject or teacher_assignment
+            subject_name = 'Unknown'
+            if result.subject:
+                subject_name = result.subject.name
+            elif result.teacher_assignment and result.teacher_assignment.subject:
+                subject_name = result.teacher_assignment.subject.name
+                
             if subject_name not in subject_progress:
                 subject_progress[subject_name] = []
             subject_progress[subject_name].append({
-                'score': grade.score,
-                'max_score': grade.max_score,
-                'percentage': (grade.score / grade.max_score * 100) if grade.max_score else 0,
-                'grade_type': grade.grade_type,
+                'score': result.score,
+                'max_score': result.max_score,
+                'percentage': float(result.percentage) if result.percentage else 0,
+                'grade': result.grade,
             })
         
         # Calculate overall averages
@@ -464,6 +474,159 @@ class ParentDashboardView(APIView):
         return {
             'overall_average': round(overall_average, 2),
             'subject_progress': subject_progress,
+        }
+    
+    def _get_behavior_ratings_summary(self, student):
+        """Get behavior ratings summary for student"""
+        from django.db.models import Avg
+        from .models import BehaviorRatings, BehaviorIncidents
+        
+        print(f"[BEHAVIOR SUMMARY] Getting ratings for student: {student.id}")
+        
+        # Calculate average behavior rating (1-5 scale)
+        ratings = BehaviorRatings.objects.filter(student=student)
+        avg_rating = ratings.aggregate(Avg('rating'))['rating__avg']
+        print(f"[BEHAVIOR SUMMARY] Average rating: {avg_rating}, Count: {ratings.count()}")
+        
+        # Get behavior incidents count
+        incidents = BehaviorIncidents.objects.filter(student=student)
+        incident_count = incidents.count()
+        
+        # Calculate behavior score
+        if avg_rating:
+            # Use ratings if available
+            average_rating = (avg_rating / 5) * 100
+        elif incident_count > 0:
+            # No ratings but has incidents
+            deduction = min(incident_count * 10, 50)
+            average_rating = 100 - deduction
+            avg_rating = average_rating / 20
+        else:
+            average_rating = 0
+            avg_rating = 0
+        
+        # Get recent behavior incidents
+        recent_incidents = incidents.order_by('-incident_date')[:5]
+        
+        # Calculate rating distribution
+        rating_counts = {}
+        for r in ratings:
+            rating_counts[r.category] = rating_counts.get(r.category, {'count': 0, 'total': 0})
+            rating_counts[r.category]['count'] += 1
+            rating_counts[r.category]['total'] += r.rating
+        
+        category_averages = {}
+        for cat, data in rating_counts.items():
+            cat_avg = (data['total'] / data['count']) if data['count'] > 0 else 0
+            category_averages[cat] = round((cat_avg / 5) * 100, 1)
+        
+        return {
+            'average_rating': round(average_rating, 1),
+            'raw_average': round(avg_rating, 1) if avg_rating else 0,
+            'total_ratings': ratings.count(),
+            'recent_incidents_count': incident_count,
+            'category_averages': category_averages,
+            'rating_scale': '1-5 (converted to 0-100%)',
+            'has_incidents': incident_count > 0
+        }
+    
+    def _get_unit_progress(self, student):
+        """Get unit/subunit progress for student with completion details"""
+        from lessontopics.models import ClassUnitProgress, ClassSubunitProgress, ObjectiveUnits, ObjectiveSubunits
+        from lessontopics.serializers import LessonPlansSerializer
+        
+        # Get student's class and section
+        class_obj = student.grade
+        section = student.section
+        
+        # Get all units for student's class/subjects
+        unit_progress = ClassUnitProgress.objects.filter(
+            class_fk=class_obj,
+            section=section
+        ).select_related('unit', 'subject')
+        
+        progress_data = {
+            'completed': [],
+            'in_progress': [],
+            'upcoming': []
+        }
+        
+        for prog in unit_progress:
+            unit_data = {
+                'unit_id': str(prog.unit.id),
+                'unit_name': prog.unit.name,
+                'subject_name': prog.subject.name if prog.subject else 'Unknown',
+                'is_completed': prog.is_completed,
+                'is_current': prog.is_current,
+                'completed_at': prog.completed_at.isoformat() if prog.completed_at else None,
+                'updated_at': prog.updated_at.isoformat() if prog.updated_at else None,
+            }
+            
+            # Get subunits for this unit
+            subunits = ObjectiveSubunits.objects.filter(unit=prog.unit)
+            subunit_progress = []
+            completed_subunits = 0
+            
+            for sub in subunits:
+                sub_prog = ClassSubunitProgress.objects.filter(
+                    class_fk=class_obj,
+                    section=section,
+                    subunit=sub
+                ).first()
+                
+                is_sub_completed = sub_prog.is_completed if sub_prog else False
+                if is_sub_completed:
+                    completed_subunits += 1
+                
+                # Get lesson plans for this subunit
+                from lessontopics.models import LessonPlans
+                lessons = LessonPlans.objects.filter(
+                    class_fk=class_obj,
+                    subunit=sub
+                ).select_related('created_by', 'created_by__teacher', 'created_by__teacher__user')
+                
+                lesson_data = []
+                for lesson in lessons:
+                    lesson_data.append({
+                        'lesson_id': str(lesson.id),
+                        'lesson_aims': lesson.lesson_aims,
+                        'duration': lesson.duration,
+                        'teacher_name': lesson.created_by.teacher.user.full_name if lesson.created_by and lesson.created_by.teacher and lesson.created_by.teacher.user else 'Unknown',
+                        'created_at': lesson.created_at.isoformat() if lesson.created_at else None,
+                    })
+                
+                subunit_progress.append({
+                    'subunit_id': str(sub.id),
+                    'subunit_name': sub.name,
+                    'is_completed': is_sub_completed,
+                    'completed_at': sub_prog.completed_at.isoformat() if sub_prog and sub_prog.completed_at else None,
+                    'lessons': lesson_data
+                })
+            
+            # Calculate completion percentage
+            total_subunits = len(subunits)
+            completion_percentage = int((completed_subunits / total_subunits * 100)) if total_subunits > 0 else (100 if prog.is_completed else 0)
+            
+            unit_data['subunits'] = subunit_progress
+            unit_data['completion_percentage'] = completion_percentage
+            unit_data['completed_subunits'] = completed_subunits
+            unit_data['total_subunits'] = total_subunits
+            
+            # Categorize
+            if prog.is_completed:
+                progress_data['completed'].append(unit_data)
+            elif prog.is_current:
+                progress_data['in_progress'].append(unit_data)
+            else:
+                progress_data['upcoming'].append(unit_data)
+        
+        return {
+            'total_units': len(unit_progress),
+            'completed_count': len(progress_data['completed']),
+            'in_progress_count': len(progress_data['in_progress']),
+            'upcoming_count': len(progress_data['upcoming']),
+            'overall_percentage': int((len(progress_data['completed']) / len(unit_progress) * 100)) if len(unit_progress) > 0 else 0,
+            'units': progress_data
         }
 
 class ParentProfileView(APIView):
@@ -498,3 +661,44 @@ class ParentProfileView(APIView):
             serializer.save()
             return Response(serializer.data, status=status.HTTP_200_OK)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class ParentStudentUnitProgressView(APIView):
+    """
+    Get detailed unit progress for a parent's child
+    Shows completed units, in-progress units, and upcoming units with lesson details
+    """
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def get(self, request, student_id=None):
+        user = request.user
+        
+        # Verify this is a parent viewing their own child
+        try:
+            parent = Parent.objects.get(user=user)
+            student = Student.objects.get(id=student_id)
+            
+            # Check if this student belongs to this parent
+            if not ParentStudent.objects.filter(parent=parent, student=student).exists():
+                return Response(
+                    {'error': 'You can only view progress for your own children'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+        except (Parent.DoesNotExist, Student.DoesNotExist):
+            return Response(
+                {'error': 'Parent or student not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Get unit progress using the ParentDashboardView method
+        dashboard_view = ParentDashboardView()
+        unit_progress = dashboard_view._get_unit_progress(student)
+        
+        return Response({
+            'success': True,
+            'student_id': str(student.id),
+            'student_name': student.user.full_name if student.user else 'Unknown',
+            'class': student.grade.grade if student.grade else 'Unknown',
+            'section': student.section.name if student.section else 'Unknown',
+            'unit_progress': unit_progress
+        }, status=status.HTTP_200_OK)

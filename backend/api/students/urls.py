@@ -1,7 +1,7 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from .views import BehaviorIncidentsViewSet, BehaviorRatingsViewSet, HealthConditionsViewSet, ParentRelationShipViewSet, ParentViewSet, StudentHealthRecordsViewSet, StudentViewSet, ParentStudentViewSet
-from .parent_views import ParentLoginView, ParentDashboardView, ParentProfileView
+from .parent_views import ParentLoginView, ParentDashboardView, ParentProfileView, ParentStudentUnitProgressView
 from .teacher_rating_views import TeacherRatingViewSet, TeacherRatingByParentView
 
 router = DefaultRouter()
@@ -21,6 +21,7 @@ urlpatterns = [
     path('parent/dashboard/', ParentDashboardView.as_view(), name='parent-dashboard'),
     path('parent/dashboard/<uuid:student_id>/', ParentDashboardView.as_view(), name='parent-dashboard-student'),
     path('parent/profile/', ParentProfileView.as_view(), name='parent-profile'),
+    path('parent/student/<uuid:student_id>/unit-progress/', ParentStudentUnitProgressView.as_view(), name='parent-student-unit-progress'),
     path('teacher-ratings/', TeacherRatingByParentView.as_view({'get': 'list'}), name='teacher-ratings-by-parent'),
 ]
 

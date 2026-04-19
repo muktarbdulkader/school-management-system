@@ -49,8 +49,10 @@ class LessonPlans(models.Model):
     subunit = models.ForeignKey(ObjectiveSubunits, on_delete=models.CASCADE, null=True, blank=True)
     learner_group = models.ForeignKey('academics.Class', on_delete=models.CASCADE, related_name='lesson_plans_by_group', null=True, blank=True)
     duration = models.IntegerField(null=True, blank=True)
+    block = models.CharField(max_length=50, null=True, blank=True, help_text="e.g., Morning Block, Afternoon Block")
+    week = models.IntegerField(null=True, blank=True, help_text="Week number in the term")
     lesson_aims = models.TextField()
-    learning_objectives = models.ForeignKey(LearningObjectives, on_delete=models.CASCADE)
+    learning_objectives = models.ForeignKey(LearningObjectives, on_delete=models.CASCADE, null=True, blank=True)
     created_by = models.ForeignKey('teachers.TeacherAssignment', on_delete=models.CASCADE)
     term = models.ForeignKey('academics.Term', on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -202,6 +204,7 @@ class ClassSubunitProgress(models.Model):
     subject = models.ForeignKey('academics.Subject', on_delete=models.CASCADE)
     subunit = models.ForeignKey(ObjectiveSubunits, on_delete=models.CASCADE)
     is_completed = models.BooleanField(default=False)
+    completed_at = models.DateTimeField(null=True, blank=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
