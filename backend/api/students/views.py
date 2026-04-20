@@ -1964,7 +1964,8 @@ class ParentStudentViewSet(viewsets.ModelViewSet):
     def available_teachers(self, request, student_id=None):
         """
         Get all teachers available for a specific student based on their enrolled subjects.
-        This endpoint is used by parents/admins to see which teachers they can message about a student.
+        This endpoint is used by students/parents to see which teachers they can rate.
+        Includes has_rated flag to show if student has already rated each teacher.
         """
         from teachers.models import Teacher
         user = request.user
@@ -1979,10 +1980,10 @@ class ParentStudentViewSet(viewsets.ModelViewSet):
             # Check permissions: allow students, parents, teachers, and admins
             is_own_profile = student.user == user
             is_parent = ParentStudent.objects.filter(parent__user=user, student=student).exists()
-            is_teacher = Teacher.objects.filter(user=user).exists()
+            is_teacher_user = Teacher.objects.filter(user=user).exists()
             is_admin = user.is_superuser or user.is_staff
 
-            if not (is_own_profile or is_parent or is_teacher or is_admin):
+            if not (is_own_profile or is_parent or is_teacher_user or is_admin):
                 raise PermissionDenied("You do not have permission to view teachers for this student.")
 
         except Student.DoesNotExist:
@@ -2013,13 +2014,12 @@ class ParentStudentViewSet(viewsets.ModelViewSet):
             id__in=teacher_ids
         ).select_related('user')
 
-        # Serialize teacher data with their relevant subjects
+        # Serialize teacher data with their relevant subjects AND has_rated status
         from academics.models import Subject
 
         teachers_data = []
         for teacher in teachers:
             # Find which subjects this teacher teaches this student
-            # based on direct student_subjects OR class/section overlap
             teacher_cst = TeacherAssignment.objects.filter(teacher=teacher)
             cst_for_student = teacher_cst.filter(
                 Q(subject__in=student_subjects) |
@@ -2029,20 +2029,18 @@ class ParentStudentViewSet(viewsets.ModelViewSet):
             teacher_subjects = Subject.objects.filter(id__in=subj_ids)
 
             if subj_ids.exists():
-                teachers_data.append({
-                    'user_id': teacher.user.id,
-                    'teacher_id': teacher.id,
-                    'full_name': teacher.user.full_name,
-                    'email': teacher.user.email,
-                    'phone': '',
-                    'subject_details': [
-                        {
-                            'id': subj.id,
-                            'name': subj.name,
-                            'code': subj.code
-                        } for subj in teacher_subjects if subj
-                    ]
-                })
+                # Use proper serializer with request context to get has_rated field
+                teacher_serializer = TeacherSerializer(teacher, context={'request': request})
+                teacher_data = teacher_serializer.data
+                # Add the specific subjects this teacher teaches this student
+                teacher_data['subject_details'] = [
+                    {
+                        'id': subj.id,
+                        'name': subj.name,
+                        'code': subj.code
+                    } for subj in teacher_subjects if subj
+                ]
+                teachers_data.append(teacher_data)
 
         # Get available subjects for filtering
         # Collect all subject IDs from the teachers data we just built

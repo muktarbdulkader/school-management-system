@@ -16,7 +16,7 @@ from .serializers import (
     TeacherPerformanceEvaluationSerializer, TeacherPerformanceEvaluationCreateSerializer
 )
 from django.utils import timezone
-from users.models import UserBranchAccess, has_model_permission
+from users.models import User, UserBranchAccess, has_model_permission
 from rest_framework.decorators import action
 
 class TeacherViewSet(viewsets.ModelViewSet):
@@ -1265,6 +1265,38 @@ class TeacherPerformanceRatingViewSet(viewsets.ModelViewSet):
         """
         return self.create(request)
 
+    @action(detail=False, methods=['get'], url_path='my-ratings')
+    def my_ratings(self, request):
+        """
+        Get all ratings submitted by the current user (student/parent).
+        Shows which teachers they rated and what ratings they gave.
+        """
+        user = request.user
+        ratings = TeacherPerformanceRating.objects.filter(
+            rated_by=user
+        ).select_related('teacher', 'teacher__user').order_by('-rating_date')
+        
+        data = []
+        for r in ratings:
+            data.append({
+                'id': str(r.id),
+                'teacher_id': str(r.teacher.id),
+                'teacher_name': r.teacher.user.full_name,
+                'teacher_code': r.teacher.teacher_id,
+                'category': r.category,
+                'rating': r.rating,
+                'comment': r.comment,
+                'rating_date': r.rating_date.isoformat(),
+            })
+        
+        return Response({
+            'success': True,
+            'message': 'OK',
+            'status': 200,
+            'count': len(data),
+            'data': data
+        })
+
     @action(detail=False, methods=['get'], url_path='rankings')
     def rankings(self, request):
         """Get teacher performance rankings filtered by branch (SRS 5.2/8.2)"""
@@ -1877,6 +1909,218 @@ class PerformanceMeasurementCriteriaViewSet(viewsets.ModelViewSet):
             'message': 'OK',
             'status': 200,
             'data': serializer.data
+        })
+
+    @action(detail=False, methods=['get'], url_path='evaluation-settings')
+    def evaluation_settings(self, request):
+        """Get evaluation period settings - accessible to all authenticated users"""
+        from django.core.cache import cache
+        from django.utils import timezone
+        
+        settings = cache.get('teacher_evaluation_settings', {
+            'is_evaluation_period_open': True,
+            'start_date': None,
+            'end_date': None,
+            'message': 'Evaluation period is open'
+        })
+        
+        return Response({
+            'success': True,
+            'message': 'OK',
+            'status': 200,
+            'data': settings
+        })
+    
+    @action(detail=False, methods=['post'], url_path='set-evaluation-period')
+    def set_evaluation_period(self, request):
+        """Admin/Super Admin control to open/close evaluation period"""
+        if not self.is_admin_user(request.user):
+            return Response({
+                'success': False,
+                'message': 'Only admins and super admins can control evaluation period',
+                'status': 403
+            }, status=403)
+        
+        from django.core.cache import cache
+        from django.utils import timezone
+        
+        is_open = request.data.get('is_open', True)
+        start_date = request.data.get('start_date')
+        end_date = request.data.get('end_date')
+        message = request.data.get('message', 'Evaluation period is open' if is_open else 'Evaluation period is closed')
+        
+        # Get current settings to check if we're transitioning from closed to open
+        current_settings = cache.get('teacher_evaluation_settings', {})
+        was_open = current_settings.get('is_evaluation_period_open', False)
+        
+        # If opening the period and no start_date provided, set it to now
+        # This allows has_rated to track ratings only from this period
+        if is_open and not was_open and not start_date:
+            start_date = timezone.now().isoformat()
+        
+        # If closing the period, keep the existing start_date
+        if not is_open and not start_date:
+            start_date = current_settings.get('start_date')
+        
+        settings = {
+            'is_evaluation_period_open': is_open,
+            'start_date': start_date,
+            'end_date': end_date,
+            'message': message,
+            'updated_by': request.user.full_name,
+            'updated_at': timezone.now().isoformat()
+        }
+        
+        cache.set('teacher_evaluation_settings', settings, timeout=None)
+        
+        return Response({
+            'success': True,
+            'message': f'Evaluation period {"opened" if is_open else "closed"} successfully',
+            'status': 200,
+            'data': settings
+        })
+    
+    @action(detail=False, methods=['get'], url_path='all-evaluations')
+    def all_evaluations(self, request):
+        """
+        Get all evaluations for a specific teacher with aggregate calculations.
+        Shows ratings from students, parents, and admins with breakdown by criteria.
+        """
+        from students.models import Student, ParentStudent
+        from django.db.models import Avg
+        from django.utils import timezone
+        import uuid
+        
+        teacher_id = request.query_params.get('teacher_id')
+        if not teacher_id:
+            return Response({
+                'success': False,
+                'message': 'teacher_id is required',
+                'status': 400
+            }, status=400)
+        
+        try:
+            try:
+                uuid_val = uuid.UUID(teacher_id)
+                teacher = Teacher.objects.get(id=uuid_val)
+            except (ValueError, TypeError):
+                teacher = Teacher.objects.get(teacher_id=teacher_id)
+        except Teacher.DoesNotExist:
+            return Response({
+                'success': False,
+                'message': 'Teacher not found',
+                'status': 404
+            }, status=404)
+        
+        # Get all ratings for this teacher
+        ratings = TeacherPerformanceRating.objects.filter(teacher=teacher).select_related('rated_by')
+        
+        # Get evaluations
+        evaluations = TeacherPerformanceEvaluation.objects.filter(teacher=teacher, status='approved')
+        
+        # Calculate aggregate statistics
+        student_ratings = ratings.filter(
+            rated_by__in=Student.objects.values_list('user', flat=True)
+        )
+        parent_ratings = ratings.filter(
+            rated_by__in=ParentStudent.objects.values_list('parent__user', flat=True)
+        )
+        admin_ratings = ratings.filter(
+            rated_by__in=User.objects.filter(is_staff=True).values_list('id', flat=True)
+        )
+        
+        # Calculate criteria breakdown
+        criteria_stats = {}
+        all_criteria = PerformanceMeasurementCriteria.objects.filter(is_active=True)
+        
+        for c in all_criteria:
+            cat_ratings = ratings.filter(category=c.code)
+            avg_rating = cat_ratings.aggregate(Avg('rating'))['rating__avg'] or 0
+            criteria_stats[c.code] = {
+                'criteria_name': c.name,
+                'criteria_code': c.code,
+                'total_ratings': cat_ratings.count(),
+                'average_rating': round(avg_rating, 2),
+                'percentage': round(avg_rating / 5 * 100),
+                'student_count': cat_ratings.filter(
+                    rated_by__in=Student.objects.values_list('user', flat=True)
+                ).count(),
+                'parent_count': cat_ratings.filter(
+                    rated_by__in=ParentStudent.objects.values_list('parent__user', flat=True)
+                ).count(),
+                'admin_count': cat_ratings.filter(
+                    rated_by__in=User.objects.filter(is_staff=True).values_list('id', flat=True)
+                ).count()
+            }
+        
+        # Overall statistics
+        total_ratings = ratings.count()
+        overall_avg = ratings.aggregate(Avg('rating'))['rating__avg'] or 0
+        
+        # Get latest evaluation with admin recommendations
+        latest_evaluation = evaluations.order_by('-evaluated_at').first()
+        admin_recommendations = {
+            'strengths': latest_evaluation.strengths if latest_evaluation else '',
+            'areas_for_improvement': latest_evaluation.areas_for_improvement if latest_evaluation else '',
+            'recommendations': latest_evaluation.recommendations if latest_evaluation else '',
+            'action_items': latest_evaluation.action_items if latest_evaluation else '',
+            'evaluated_by': latest_evaluation.evaluated_by.full_name if latest_evaluation and latest_evaluation.evaluated_by else None,
+            'evaluated_at': latest_evaluation.evaluated_at.isoformat() if latest_evaluation and latest_evaluation.evaluated_at else None,
+            'term_name': latest_evaluation.term.name if latest_evaluation and latest_evaluation.term else 'N/A'
+        } if latest_evaluation else None
+        
+        result = {
+            'teacher': {
+                'id': str(teacher.id),
+                'teacher_id': teacher.teacher_id,
+                'full_name': teacher.user.full_name,
+                'email': teacher.user.email,
+                'branch': teacher.branch.name if teacher.branch else 'N/A'
+            },
+            'summary': {
+                'total_ratings': total_ratings,
+                'overall_average': round(overall_avg, 2),
+                'overall_percentage': round(overall_avg / 5 * 100),
+                'student_ratings_count': student_ratings.count(),
+                'parent_ratings_count': parent_ratings.count(),
+                'admin_ratings_count': admin_ratings.count(),
+                'evaluation_count': evaluations.count()
+            },
+            'admin_recommendations': admin_recommendations,
+            'criteria_breakdown': criteria_stats,
+            'recent_ratings': [
+                {
+                    'id': str(r.id),
+                    'category': r.category,
+                    'rating': r.rating,
+                    # Only show name for Admin raters, hide Student/Parent names for privacy
+                    'rated_by_name': r.rated_by.full_name if r.rated_by and r.rated_by.is_staff else None,
+                    'rated_by_role': 'Student' if Student.objects.filter(user=r.rated_by).exists() 
+                                     else 'Parent' if ParentStudent.objects.filter(parent__user=r.rated_by).exists()
+                                     else 'Admin' if r.rated_by.is_staff else 'Other',
+                    'rating_date': r.rating_date.isoformat(),
+                    'comment': r.comment
+                }
+                for r in ratings.order_by('-rating_date')[:20]
+            ],
+            'evaluations': [
+                {
+                    'id': str(e.id),
+                    'term_name': e.term.name if e.term else 'N/A',
+                    'overall_score': e.overall_score,
+                    'status': e.status,
+                    'evaluated_by': e.evaluated_by.full_name if e.evaluated_by else None,
+                    'evaluated_at': e.evaluated_at.isoformat() if e.evaluated_at else None
+                }
+                for e in evaluations.order_by('-evaluated_at')
+            ]
+        }
+        
+        return Response({
+            'success': True,
+            'message': 'OK',
+            'status': 200,
+            'data': result
         })
 
 

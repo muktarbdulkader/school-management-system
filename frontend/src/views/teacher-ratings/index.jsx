@@ -4,7 +4,8 @@ import {
   TextField, Button, CircularProgress, Avatar, Chip, Stack,
   Dialog, DialogTitle, DialogContent, DialogActions, MenuItem,
   InputAdornment, LinearProgress, Paper, IconButton, Tooltip,
-  Divider, Fade, Alert
+  Divider, Fade, Alert,
+  Table, TableBody, TableCell, TableContainer, TableHead, TableRow
 } from '@mui/material';
 import {
   Star, Person, Search, InfoOutlined,
@@ -33,6 +34,8 @@ export default function TeacherRatingsPage() {
   const [submitting, setSubmitting] = useState(false);
   const [myRatingData, setMyRatingData] = useState(null);
   const [criteriaLoading, setCriteriaLoading] = useState(true);
+  const [myRatings, setMyRatings] = useState([]);
+  const [myRatingsLoading, setMyRatingsLoading] = useState(false);
 
   const user = useSelector((state) => state.user?.user);
   const userRoles = (user?.roles || []).map(r =>
@@ -44,7 +47,13 @@ export default function TeacherRatingsPage() {
   const isAdmin = userRoles.includes('admin') || userRoles.includes('super_admin') || userRoles.includes('head_admin') || userRoles.includes('ceo');
   const canViewAllTeachers = isAdmin; // Only admins see all teachers
   const canRateTeachers = isStudent || isParent || isAdmin; // Students, parents, and admins can rate
-  const isEvaluationPeriod = true; // This can be controlled by admin settings
+
+  // Evaluation period settings from backend
+  const [evaluationSettings, setEvaluationSettings] = useState({
+    is_evaluation_period_open: true,
+    message: 'Evaluation period is open'
+  });
+  const isEvaluationPeriod = evaluationSettings.is_evaluation_period_open;
 
   useEffect(() => {
     fetchData();
@@ -53,18 +62,54 @@ export default function TeacherRatingsPage() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      // Fetch dynamic criteria first
-      await fetchCriteria();
+      // Fetch evaluation settings and criteria first
+      await Promise.all([fetchCriteria(), fetchEvaluationSettings()]);
 
       if (isTeacher && !isAdmin) {
         await fetchMyOwnProfile();
       } else if (isStudent || isParent) {
         await fetchMyTeachers(); // Students/Parents only see their teachers
+        await fetchMyRatingsHistory(); // Also load their rating history
       } else {
         await fetchTeachersList(); // Admins see all teachers
       }
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchEvaluationSettings = async () => {
+    try {
+      const token = await GetToken();
+      const res = await fetch(`${Backend.api}${Backend.performanceEvaluationSettings}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (data.success) {
+        setEvaluationSettings(data.data);
+      }
+    } catch (error) {
+      console.error('Error fetching evaluation settings:', error);
+      // Keep default open state on error
+    }
+  };
+
+  const fetchMyRatingsHistory = async () => {
+    if (!isStudent && !isParent) return;
+    setMyRatingsLoading(true);
+    try {
+      const token = await GetToken();
+      const res = await fetch(`${Backend.api}${Backend.teacherRatingsMy}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (data.success) {
+        setMyRatings(data.data || []);
+      }
+    } catch (error) {
+      console.error('Error fetching my ratings:', error);
+    } finally {
+      setMyRatingsLoading(false);
     }
   };
 
@@ -86,12 +131,10 @@ export default function TeacherRatingsPage() {
       } else {
         // Fallback to empty if API fails
         setCriteria([]);
-        toast.warning('No active criteria found. Please contact admin.');
       }
     } catch (error) {
       console.error('Error fetching criteria:', error);
       setCriteria([]);
-      toast.error('Failed to load rating criteria');
     } finally {
       setCriteriaLoading(false);
     }
@@ -274,7 +317,13 @@ export default function TeacherRatingsPage() {
         toast.success(`Successfully submitted ${ratingsArray.length} ratings!`);
         setRatingDialog(false);
         setMultiRatings({});
-        fetchTeachersList();
+        // Refresh teacher list and ratings history based on user role
+        if (isStudent || isParent) {
+          fetchMyTeachers();
+          fetchMyRatingsHistory(); // Refresh ratings history
+        } else {
+          fetchTeachersList();
+        }
       } else {
         toast.error(data.message || data.errors?.join(', ') || 'Submission failed');
       }
@@ -377,7 +426,7 @@ export default function TeacherRatingsPage() {
             )}
             {!isEvaluationPeriod && canRateTeachers && (
               <Alert severity="info" sx={{ mt: 2, fontSize: '0.75rem' }}>
-                Evaluation period closed
+                {evaluationSettings.message || 'Evaluation period closed'}
               </Alert>
             )}
             {isEvaluationPeriod && criteria.length === 0 && canRateTeachers && (
@@ -523,7 +572,7 @@ export default function TeacherRatingsPage() {
               </Typography>
               {!isEvaluationPeriod && (
                 <Alert severity="info" sx={{ mt: 2, maxWidth: 600, mx: 'auto' }}>
-                  Teacher evaluation is currently closed. Please check back during the end-of-term evaluation period.
+                  {evaluationSettings.message || 'Teacher evaluation is currently closed. Please check back during the end-of-term evaluation period.'}
                 </Alert>
               )}
 
@@ -546,6 +595,73 @@ export default function TeacherRatingsPage() {
                 </Grid>
               ))}
             </Grid>
+
+            {/* My Ratings History - Only for Students/Parents */}
+            {(isStudent || isParent) && (
+              <Box sx={{ mt: 6 }}>
+                <Typography variant="h4" fontWeight={900} sx={{ mb: 3 }}>
+                  📜 My Ratings History
+                </Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                  All the ratings you have submitted for your teachers.
+                </Typography>
+
+                {myRatingsLoading ? (
+                  <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+                    <CircularProgress />
+                  </Box>
+                ) : myRatings.length === 0 ? (
+                  <Alert severity="info" sx={{ mb: 3 }}>
+                    You haven't submitted any ratings yet. Rate your teachers above!
+                  </Alert>
+                ) : (
+                  <TableContainer component={Paper} sx={{ borderRadius: 4, overflow: 'hidden' }}>
+                    <Table size="small">
+                      <TableHead>
+                        <TableRow sx={{ bgcolor: 'primary.light' }}>
+                          <TableCell sx={{ fontWeight: 700, color: 'white' }}>Date</TableCell>
+                          <TableCell sx={{ fontWeight: 700, color: 'white' }}>Teacher</TableCell>
+                          <TableCell sx={{ fontWeight: 700, color: 'white' }}>Criteria</TableCell>
+                          <TableCell sx={{ fontWeight: 700, color: 'white' }} align="center">Rating</TableCell>
+                          <TableCell sx={{ fontWeight: 700, color: 'white' }}>Comment</TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {myRatings.map((rating, idx) => (
+                          <TableRow key={rating.id} sx={{ bgcolor: idx % 2 === 0 ? 'white' : 'grey.50' }}>
+                            <TableCell>
+                              {new Date(rating.rating_date).toLocaleDateString('en-US', {
+                                month: 'short', day: 'numeric', year: 'numeric'
+                              })}
+                            </TableCell>
+                            <TableCell>
+                              <Typography variant="body2" fontWeight={600}>
+                                {rating.teacher_name}
+                              </Typography>
+                              <Typography variant="caption" color="text.secondary">
+                                {rating.teacher_code}
+                              </Typography>
+                            </TableCell>
+                            <TableCell>{rating.category}</TableCell>
+                            <TableCell align="center">
+                              <Rating value={rating.rating} readOnly size="small" />
+                              <Typography variant="caption" sx={{ display: 'block' }}>
+                                {rating.rating}/5
+                              </Typography>
+                            </TableCell>
+                            <TableCell>
+                              <Typography variant="body2" sx={{ maxWidth: 200 }} noWrap>
+                                {rating.comment || '-'}
+                              </Typography>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
+                )}
+              </Box>
+            )}
           </>
         )}
 

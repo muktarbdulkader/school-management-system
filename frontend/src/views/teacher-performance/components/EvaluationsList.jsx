@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import {
-  Box,
   Card,
   CardContent,
   Typography,
@@ -25,7 +24,8 @@ import {
   CircularProgress,
   Alert,
   TextField,
-  MenuItem
+  MenuItem,
+  Box
 } from '@mui/material';
 import {
   IconEye,
@@ -55,16 +55,18 @@ const EvaluationsList = ({ teacherId = null, open, onClose, onEdit, onCreate, ca
   const [loading, setLoading] = useState(true);
   const [viewingEvaluation, setViewingEvaluation] = useState(null);
   const [deleteConfirm, setDeleteConfirm] = useState(null);
-  const [statusFilter, setStatusFilter] = useState('');
   const [terms, setTerms] = useState([]);
   const [termFilter, setTermFilter] = useState('');
+  const [allEvaluationsOpen, setAllEvaluationsOpen] = useState(false);
+  const [allEvaluationsData, setAllEvaluationsData] = useState(null);
+  const [allEvaluationsLoading, setAllEvaluationsLoading] = useState(false);
 
   useEffect(() => {
     if (open) {
       fetchEvaluations();
       fetchTerms();
     }
-  }, [open, teacherId, statusFilter, termFilter]);
+  }, [open, teacherId, termFilter]);
 
   const fetchTerms = async () => {
     try {
@@ -81,6 +83,29 @@ const EvaluationsList = ({ teacherId = null, open, onClose, onEdit, onCreate, ca
     }
   };
 
+  const fetchAllEvaluations = async (tid) => {
+    setAllEvaluationsLoading(true);
+    try {
+      const token = await GetToken();
+      const url = `${Backend.api}${Backend.performanceAllEvaluations}?teacher_id=${tid}`;
+      const response = await fetch(url, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await response.json();
+      if (response.ok && data.success) {
+        setAllEvaluationsData(data.data);
+        setAllEvaluationsOpen(true);
+      } else {
+        toast.error(data.message || 'Failed to load all evaluations');
+      }
+    } catch (error) {
+      console.error('Error fetching all evaluations:', error);
+      toast.error('Failed to load all evaluations');
+    } finally {
+      setAllEvaluationsLoading(false);
+    }
+  };
+
   const fetchEvaluations = async () => {
     setLoading(true);
     try {
@@ -93,11 +118,8 @@ const EvaluationsList = ({ teacherId = null, open, onClose, onEdit, onCreate, ca
         url = `${Backend.api}${Backend.performanceEvaluations}`;
       }
 
-      // Add filters
-      const params = new URLSearchParams();
-      if (statusFilter) params.append('status', statusFilter);
-      if (termFilter) params.append('term', termFilter);
-      if (params.toString()) url += `?${params.toString()}`;
+      // Add term filter only
+      if (termFilter) url += `?term=${termFilter}`;
 
       const response = await fetch(url, {
         headers: { Authorization: `Bearer ${token}` }
@@ -238,209 +260,71 @@ const EvaluationsList = ({ teacherId = null, open, onClose, onEdit, onCreate, ca
   return (
     <Dialog open={open} onClose={onClose} maxWidth="lg" fullWidth PaperProps={{ sx: { borderRadius: 3 } }}>
       <DialogTitle sx={{ fontWeight: 700, pb: 1, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <span>Performance Evaluations</span>
-        {canCreate && (
-          <Button
-            variant="contained"
-            size="small"
-            startIcon={<IconPlus size={18} />}
-            onClick={() => {
-              onClose();
-              onCreate?.();
-            }}
-          >
-            Create Evaluation
-          </Button>
-        )}
+        <span>📊 Review & Recommendations</span>
+        <Stack direction="row" spacing={1}>
+          {teacherId && (
+            <Button
+              variant="contained"
+              size="small"
+              startIcon={<IconEye size={18} />}
+              onClick={() => fetchAllEvaluations(teacherId)}
+              disabled={allEvaluationsLoading}
+            >
+              {allEvaluationsLoading ? 'Loading...' : 'View Full Analysis'}
+            </Button>
+          )}
+        </Stack>
       </DialogTitle>
       <DialogContent>
         <Stack spacing={3}>
           {/* Filters */}
           <Stack direction="row" spacing={2} alignItems="center">
-            <TextField
-              select
-              label="Status"
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              sx={{ minWidth: 150 }}
-              size="small"
-            >
-              <MenuItem value="">All Statuses</MenuItem>
-              <MenuItem value="draft">Draft</MenuItem>
-              <MenuItem value="submitted">Submitted</MenuItem>
-              <MenuItem value="reviewed">Reviewed</MenuItem>
-              <MenuItem value="approved">Approved</MenuItem>
-            </TextField>
-
-            <TextField
-              select
-              label="Term"
-              value={termFilter}
-              onChange={(e) => setTermFilter(e.target.value)}
-              sx={{ minWidth: 200 }}
-              size="small"
-            >
-              <MenuItem value="">All Terms</MenuItem>
-              {terms.map(t => (
-                <MenuItem key={t.id} value={t.id}>
-                  {t.name} - {t.academic_year}
-                </MenuItem>
-              ))}
-            </TextField>
-
+            {/* Filters hidden in Admin Review Mode - admin only views, does not filter by status */}
             <Button
               startIcon={<IconRefresh size={18} />}
               onClick={fetchEvaluations}
               disabled={loading}
               size="small"
             >
-              Refresh
+              Refresh Data
             </Button>
           </Stack>
 
-          {/* Evaluations Table */}
-          {loading ? (
+          {/* Review Info - Admin reviews student/parent ratings, does not create evaluations */}
+          <Alert severity="info" sx={{ mb: 3 }}>
+            <Typography variant="body2" fontWeight={600}>
+              Admin Review Mode
+            </Typography>
+            <Typography variant="body2">
+              reviews teacher performance based on student and parent ratings only.
+              Click "View Full Analysis" to see aggregate ratings, strengths, weaknesses, and provide recommendations.
+            </Typography>
+          </Alert>
+
+          {/* Admin Review Mode - No formal evaluations table, just info */}
+          <Alert severity="success" sx={{ mt: 2 }}>
+            <Typography variant="body1" fontWeight={700} gutterBottom>
+              ✅ Admin Review Mode Active
+            </Typography>
+            <Typography variant="body2" paragraph>
+              Super Admin/Admin reviews teacher performance based on student and parent ratings only.
+              You cannot create formal evaluations - you can only review existing ratings and provide recommendations.
+            </Typography>
+            <Typography variant="body2">
+              <strong>To review a teacher:</strong>
+            </Typography>
+            <Typography component="div" variant="body2" sx={{ pl: 2, mt: 1 }}>
+              • Click <strong>"View Full Analysis"</strong> button above<br />
+              • See aggregate ratings from students/parents (names hidden for privacy)<br />
+              • View strengths, weaknesses, and provide recommendations<br />
+              • See recent anonymous ratings by role (Student/Parent/Admin)
+            </Typography>
+          </Alert>
+
+          {loading && (
             <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
               <CircularProgress />
             </Box>
-          ) : evaluations.length === 0 ? (
-            <Alert severity="info">
-              No evaluations found. {teacherId && 'Create an evaluation to get started.'}
-            </Alert>
-          ) : (
-            <TableContainer>
-              <Table>
-                <TableHead>
-                  <TableRow>
-                    {!teacherId && <TableCell>Teacher</TableCell>}
-                    <TableCell>Term</TableCell>
-                    <TableCell>Status</TableCell>
-                    <TableCell>Overall Score</TableCell>
-                    <TableCell>Evaluated By</TableCell>
-                    <TableCell>Date</TableCell>
-                    <TableCell align="right">Actions</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {evaluations.map((evaluation) => (
-                    <TableRow key={evaluation.id} hover>
-                      {!teacherId && (
-                        <TableCell>
-                          <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
-                            {evaluation.teacher_name}
-                          </Typography>
-                          <Typography variant="caption" color="text.secondary">
-                            {evaluation.teacher_id}
-                          </Typography>
-                        </TableCell>
-                      )}
-                      <TableCell>
-                        <Typography variant="body2">
-                          {evaluation.term_details?.name}
-                        </Typography>
-                        <Typography variant="caption" color="text.secondary">
-                          {evaluation.academic_year}
-                        </Typography>
-                      </TableCell>
-                      <TableCell>
-                        <Chip
-                          label={evaluation.status}
-                          color={STATUS_COLORS[evaluation.status] || 'default'}
-                          size="small"
-                        />
-                      </TableCell>
-                      <TableCell>
-                        <Box>
-                          <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                            {evaluation.overall_score ? `${evaluation.overall_score}%` : 'N/A'}
-                          </Typography>
-                          {evaluation.weighted_average && (
-                            <Typography variant="caption" color="text.secondary">
-                              Avg: {evaluation.weighted_average}/5
-                            </Typography>
-                          )}
-                        </Box>
-                      </TableCell>
-                      <TableCell>
-                        {evaluation.evaluated_by_name}
-                      </TableCell>
-                      <TableCell>
-                        {dayjs(evaluation.evaluated_at).format('MMM D, YYYY')}
-                      </TableCell>
-                      <TableCell align="right">
-                        <Stack direction="row" spacing={0.5} justifyContent="flex-end">
-                          <Tooltip title="View Details">
-                            <IconButton
-                              size="small"
-                              onClick={() => setViewingEvaluation(evaluation)}
-                              color="primary"
-                            >
-                              <IconEye size={18} />
-                            </IconButton>
-                          </Tooltip>
-
-                          {evaluation.status === 'draft' && (
-                            <>
-                              <Tooltip title="Edit">
-                                <IconButton
-                                  size="small"
-                                  onClick={() => onEdit?.(evaluation)}
-                                  color="primary"
-                                >
-                                  <IconEdit size={18} />
-                                </IconButton>
-                              </Tooltip>
-                              <Tooltip title="Submit">
-                                <IconButton
-                                  size="small"
-                                  onClick={() => handleStatusChange(evaluation.id, 'submit')}
-                                  color="warning"
-                                >
-                                  <IconSend size={18} />
-                                </IconButton>
-                              </Tooltip>
-                              <Tooltip title="Delete">
-                                <IconButton
-                                  size="small"
-                                  onClick={() => setDeleteConfirm(evaluation)}
-                                  color="error"
-                                >
-                                  <IconTrash size={18} />
-                                </IconButton>
-                              </Tooltip>
-                            </>
-                          )}
-
-                          {evaluation.status === 'submitted' && (
-                            <Tooltip title="Review">
-                              <IconButton
-                                size="small"
-                                onClick={() => handleStatusChange(evaluation.id, 'review')}
-                                color="info"
-                              >
-                                <IconCheck size={18} />
-                              </IconButton>
-                            </Tooltip>
-                          )}
-
-                          {evaluation.status === 'reviewed' && (
-                            <Tooltip title="Approve">
-                              <IconButton
-                                size="small"
-                                onClick={() => handleStatusChange(evaluation.id, 'approve')}
-                                color="success"
-                              >
-                                <IconChecks size={18} />
-                              </IconButton>
-                            </Tooltip>
-                          )}
-                        </Stack>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </TableContainer>
           )}
         </Stack>
       </DialogContent>
@@ -669,6 +553,335 @@ const EvaluationsList = ({ teacherId = null, open, onClose, onEdit, onCreate, ca
             Delete
           </Button>
         </DialogActions>
+      </Dialog>
+
+      {/* All Evaluations Comprehensive View Dialog */}
+      <Dialog
+        open={allEvaluationsOpen}
+        onClose={() => setAllEvaluationsOpen(false)}
+        maxWidth="lg"
+        fullWidth
+        scroll="paper"
+        PaperProps={{ sx: { borderRadius: 3, maxHeight: '90vh' } }}
+      >
+        {allEvaluationsLoading ? (
+          <DialogContent sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: 400 }}>
+            <CircularProgress />
+            <Typography sx={{ ml: 2 }}>Loading evaluation data...</Typography>
+          </DialogContent>
+        ) : allEvaluationsData ? (
+          <>
+            <DialogTitle sx={{ fontWeight: 700, pb: 1 }}>
+              <Stack direction="row" justifyContent="space-between" alignItems="center">
+                <Box>
+                  <Typography variant="h5" fontWeight={800}>
+                    Complete Evaluation Report
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    {allEvaluationsData.teacher?.full_name || 'Unknown Teacher'} ({allEvaluationsData.teacher?.teacher_id || 'N/A'})
+                  </Typography>
+                </Box>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  onClick={() => setAllEvaluationsOpen(false)}
+                >
+                  Close
+                </Button>
+              </Stack>
+            </DialogTitle>
+            <DialogContent dividers>
+              <Stack spacing={3}>
+                {/* Summary Cards */}
+                <Grid container spacing={2}>
+                  <Grid item xs={12} sm={6} md={3}>
+                    <Card sx={{ bgcolor: 'primary.light', color: 'white', p: 2 }}>
+                      <Typography variant="h4" fontWeight={800} align="center">
+                        {allEvaluationsData.summary.overall_average.toFixed(1)}
+                      </Typography>
+                      <Typography variant="caption" align="center" sx={{ display: 'block' }}>
+                        Overall Average
+                      </Typography>
+                      <Typography variant="h6" fontWeight={700} align="center">
+                        {allEvaluationsData.summary.overall_percentage}%
+                      </Typography>
+                    </Card>
+                  </Grid>
+                  {/* Ratings by Rater Type */}
+                  <Grid item xs={12} sm={6} md={3}>
+                    <Card sx={{ bgcolor: 'success.light', color: 'white', p: 2 }}>
+                      <Typography variant="h4" fontWeight={800} align="center">
+                        {allEvaluationsData.summary.student_ratings_count || 0}
+                      </Typography>
+                      <Typography variant="caption" align="center" sx={{ display: 'block' }}>
+                        Student Ratings
+                      </Typography>
+                    </Card>
+                  </Grid>
+                  <Grid item xs={12} sm={6} md={3}>
+                    <Card sx={{ bgcolor: 'info.light', color: 'white', p: 2 }}>
+                      <Typography variant="h4" fontWeight={800} align="center">
+                        {allEvaluationsData.summary.parent_ratings_count || 0}
+                      </Typography>
+                      <Typography variant="caption" align="center" sx={{ display: 'block' }}>
+                        Parent Ratings
+                      </Typography>
+                    </Card>
+                  </Grid>
+                  <Grid item xs={12} sm={6} md={3}>
+                    <Card sx={{ bgcolor: 'warning.light', color: 'white', p: 2 }}>
+                      <Typography variant="h4" fontWeight={800} align="center">
+                        {allEvaluationsData.summary.admin_ratings_count || 0}
+                      </Typography>
+                      <Typography variant="caption" align="center" sx={{ display: 'block' }}>
+                        Admin Ratings
+                      </Typography>
+                    </Card>
+                  </Grid>
+                </Grid>
+
+                {/* Second Row - Totals */}
+                <Grid container spacing={2} sx={{ mt: 1 }}>
+                  <Grid item xs={12} sm={6} md={4}>
+                    <Card sx={{ bgcolor: 'secondary.light', color: 'white', p: 2 }}>
+                      <Typography variant="h4" fontWeight={800} align="center">
+                        {allEvaluationsData.summary.total_ratings}
+                      </Typography>
+                      <Typography variant="caption" align="center" sx={{ display: 'block' }}>
+                        Total Ratings Received
+                      </Typography>
+                    </Card>
+                  </Grid>
+                  <Grid item xs={12} sm={6} md={4}>
+                    <Card sx={{ bgcolor: 'primary.light', color: 'white', p: 2 }}>
+                      <Typography variant="h4" fontWeight={800} align="center">
+                        {Object.keys(allEvaluationsData.criteria_breakdown).length}
+                      </Typography>
+                      <Typography variant="caption" align="center" sx={{ display: 'block' }}>
+                        Criteria Measured
+                      </Typography>
+                    </Card>
+                  </Grid>
+                  <Grid item xs={12} sm={6} md={4}>
+                    <Card sx={{ bgcolor: 'grey.500', color: 'white', p: 2 }}>
+                      <Typography variant="h4" fontWeight={800} align="center">
+                        {allEvaluationsData.summary.evaluation_count}
+                      </Typography>
+                      <Typography variant="caption" align="center" sx={{ display: 'block' }}>
+                        Formal Evaluations
+                      </Typography>
+                    </Card>
+                  </Grid>
+                </Grid>
+
+                <Divider />
+
+                {/* Criteria Breakdown - Aggregate Only */}
+                <Box>
+                  <Typography variant="h6" fontWeight={700} gutterBottom>
+                    Criteria Performance Breakdown
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+                    Aggregate scores from all raters (Students, Parents, Admins). Individual rater breakdowns are not shown for privacy.
+                  </Typography>
+                  <TableContainer>
+                    <Table size="small">
+                      <TableHead>
+                        <TableRow>
+                          <TableCell sx={{ fontWeight: 700 }}>Criteria</TableCell>
+                          <TableCell align="center" sx={{ fontWeight: 700 }}>Avg Rating</TableCell>
+                          <TableCell align="center" sx={{ fontWeight: 700 }}>Score %</TableCell>
+                          <TableCell align="center" sx={{ fontWeight: 700 }}>Total Ratings</TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {Object.values(allEvaluationsData.criteria_breakdown).map((criteria) => (
+                          <TableRow key={criteria.criteria_code}>
+                            <TableCell>
+                              <Typography variant="body2" fontWeight={600}>
+                                {criteria.criteria_name}
+                              </Typography>
+                            </TableCell>
+                            <TableCell align="center">
+                              <Rating value={criteria.average_rating} readOnly precision={0.1} size="small" />
+                              <Typography variant="caption" sx={{ display: 'block' }}>
+                                {criteria.average_rating}/5
+                              </Typography>
+                            </TableCell>
+                            <TableCell align="center">
+                              <Chip
+                                label={`${criteria.percentage}%`}
+                                color={criteria.percentage >= 80 ? 'success' : criteria.percentage >= 60 ? 'warning' : 'error'}
+                                size="small"
+                              />
+                            </TableCell>
+                            <TableCell align="center">
+                              <Typography fontWeight={700}>{criteria.total_ratings}</Typography>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
+                </Box>
+
+                <Divider />
+
+                {/* Admin/Super Admin Recommendations */}
+                <Box>
+                  <Typography variant="h6" fontWeight={700} gutterBottom>
+                    � Admin Evaluation & Recommendations
+                    {allEvaluationsData.admin_recommendations?.evaluated_by && (
+                      <Typography variant="caption" color="text.secondary" sx={{ ml: 1 }}>
+                        by {allEvaluationsData.admin_recommendations.evaluated_by} ({allEvaluationsData.admin_recommendations.term_name})
+                      </Typography>
+                    )}
+                  </Typography>
+
+                  {allEvaluationsData.admin_recommendations ? (
+                    <Grid container spacing={2}>
+                      {/* Strengths from Admin */}
+                      <Grid item xs={12} md={6}>
+                        <Card sx={{ bgcolor: 'success.lighter', border: '1px solid', borderColor: 'success.light' }}>
+                          <CardContent>
+                            <Typography variant="subtitle1" fontWeight={700} color="success.dark" gutterBottom>
+                              ✅ Strengths (Admin Assessment)
+                            </Typography>
+                            <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
+                              {allEvaluationsData.admin_recommendations.strengths || 'No strengths documented by admin.'}
+                            </Typography>
+                          </CardContent>
+                        </Card>
+                      </Grid>
+
+                      {/* Areas for Improvement from Admin */}
+                      <Grid item xs={12} md={6}>
+                        <Card sx={{ bgcolor: 'error.lighter', border: '1px solid', borderColor: 'error.light' }}>
+                          <CardContent>
+                            <Typography variant="subtitle1" fontWeight={700} color="error.dark" gutterBottom>
+                              ⚠️ Areas for Improvement (Admin Assessment)
+                            </Typography>
+                            <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
+                              {allEvaluationsData.admin_recommendations.areas_for_improvement || 'No areas for improvement documented by admin.'}
+                            </Typography>
+                          </CardContent>
+                        </Card>
+                      </Grid>
+
+                      {/* Recommendations */}
+                      <Grid item xs={12}>
+                        <Card sx={{ bgcolor: 'info.lighter', border: '1px solid', borderColor: 'info.light' }}>
+                          <CardContent>
+                            <Typography variant="subtitle1" fontWeight={700} color="info.dark" gutterBottom>
+                              � Recommendations for Growth
+                            </Typography>
+                            <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
+                              {allEvaluationsData.admin_recommendations.recommendations || 'No recommendations provided by admin.'}
+                            </Typography>
+                          </CardContent>
+                        </Card>
+                      </Grid>
+
+                      {/* Action Items */}
+                      {allEvaluationsData.admin_recommendations.action_items && (
+                        <Grid item xs={12}>
+                          <Card sx={{ bgcolor: 'warning.lighter', border: '1px solid', borderColor: 'warning.light' }}>
+                            <CardContent>
+                              <Typography variant="subtitle1" fontWeight={700} color="warning.dark" gutterBottom>
+                                🎯 Action Items
+                              </Typography>
+                              <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
+                                {allEvaluationsData.admin_recommendations.action_items}
+                              </Typography>
+                            </CardContent>
+                          </Card>
+                        </Grid>
+                      )}
+                    </Grid>
+                  ) : (
+                    <Alert severity="info">
+                      No formal evaluation has been created by admin yet. Create an evaluation to provide structured feedback and recommendations for this teacher.
+                    </Alert>
+                  )}
+                </Box>
+
+                <Divider />
+
+                {/* Recent Ratings - Anonymous */}
+                <Box>
+                  <Typography variant="h6" fontWeight={700} gutterBottom>
+                    Recent Ratings (Anonymous - Role Only)
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+                    Student and parent names are hidden for privacy. Only their role and rating criteria are displayed.
+                  </Typography>
+                  <TableContainer sx={{ maxHeight: 300 }}>
+                    <Table size="small" stickyHeader>
+                      <TableHead>
+                        <TableRow>
+                          <TableCell sx={{ fontWeight: 700 }}>Date</TableCell>
+                          <TableCell sx={{ fontWeight: 700 }}>Rated By</TableCell>
+                          <TableCell sx={{ fontWeight: 700 }}>Criteria</TableCell>
+                          <TableCell sx={{ fontWeight: 700 }}>Rating</TableCell>
+                          <TableCell sx={{ fontWeight: 700 }}>Comment</TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {allEvaluationsData.recent_ratings.map((rating) => (
+                          <TableRow key={rating.id}>
+                            <TableCell>
+                              {dayjs(rating.rating_date).format('MMM D, YYYY')}
+                            </TableCell>
+                            <TableCell>
+                              {/* Show admin name if available, otherwise just role for privacy */}
+                              {rating.rated_by_role === 'Admin' && rating.rated_by_name ? (
+                                <Box>
+                                  <Typography variant="body2" fontWeight={600}>
+                                    {rating.rated_by_name}
+                                  </Typography>
+                                  <Chip label="Admin" size="small" color="warning" variant="outlined" />
+                                </Box>
+                              ) : (
+                                <Chip
+                                  label={rating.rated_by_role}
+                                  size="small"
+                                  color={rating.rated_by_role === 'Student' ? 'success' : rating.rated_by_role === 'Parent' ? 'info' : 'warning'}
+                                  variant="outlined"
+                                />
+                              )}
+                            </TableCell>
+                            <TableCell>{rating.category}</TableCell>
+                            <TableCell>
+                              <Rating value={rating.rating} readOnly size="small" />
+                            </TableCell>
+                            <TableCell>
+                              <Typography variant="body2" sx={{ maxWidth: 200 }} noWrap>
+                                {rating.comment || '-'}
+                              </Typography>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
+                </Box>
+              </Stack>
+            </DialogContent>
+          </>
+        ) : (
+          <DialogContent sx={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', minHeight: 400 }}>
+            <Alert severity="error" sx={{ mb: 2 }}>
+              Failed to load evaluation data
+            </Alert>
+            <Button
+              variant="contained"
+              onClick={() => fetchAllEvaluations(teacherId)}
+              startIcon={<IconRefresh size={18} />}
+            >
+              Retry
+            </Button>
+          </DialogContent>
+        )}
       </Dialog>
     </Dialog>
   );

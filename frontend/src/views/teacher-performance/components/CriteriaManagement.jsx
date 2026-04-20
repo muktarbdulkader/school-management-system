@@ -251,12 +251,61 @@ const CriteriaManagement = ({ open, onClose }) => {
   const [formOpen, setFormOpen] = useState(false);
   const [editingCriteria, setEditingCriteria] = useState(null);
   const [deleteConfirm, setDeleteConfirm] = useState(null);
+  const [evalSettings, setEvalSettings] = useState({ is_evaluation_period_open: true, message: '' });
+  const [evalSettingsLoading, setEvalSettingsLoading] = useState(false);
 
   useEffect(() => {
     if (open) {
       fetchCriteria();
+      fetchEvalSettings();
     }
   }, [open]);
+
+  const fetchEvalSettings = async () => {
+    try {
+      const token = await GetToken();
+      const response = await fetch(`${Backend.api}${Backend.performanceEvaluationSettings}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await response.json();
+      if (response.ok && data.success) {
+        setEvalSettings(data.data);
+      }
+    } catch (error) {
+      console.error('Error fetching eval settings:', error);
+    }
+  };
+
+  const toggleEvaluationPeriod = async () => {
+    setEvalSettingsLoading(true);
+    try {
+      const token = await GetToken();
+      const newState = !evalSettings.is_evaluation_period_open;
+      const response = await fetch(`${Backend.api}${Backend.performanceEvaluationSetPeriod}`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          is_open: newState,
+          message: newState ? 'Evaluation period is open' : 'Evaluation period is closed by admin'
+        })
+      });
+      const data = await response.json();
+      if (response.ok && data.success) {
+        setEvalSettings(data.data);
+        toast.success(`Evaluation period ${newState ? 'opened' : 'closed'} successfully`);
+      } else {
+        toast.error(data.message || 'Failed to update evaluation period');
+      }
+    } catch (error) {
+      console.error('Error toggling eval period:', error);
+      toast.error('Failed to update evaluation period');
+    } finally {
+      setEvalSettingsLoading(false);
+    }
+  };
 
   const fetchCriteria = async () => {
     setLoading(true);
@@ -381,6 +430,43 @@ const CriteriaManagement = ({ open, onClose }) => {
       </DialogTitle>
       <DialogContent>
         <Stack spacing={3}>
+          {/* Evaluation Period Control */}
+          <Alert
+            severity={evalSettings.is_evaluation_period_open ? 'success' : 'warning'}
+            sx={{ mb: 2 }}
+            action={
+              <Button
+                color={evalSettings.is_evaluation_period_open ? 'warning' : 'success'}
+                size="small"
+                variant="contained"
+                onClick={toggleEvaluationPeriod}
+                disabled={evalSettingsLoading}
+              >
+                {evalSettingsLoading
+                  ? 'Updating...'
+                  : evalSettings.is_evaluation_period_open
+                    ? 'Close Evaluation'
+                    : 'Open Evaluation'}
+              </Button>
+            }
+          >
+            <Typography variant="body2" fontWeight={700}>
+              {evalSettings.is_evaluation_period_open
+                ? '✅ Evaluation Period is OPEN - Students/Parents can rate teachers'
+                : '⛔ Evaluation Period is CLOSED - Students/Parents cannot rate teachers'}
+            </Typography>
+            {evalSettings.is_evaluation_period_open && evalSettings.start_date && (
+              <Typography variant="caption" sx={{ display: 'block', mt: 0.5 }}>
+                Period opened: {new Date(evalSettings.start_date).toLocaleString()} - Students who rated before this time can rate again.
+              </Typography>
+            )}
+            {!evalSettings.is_evaluation_period_open && (
+              <Typography variant="caption" sx={{ display: 'block', mt: 0.5 }}>
+                Click "Open Evaluation" to allow students/parents to rate. Previous ratings are preserved but students can submit new ratings for this period.
+              </Typography>
+            )}
+          </Alert>
+
           {/* Actions */}
           <Stack direction="row" spacing={2} justifyContent="space-between" alignItems="center">
             <Stack direction="row" spacing={1}>
@@ -411,7 +497,7 @@ const CriteriaManagement = ({ open, onClose }) => {
           {/* Info Alert */}
           <Alert severity="info" icon={<IconAlertCircle size={20} />}>
             <Typography variant="body2">
-              These criteria define how teacher performance is measured. Admins can create custom criteria with different measurement types (ratings, percentages, yes/no, etc.). 
+              These criteria define how teacher performance is measured. Admins can create custom criteria with different measurement types (ratings, percentages, yes/no, etc.).
               Criteria weights affect the overall score calculation. Only active criteria appear in evaluations.
             </Typography>
           </Alert>

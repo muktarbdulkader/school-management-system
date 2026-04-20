@@ -95,8 +95,42 @@ class TeacherSerializer(serializers.ModelSerializer):
     def get_has_rated(self, obj):
         request = self.context.get('request')
         if request and request.user.is_authenticated:
-            # Check if this specific user has ever rated this teacher
-            return TeacherPerformanceRating.objects.filter(teacher=obj, rated_by=request.user).exists()
+            # Check if user has rated during the current evaluation period
+            # This allows students to re-rate when admin reopens evaluation period
+            from django.core.cache import cache
+            from django.utils import timezone
+            from datetime import datetime
+            
+            # Get evaluation period settings
+            eval_settings = cache.get('teacher_evaluation_settings', {
+                'is_evaluation_period_open': True,
+                'start_date': None
+            })
+            
+            # Build query to check for ratings
+            ratings_query = TeacherPerformanceRating.objects.filter(
+                teacher=obj, 
+                rated_by=request.user
+            )
+            
+            # If evaluation period has a start date, only count ratings after that date
+            start_date_str = eval_settings.get('start_date')
+            if start_date_str:
+                try:
+                    # Parse ISO format datetime string
+                    if isinstance(start_date_str, str):
+                        # Remove 'Z' and parse
+                        start_date_str = start_date_str.replace('Z', '+00:00')
+                        period_start = datetime.fromisoformat(start_date_str)
+                        ratings_query = ratings_query.filter(rating_date__gte=period_start)
+                except (ValueError, TypeError):
+                    # If parsing fails, check all ratings
+                    pass
+            else:
+                # No start date set - check if any ratings exist (backward compatible)
+                pass
+            
+            return ratings_query.exists()
         return False
 
     def get_subjects_list(self, obj):

@@ -464,24 +464,21 @@ const TeacherPerformancePage = () => {
                                         </TableCell>
                                         <TableCell align="right">
                                             <Stack direction="row" spacing={1} justifyContent="flex-end">
-                                                <Tooltip title="View/Add Ratings">
-                                                    <IconButton size="small" color="warning" onClick={() => handleAddRating(teacher)}>
-                                                        <IconStar size={20} />
-                                                    </IconButton>
-                                                </Tooltip>
+                                                {/* Only show View Ratings for teachers viewing their own profile, not for admin */}
+                                                {!canManagePerformance && (
+                                                    <Tooltip title="View My Ratings">
+                                                        <IconButton size="small" color="warning" onClick={() => handleAddRating(teacher)}>
+                                                            <IconStar size={20} />
+                                                        </IconButton>
+                                                    </Tooltip>
+                                                )}
                                                 <Tooltip title="Assign Tasks">
                                                     <IconButton size="small" color="primary" onClick={() => handleAssignTask(teacher)}>
                                                         <IconPlus size={20} />
                                                     </IconButton>
                                                 </Tooltip>
-                                                {canManagePerformance && (
-                                                    <Tooltip title="Create Evaluation">
-                                                        <IconButton size="small" color="info" onClick={() => handleCreateEvaluation(teacher)}>
-                                                            <IconChartBar size={20} />
-                                                        </IconButton>
-                                                    </Tooltip>
-                                                )}
-                                                <Tooltip title="View Evaluations">
+                                                {/* Create Evaluation removed - Admin only reviews student/parent ratings */}
+                                                <Tooltip title="View All Evaluations">
                                                     <IconButton size="small" color="success" onClick={() => handleViewEvaluations(teacher)}>
                                                         <IconClipboardList size={20} />
                                                     </IconButton>
@@ -544,7 +541,7 @@ const TeacherPerformancePage = () => {
                 teacherId={selectedTeacher?.id}
                 onEdit={handleEditEvaluation}
                 onCreate={handleCreateEvaluation}
-                canCreate={canManagePerformance}
+                canCreate={false} // Admin only reviews, does not create evaluations
             />
         </PageContainer>
     );
