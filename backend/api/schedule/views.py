@@ -1441,6 +1441,9 @@ class ExamsViewSet(viewsets.ModelViewSet):
             'data': serializer.data
         }, status=status.HTTP_201_CREATED)
 
+    def perform_create(self, serializer):
+        serializer.save(created_by=self.request.user)
+
     def update(self, request, *args, **kwargs):
         user = request.user
         if not self.is_administrative_user(user) and not is_teacher(user):

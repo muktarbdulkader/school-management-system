@@ -4,11 +4,11 @@ import {
   TextField, Button, CircularProgress, Avatar, Chip, Stack,
   Dialog, DialogTitle, DialogContent, DialogActions, MenuItem,
   InputAdornment, LinearProgress, Paper, IconButton, Tooltip,
-  Divider, Fade
+  Divider, Fade, Alert
 } from '@mui/material';
-import { 
-  Star, Person, Search, InfoOutlined, 
-  Timeline, Assessment, Verified, 
+import {
+  Star, Person, Search, InfoOutlined,
+  Timeline, Assessment, Verified,
   FormatQuote, FilterList
 } from '@mui/icons-material';
 import GetToken from 'utils/auth-token';
@@ -17,35 +17,34 @@ import { toast } from 'react-toastify';
 import { useSelector } from 'react-redux';
 import PageContainer from 'ui-component/MainPage';
 
-const CATEGORIES = [
-  { value: 'teaching_quality',     label: 'Teaching Quality', icon: '🎓' },
-  { value: 'punctuality',          label: 'Punctuality', icon: '⏰' },
-  { value: 'communication',        label: 'Communication', icon: '💬' },
-  { value: 'classroom_management', label: 'Classroom Mgmt', icon: '🏫' },
-  { value: 'student_engagement',   label: 'Engagement', icon: '🤝' },
-  { value: 'professionalism',      label: 'Professionalism', icon: '👔' },
-];
+// Dynamic criteria will be loaded from backend
+const DEFAULT_CATEGORIES = [];
 
 export default function TeacherRatingsPage() {
   const [teachers, setTeachers] = useState([]);
+  const [criteria, setCriteria] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [ratingDialog, setRatingDialog] = useState(false);
   const [selectedTeacher, setSelectedTeacher] = useState(null);
   const [ratingValue, setRatingValue] = useState(5);
-  const [category, setCategory] = useState('teaching_quality');
+  const [category, setCategory] = useState('');
   const [comment, setComment] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [myRatingData, setMyRatingData] = useState(null);
+  const [criteriaLoading, setCriteriaLoading] = useState(true);
 
   const user = useSelector((state) => state.user?.user);
   const userRoles = (user?.roles || []).map(r =>
     (typeof r === 'string' ? r : r?.name || '').toLowerCase()
   );
-  const isParent  = userRoles.includes('parent');
+  const isParent = userRoles.includes('parent');
   const isStudent = userRoles.includes('student');
   const isTeacher = userRoles.includes('teacher');
-  const isAdmin   = userRoles.includes('admin') || userRoles.includes('super_admin');
+  const isAdmin = userRoles.includes('admin') || userRoles.includes('super_admin') || userRoles.includes('head_admin') || userRoles.includes('ceo');
+  const canViewAllTeachers = isAdmin; // Only admins see all teachers
+  const canRateTeachers = isStudent || isParent || isAdmin; // Students, parents, and admins can rate
+  const isEvaluationPeriod = true; // This can be controlled by admin settings
 
   useEffect(() => {
     fetchData();
@@ -54,13 +53,47 @@ export default function TeacherRatingsPage() {
   const fetchData = async () => {
     setLoading(true);
     try {
+      // Fetch dynamic criteria first
+      await fetchCriteria();
+
       if (isTeacher && !isAdmin) {
         await fetchMyOwnProfile();
+      } else if (isStudent || isParent) {
+        await fetchMyTeachers(); // Students/Parents only see their teachers
       } else {
-        await fetchTeachersList();
+        await fetchTeachersList(); // Admins see all teachers
       }
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchCriteria = async () => {
+    setCriteriaLoading(true);
+    try {
+      const token = await GetToken();
+      const res = await fetch(`${Backend.api}${Backend.performanceCriteriaActive}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (data.success) {
+        const activeCriteria = data.data || [];
+        setCriteria(activeCriteria);
+        // Set default category to first criteria if available
+        if (activeCriteria.length > 0 && !category) {
+          setCategory(activeCriteria[0].code);
+        }
+      } else {
+        // Fallback to empty if API fails
+        setCriteria([]);
+        toast.warning('No active criteria found. Please contact admin.');
+      }
+    } catch (error) {
+      console.error('Error fetching criteria:', error);
+      setCriteria([]);
+      toast.error('Failed to load rating criteria');
+    } finally {
+      setCriteriaLoading(false);
     }
   };
 
@@ -93,13 +126,13 @@ export default function TeacherRatingsPage() {
     try {
       const token = await GetToken();
       let apiUrl = `${Backend.api}${Backend.teachers}`;
-      
+
       if (isStudent || isParent) {
         const profileUrl = isStudent ? `${Backend.api}${Backend.studentMe}` : `${Backend.api}${Backend.parentChildren}`;
         const profileRes = await fetch(profileUrl, {
           headers: { Authorization: `Bearer ${token}` }
         });
-        
+
         if (profileRes.ok) {
           const profileData = await profileRes.json();
           let sId = null;
@@ -111,7 +144,7 @@ export default function TeacherRatingsPage() {
           if (sId) apiUrl = `${Backend.api}${Backend.parentAvailableTeachers}${sId}/`;
         }
       }
-      
+
       const res = await fetch(apiUrl, {
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -120,6 +153,61 @@ export default function TeacherRatingsPage() {
       setTeachers(list);
     } catch (error) {
       toast.error('Failed to load teachers');
+    }
+  };
+
+  const fetchMyTeachers = async () => {
+    try {
+      const token = await GetToken();
+      // Get student ID first
+      let studentId = null;
+      let studentRes;
+
+      if (isStudent) {
+        studentRes = await fetch(`${Backend.api}${Backend.studentMe}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+      } else if (isParent) {
+        studentRes = await fetch(`${Backend.api}${Backend.parentChildren}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+      }
+
+      if (studentRes?.ok) {
+        const data = await studentRes.json();
+        if (isStudent) {
+          studentId = data.data?.id || data.id;
+        } else {
+          const kids = data.data || data.results || [];
+          if (kids.length > 0) {
+            studentId = kids[0].student?.id || kids[0].student_id;
+          }
+        }
+      }
+
+      if (!studentId) {
+        setTeachers([]);
+        toast.warning('No student profile found');
+        return;
+      }
+
+      // Fetch available teachers for this student
+      const res = await fetch(`${Backend.api}${Backend.parentAvailableTeachers}${studentId}/`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        const list = data.data?.teachers || data.data || [];
+        setTeachers(list);
+      } else {
+        setTeachers([]);
+        toast.error('Failed to load your teachers');
+      }
+    } catch (error) {
+      console.error('Error fetching my teachers:', error);
+      setTeachers([]);
+      toast.error('Failed to load your teachers');
     }
   };
 
@@ -142,12 +230,28 @@ export default function TeacherRatingsPage() {
   };
 
   const handleSubmit = async () => {
-    const ratingsArray = Object.entries(multiRatings).map(([catValue, value]) => ({
-      teacher: selectedTeacher.teacher_id || selectedTeacher.id,
-      rating: value,
-      category: catValue,
-      comment: comment || ""
-    }));
+    // Validate criteria exist
+    if (criteria.length === 0) {
+      toast.error('No criteria available. Please contact admin.');
+      return;
+    }
+
+    // Validate all criteria have ratings (optional - can rate partial)
+    const unratedCriteria = criteria.filter(c => !multiRatings[c.code]);
+    if (unratedCriteria.length === criteria.length) {
+      toast.warning('Please rate at least one criteria');
+      return;
+    }
+
+    // Build ratings array from multiRatings using criteria codes
+    const ratingsArray = Object.entries(multiRatings)
+      .filter(([catCode, value]) => value > 0) // Only include rated items
+      .map(([catCode, value]) => ({
+        teacher: selectedTeacher.teacher_id || selectedTeacher.id,
+        rating: value,
+        category: catCode,
+        comment: comment || ""
+      }));
 
     if (ratingsArray.length === 0) {
       toast.warning('Please select at least one rating');
@@ -157,24 +261,26 @@ export default function TeacherRatingsPage() {
     setSubmitting(true);
     try {
       const token = await GetToken();
-      const res = await fetch(`${Backend.api}${Backend.teacherRatings}`, {
+      const res = await fetch(`${Backend.api}${Backend.teacherRatingsSubmit}`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           teacher: selectedTeacher.teacher_id || selectedTeacher.id,
-          ratings: ratingsArray 
+          ratings: ratingsArray
         }),
       });
       const data = await res.json();
-      if (res.ok) {
-        toast.success(`Submitted ${ratingsArray.length} ratings!`);
+      if (res.ok && data.success) {
+        toast.success(`Successfully submitted ${ratingsArray.length} ratings!`);
         setRatingDialog(false);
+        setMultiRatings({});
         fetchTeachersList();
       } else {
-        toast.error(data.message || 'Submission failed');
+        toast.error(data.message || data.errors?.join(', ') || 'Submission failed');
       }
     } catch (error) {
-      toast.error('Network error');
+      console.error('Submit error:', error);
+      toast.error('Network error - please try again');
     } finally {
       setSubmitting(false);
     }
@@ -182,11 +288,11 @@ export default function TeacherRatingsPage() {
 
   const TeacherCard = ({ teacher }) => {
     const stats = teacher.rating_stats || { overall_avg: 0, total_count: 0, categories: {} };
-    
+
     return (
-      <Card sx={{ 
-        height: '100%', 
-        borderRadius: 4, 
+      <Card sx={{
+        height: '100%',
+        borderRadius: 4,
         overflow: 'visible',
         position: 'relative',
         transition: 'transform 0.2s',
@@ -194,9 +300,9 @@ export default function TeacherRatingsPage() {
       }}>
         <CardContent sx={{ pt: 4 }}>
           <Box sx={{ position: 'absolute', top: -30, left: '50%', transform: 'translateX(-50%)' }}>
-            <Avatar 
-              sx={{ 
-                width: 70, height: 70, 
+            <Avatar
+              sx={{
+                width: 70, height: 70,
                 border: '4px solid #fff',
                 boxShadow: 2,
                 bgcolor: 'primary.main',
@@ -229,30 +335,36 @@ export default function TeacherRatingsPage() {
               </Box>
             </Stack>
 
+            {/* Show top 3 criteria with highest ratings */}
             <Grid container spacing={1} sx={{ mb: 3 }}>
-              {CATEGORIES.slice(0, 3).map(cat => (
-                <Grid item xs={4} key={cat.value}>
-                  <Tooltip title={cat.label}>
-                  <Box sx={{ 
-                    p: 0.5, 
-                    borderRadius: 2, 
-                    bgcolor: stats.categories[cat.value] ? 'primary.light' : 'action.hover',
-                    color: stats.categories[cat.value] ? 'white' : 'inherit'
-                  }}>
-                    <Typography variant="caption" sx={{ fontWeight: 800 }}>
-                      {stats.categories[cat.value] || '--'}
-                    </Typography>
-                  </Box>
-                  </Tooltip>
-                </Grid>
-              ))}
+              {criteria.slice(0, 3).map(c => {
+                const ratingValue = stats.categories?.[c.code];
+                // Calculate percentage: (rating / 5) * 100
+                const percentage = ratingValue ? Math.round((ratingValue / 5) * 100) : 0;
+                return (
+                  <Grid item xs={4} key={c.code}>
+                    <Tooltip title={`${c.name}: ${percentage}%`}>
+                      <Box sx={{
+                        p: 0.5,
+                        borderRadius: 2,
+                        bgcolor: ratingValue ? 'primary.light' : 'action.hover',
+                        color: ratingValue ? 'white' : 'inherit'
+                      }}>
+                        <Typography variant="caption" sx={{ fontWeight: 800 }}>
+                          {percentage > 0 ? `${percentage}%` : '--'}
+                        </Typography>
+                      </Box>
+                    </Tooltip>
+                  </Grid>
+                );
+              })}
             </Grid>
 
-            {(isStudent || isParent) && (
-              <Button 
+            {canRateTeachers && isEvaluationPeriod && criteria.length > 0 && (
+              <Button
                 variant={teacher.has_rated ? "outlined" : "contained"}
                 color={teacher.has_rated ? "success" : "primary"}
-                fullWidth 
+                fullWidth
                 onClick={() => {
                   setSelectedTeacher(teacher);
                   setRatingDialog(true);
@@ -262,6 +374,16 @@ export default function TeacherRatingsPage() {
               >
                 {teacher.has_rated ? "Rated" : "Rate Now"}
               </Button>
+            )}
+            {!isEvaluationPeriod && canRateTeachers && (
+              <Alert severity="info" sx={{ mt: 2, fontSize: '0.75rem' }}>
+                Evaluation period closed
+              </Alert>
+            )}
+            {isEvaluationPeriod && criteria.length === 0 && canRateTeachers && (
+              <Alert severity="warning" sx={{ mt: 2, fontSize: '0.75rem' }}>
+                No criteria set by admin
+              </Alert>
             )}
           </Box>
         </CardContent>
@@ -275,10 +397,18 @@ export default function TeacherRatingsPage() {
     </Box>
   );
 
+  const getPageTitle = () => {
+    if (isAdmin) return 'Teacher Ratings - Admin View';
+    if (isStudent) return 'My Teachers - Rate Your Instructors';
+    if (isParent) return 'My Children\'s Teachers - Rate Instructors';
+    if (isTeacher) return 'My Performance - Teacher View';
+    return 'Teacher Ratings';
+  };
+
   return (
-    <PageContainer title="Teacher Ratings">
+    <PageContainer title={getPageTitle()}>
       <Container maxWidth="lg" sx={{ py: 4 }}>
-        
+
         {isTeacher && myRatingData && (
           <Fade in timeout={800}>
             <Box sx={{ mb: 6 }}>
@@ -296,23 +426,66 @@ export default function TeacherRatingsPage() {
                         <Typography variant="body2" color="text.secondary">Verified Educator Profile</Typography>
                       </Box>
                     </Stack>
-                    
-                    <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 2 }}>Rating Distribution</Typography>
+
+                    <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 2 }}>
+                      Performance by Criteria (Admin Defined)
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
+                      Based on criteria set by Super Admin/Admin. Each criteria is calculated as percentage out of 100%.
+                    </Typography>
                     <Stack spacing={2}>
-                      {CATEGORIES.map(cat => (
-                        <Box key={cat.value}>
-                          <Stack direction="row" justifyContent="space-between" sx={{ mb: 0.5 }}>
-                            <Typography variant="caption" sx={{ fontWeight: 600 }}>{cat.label}</Typography>
-                            <Typography variant="caption" fontWeight={700}>{myRatingData.rating_stats?.categories[cat.value] || 0} / 5</Typography>
-                          </Stack>
-                          <LinearProgress 
-                            variant="determinate" 
-                            value={(myRatingData.rating_stats?.categories[cat.value] || 0) * 20} 
-                            sx={{ height: 6, borderRadius: 3, bgcolor: '#f0f0f0' }}
-                          />
-                        </Box>
-                      ))}
+                      {criteriaLoading ? (
+                        <CircularProgress size={20} />
+                      ) : criteria.length === 0 ? (
+                        <Typography variant="body2" color="text.secondary">
+                          No active criteria defined by admin.
+                        </Typography>
+                      ) : (
+                        criteria.map(c => {
+                          const ratingValue = myRatingData.rating_stats?.categories?.[c.code] || 0;
+                          // Calculate percentage: (rating / 5) * 100
+                          const percentage = Math.round((ratingValue / 5) * 100);
+                          return (
+                            <Box key={c.code}>
+                              <Stack direction="row" justifyContent="space-between" sx={{ mb: 0.5 }}>
+                                <Typography variant="caption" sx={{ fontWeight: 600 }}>
+                                  {c.name} {c.weight !== 1 && `(Weight: ${c.weight})`}
+                                </Typography>
+                                <Typography variant="caption" fontWeight={700}>
+                                  {percentage}% {ratingValue > 0 && `(${ratingValue}/5)`}
+                                </Typography>
+                              </Stack>
+                              <LinearProgress
+                                variant="determinate"
+                                value={percentage}
+                                sx={{
+                                  height: 8,
+                                  borderRadius: 3,
+                                  bgcolor: '#f0f0f0',
+                                  '& .MuiLinearProgress-bar': {
+                                    bgcolor: percentage >= 80 ? 'success.main' :
+                                      percentage >= 60 ? 'warning.main' : 'error.main'
+                                  }
+                                }}
+                              />
+                            </Box>
+                          );
+                        })
+                      )}
                     </Stack>
+                    {/* Overall Score Summary */}
+                    {myRatingData.rating_stats?.overall_avg > 0 && (
+                      <Box sx={{ mt: 3, p: 2, bgcolor: 'primary.lighter', borderRadius: 2 }}>
+                        <Stack direction="row" justifyContent="space-between" alignItems="center">
+                          <Typography variant="subtitle2" fontWeight={700}>
+                            Overall Performance Score
+                          </Typography>
+                          <Typography variant="h6" fontWeight={900} color="primary">
+                            {Math.round((myRatingData.rating_stats.overall_avg / 5) * 100)}%
+                          </Typography>
+                        </Stack>
+                      </Box>
+                    )}
                   </Paper>
                 </Grid>
                 <Grid item xs={12} md={5}>
@@ -338,9 +511,22 @@ export default function TeacherRatingsPage() {
         {(!isTeacher || isAdmin) && (
           <>
             <Box sx={{ mb: 4, textAlign: 'center' }}>
-              <Typography variant="h2" fontWeight={900} sx={{ letterSpacing: -1 }}>Teacher Directory</Typography>
-              <Typography variant="body1" color="text.secondary">Discover and rate the performance of your instructors</Typography>
-              
+              <Typography variant="h2" fontWeight={900} sx={{ letterSpacing: -1 }}>
+                {isAdmin ? 'Teacher Directory (Admin View)' : isStudent ? 'My Teachers' : 'My Children\'s Teachers'}
+              </Typography>
+              <Typography variant="body1" color="text.secondary">
+                {isAdmin
+                  ? 'View and evaluate all teachers in the system. End of term evaluation period.'
+                  : isStudent
+                    ? 'Rate your subject teachers based on your learning experience'
+                    : 'Rate the teachers who instruct your children'}
+              </Typography>
+              {!isEvaluationPeriod && (
+                <Alert severity="info" sx={{ mt: 2, maxWidth: 600, mx: 'auto' }}>
+                  Teacher evaluation is currently closed. Please check back during the end-of-term evaluation period.
+                </Alert>
+              )}
+
               <Box sx={{ mt: 3, maxWidth: 450, mx: 'auto' }}>
                 <TextField
                   fullWidth placeholder="Search by name or subject..." value={search}
@@ -363,46 +549,90 @@ export default function TeacherRatingsPage() {
           </>
         )}
 
-        <Dialog 
-          open={ratingDialog} 
-          onClose={() => setRatingDialog(false)} 
-          maxWidth="sm" 
+        <Dialog
+          open={ratingDialog}
+          onClose={() => setRatingDialog(false)}
+          maxWidth="sm"
           fullWidth
-          PaperProps={{ sx: { borderRadius: 6, overflow: 'hidden' } }}
+          scroll="paper"
+          PaperProps={{ sx: { borderRadius: 6, maxHeight: '90vh' } }}
         >
-          <Box sx={{ p: 4, position: 'relative' }}>
-            <Typography variant="h4" fontWeight={900} gutterBottom align="center">
-              Multiple Evaluation
+          <DialogTitle sx={{ pb: 0 }}>
+            <Typography variant="h4" fontWeight={900} align="center">
+              Rate Teacher Performance
             </Typography>
-            <Typography variant="body2" color="text.secondary" align="center" sx={{ mb: 4 }}>
-              Rate {selectedTeacher?.full_name || selectedTeacher?.user_details?.full_name} across categories
+            <Typography variant="body2" color="text.secondary" align="center" sx={{ mt: 1 }}>
+              Rate {selectedTeacher?.full_name || selectedTeacher?.user_details?.full_name} across criteria
             </Typography>
+            <Typography variant="caption" color="text.secondary" align="center" sx={{ display: 'block', mt: 0.5, mb: 2 }}>
+              Criteria are defined by Super Admin/Admin. Each rating out of 5 stars is calculated as percentage (out of 100%).
+            </Typography>
+          </DialogTitle>
+          <DialogContent sx={{ px: 4 }}>
 
-            <Grid container spacing={2}>
-              {CATEGORIES.map(cat => (
-                <Grid item xs={12} sm={6} key={cat.value}>
-                  <Paper sx={{ 
-                    p: 2, 
-                    borderRadius: 4, 
-                    border: '1px solid',
-                    borderColor: multiRatings[cat.value] ? 'primary.main' : '#eee',
-                    bgcolor: multiRatings[cat.value] ? 'primary.light' : 'white',
-                    color: multiRatings[cat.value] ? 'white' : 'inherit',
-                    transition: 'all 0.2s'
-                  }}>
-                    <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
-                      <Typography variant="subtitle2" fontWeight={800}>{cat.icon} {cat.label}</Typography>
-                      {multiRatings[cat.value] && <Typography variant="caption" fontWeight={900}>{multiRatings[cat.value]}/5</Typography>}
-                    </Stack>
-                    <Rating 
-                      value={multiRatings[cat.value] || 0} 
-                      onChange={(_, v) => toggleCategoryRating(cat.value, v)} 
-                      sx={{ color: multiRatings[cat.value] ? 'white' : 'primary.main' }}
-                    />
-                  </Paper>
+            {criteriaLoading ? (
+              <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+                <CircularProgress />
+              </Box>
+            ) : criteria.length === 0 ? (
+              <Alert severity="info" sx={{ mb: 3 }}>
+                No active criteria available for rating. Please contact admin.
+              </Alert>
+            ) : (
+              <>
+                <Box sx={{ mb: 2, px: 1 }}>
+                  <Stack direction="row" justifyContent="space-between" alignItems="center">
+                    <Typography variant="body2" color="text.secondary">
+                      Progress: {Object.keys(multiRatings).filter(k => multiRatings[k] > 0).length} of {criteria.length} rated
+                    </Typography>
+                    <Typography variant="caption" color="primary" fontWeight={600}>
+                      {Math.round((Object.keys(multiRatings).filter(k => multiRatings[k] > 0).length / criteria.length) * 100)}% complete
+                    </Typography>
+                  </Stack>
+                  <LinearProgress
+                    variant="determinate"
+                    value={(Object.keys(multiRatings).filter(k => multiRatings[k] > 0).length / criteria.length) * 100}
+                    sx={{ mt: 1, height: 6, borderRadius: 3 }}
+                  />
+                </Box>
+                <Grid container spacing={2}>
+                  {criteria.map(c => (
+                    <Grid item xs={12} sm={6} key={c.code}>
+                      <Paper sx={{
+                        p: 2,
+                        borderRadius: 4,
+                        border: '1px solid',
+                        borderColor: multiRatings[c.code] ? 'primary.main' : '#eee',
+                        bgcolor: multiRatings[c.code] ? 'primary.light' : 'white',
+                        color: multiRatings[c.code] ? 'white' : 'inherit',
+                        transition: 'all 0.2s'
+                      }}>
+                        <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
+                          <Typography variant="subtitle2" fontWeight={800}>{c.name}</Typography>
+                          {multiRatings[c.code] ? (
+                            <Typography variant="caption" fontWeight={900}>
+                              {multiRatings[c.code]}/5 ({Math.round((multiRatings[c.code] / 5) * 100)}%)
+                            </Typography>
+                          ) : (
+                            <Typography variant="caption" color="error" fontWeight={600}>
+                              Required *
+                            </Typography>
+                          )}
+                        </Stack>
+                        <Rating
+                          value={multiRatings[c.code] || 0}
+                          onChange={(_, v) => toggleCategoryRating(c.code, v)}
+                          sx={{ color: multiRatings[c.code] ? 'white' : 'primary.main' }}
+                        />
+                        <Typography variant="caption" sx={{ display: 'block', mt: 0.5, opacity: 0.8 }}>
+                          {c.description}
+                        </Typography>
+                      </Paper>
+                    </Grid>
+                  ))}
                 </Grid>
-              ))}
-            </Grid>
+              </>
+            )}
 
             <TextField
               sx={{ mt: 4 }}
@@ -412,22 +642,20 @@ export default function TeacherRatingsPage() {
               placeholder="What makes this teacher unique?"
               variant="outlined"
             />
-
-            <Box sx={{ mt: 4, display: 'flex', gap: 2 }}>
-              <Button onClick={() => setRatingDialog(false)} fullWidth sx={{ borderRadius: 10 }} color="inherit">
-                Cancel
-              </Button>
-              <Button 
-                variant="contained" 
-                fullWidth 
-                onClick={handleSubmit} 
-                disabled={submitting}
-                sx={{ borderRadius: 10, py: 1.5, fontWeight: 900 }}
-              >
-                Submit All Reviews
-              </Button>
-            </Box>
-          </Box>
+          </DialogContent>
+          <DialogActions sx={{ px: 4, pb: 3 }}>
+            <Button onClick={() => setRatingDialog(false)} sx={{ borderRadius: 10 }} color="inherit">
+              Cancel
+            </Button>
+            <Button
+              variant="contained"
+              onClick={handleSubmit}
+              disabled={submitting || criteriaLoading || criteria.length === 0 || Object.keys(multiRatings).length === 0}
+              sx={{ borderRadius: 10, py: 1.5, fontWeight: 900 }}
+            >
+              {submitting ? 'Submitting...' : `Submit Reviews (${Object.keys(multiRatings).length}/${criteria.length})`}
+            </Button>
+          </DialogActions>
         </Dialog>
       </Container>
     </PageContainer>

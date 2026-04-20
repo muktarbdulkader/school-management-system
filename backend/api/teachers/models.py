@@ -329,3 +329,217 @@ class TeacherAssignment(models.Model):
         section_info = self.section.name if self.section else "All Sections"
         term_info = f" - {self.term.name}" if self.term else ""
         return f"{self.teacher.user.full_name} - {self.subject.name} ({self.class_fk.grade} - {section_info}{term_info})"
+
+
+class PerformanceMeasurementCriteria(models.Model):
+    """Dynamic performance measurement criteria that admins can create and manage per term.
+    
+    This allows super admins and admins to define custom evaluation criteria for each term,
+    making the performance measurement system flexible and dynamic.
+    """
+    MEASUREMENT_TYPE_CHOICES = [
+        ('rating_1_5', 'Rating Scale (1-5)'),
+        ('rating_1_10', 'Rating Scale (1-10)'),
+        ('percentage', 'Percentage (0-100)'),
+        ('boolean', 'Yes/No'),
+        ('text', 'Text/Comment'),
+        ('numeric', 'Numeric Value'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    name = models.CharField(max_length=100, help_text="Criteria name (e.g., Teaching Quality, Punctuality)")
+    description = models.TextField(blank=True, help_text="Detailed description of what this criteria measures")
+    code = models.CharField(max_length=50, unique=True, help_text="Unique code for this criteria (e.g., teaching_quality)")
+    measurement_type = models.CharField(max_length=20, choices=MEASUREMENT_TYPE_CHOICES, default='rating_1_5')
+    weight = models.DecimalField(
+        max_digits=5, 
+        decimal_places=2, 
+        default=1.0,
+        validators=[MinValueValidator(0), MaxValueValidator(100)],
+        help_text="Weight for this criteria in overall calculation (default 1.0)"
+    )
+    is_active = models.BooleanField(default=True, help_text="Whether this criteria is currently active")
+    is_default = models.BooleanField(default=False, help_text="System default criteria that cannot be deleted")
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='criteria_created')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'performance_measurement_criteria'
+        ordering = ['name']
+        verbose_name_plural = 'performance measurement criteria'
+        indexes = [
+            models.Index(fields=['is_active', 'is_default']),
+            models.Index(fields=['code']),
+        ]
+
+    def __str__(self):
+        return f"{self.name} ({self.code})"
+
+
+class TeacherPerformanceEvaluation(models.Model):
+    """Term-based performance evaluation for teachers.
+    
+    Created by super admins and admins once per term for each teacher.
+    Contains ratings for all active criteria defined for that term.
+    """
+    STATUS_CHOICES = [
+        ('draft', 'Draft'),
+        ('submitted', 'Submitted'),
+        ('reviewed', 'Reviewed'),
+        ('approved', 'Approved'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    teacher = models.ForeignKey(Teacher, on_delete=models.CASCADE, related_name='performance_evaluations')
+    term = models.ForeignKey('academics.Term', on_delete=models.CASCADE, related_name='teacher_evaluations')
+    academic_year = models.CharField(max_length=20, help_text="e.g., 2025-2026")
+    
+    # Evaluation metadata
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='draft')
+    evaluated_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='evaluations_created')
+    evaluated_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    # Overall scores (calculated from individual ratings)
+    overall_score = models.DecimalField(
+        max_digits=5, 
+        decimal_places=2, 
+        null=True, 
+        blank=True,
+        validators=[MinValueValidator(0), MaxValueValidator(100)],
+        help_text="Calculated overall performance score"
+    )
+    weighted_average = models.DecimalField(
+        max_digits=5, 
+        decimal_places=2, 
+        null=True, 
+        blank=True,
+        validators=[MinValueValidator(0), MaxValueValidator(5)],
+        help_text="Weighted average of all rating criteria"
+    )
+    
+    # Summary fields
+    strengths = models.TextField(blank=True, help_text="Key strengths identified")
+    areas_for_improvement = models.TextField(blank=True, help_text="Areas needing improvement")
+    recommendations = models.TextField(blank=True, help_text="Recommendations for professional development")
+    action_items = models.TextField(blank=True, help_text="Specific action items for the teacher")
+    
+    # Review workflow
+    reviewed_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='evaluations_reviewed')
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    approved_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='evaluations_approved')
+    approved_at = models.DateTimeField(null=True, blank=True)
+    
+    class Meta:
+        db_table = 'teacher_performance_evaluations'
+        ordering = ['-evaluated_at']
+        # Ensure only one evaluation per teacher per term
+        unique_together = ['teacher', 'term']
+        indexes = [
+            models.Index(fields=['teacher', 'term']),
+            models.Index(fields=['status']),
+            models.Index(fields=['academic_year']),
+        ]
+
+    def __str__(self):
+        return f"{self.teacher.user.full_name} - {self.term.name} ({self.academic_year})"
+
+    def calculate_overall_score(self):
+        """Calculate overall score based on all criteria ratings."""
+        ratings = self.criteria_ratings.all()
+        if not ratings:
+            return None
+        
+        total_weighted_score = 0
+        total_weight = 0
+        
+        for rating in ratings:
+            if rating.criteria.weight and rating.normalized_score is not None:
+                total_weighted_score += float(rating.normalized_score) * float(rating.criteria.weight)
+                total_weight += float(rating.criteria.weight)
+        
+        if total_weight > 0:
+            self.weighted_average = round(total_weighted_score / total_weight, 2)
+            # Convert to percentage (assuming 5-star scale as base)
+            self.overall_score = round((self.weighted_average / 5) * 100, 2)
+        
+        return self.overall_score
+
+
+class TeacherPerformanceEvaluationRating(models.Model):
+    """Individual rating for a specific criteria within a performance evaluation."""
+    
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    evaluation = models.ForeignKey(TeacherPerformanceEvaluation, on_delete=models.CASCADE, related_name='criteria_ratings')
+    criteria = models.ForeignKey(PerformanceMeasurementCriteria, on_delete=models.CASCADE, related_name='evaluation_ratings')
+    
+    # Raw value based on measurement type
+    rating_value = models.DecimalField(
+        max_digits=8, 
+        decimal_places=2, 
+        null=True, 
+        blank=True,
+        help_text="The actual rating value (1-5, 1-10, percentage, etc.)"
+    )
+    text_value = models.TextField(blank=True, help_text="For text/comment type criteria")
+    boolean_value = models.BooleanField(null=True, blank=True, help_text="For yes/no type criteria")
+    
+    # Normalized score (0-5 scale) for calculation
+    normalized_score = models.DecimalField(
+        max_digits=4, 
+        decimal_places=2, 
+        null=True, 
+        blank=True,
+        validators=[MinValueValidator(0), MaxValueValidator(5)],
+        help_text="Score normalized to 0-5 scale for aggregation"
+    )
+    
+    # Additional details
+    comment = models.TextField(blank=True, help_text="Specific comment for this criteria")
+    rated_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='criteria_ratings_given')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'teacher_performance_evaluation_ratings'
+        # Ensure only one rating per criteria per evaluation
+        unique_together = ['evaluation', 'criteria']
+        ordering = ['criteria__name']
+        indexes = [
+            models.Index(fields=['evaluation', 'criteria']),
+        ]
+
+    def __str__(self):
+        return f"{self.evaluation.teacher.user.full_name} - {self.criteria.name}: {self.rating_value}"
+
+    def save(self, *args, **kwargs):
+        # Auto-calculate normalized score based on measurement type
+        if self.rating_value is not None and self.criteria:
+            self.normalized_score = self._calculate_normalized_score()
+        super().save(*args, **kwargs)
+        # Update parent's overall score
+        self.evaluation.calculate_overall_score()
+        self.evaluation.save(update_fields=['overall_score', 'weighted_average'])
+
+    def _calculate_normalized_score(self):
+        """Convert rating value to normalized 0-5 scale."""
+        if self.rating_value is None:
+            return None
+        
+        measurement_type = self.criteria.measurement_type
+        value = float(self.rating_value)
+        
+        if measurement_type == 'rating_1_5':
+            return min(5, max(0, value))
+        elif measurement_type == 'rating_1_10':
+            return min(5, max(0, value / 2))
+        elif measurement_type == 'percentage':
+            return min(5, max(0, (value / 100) * 5))
+        elif measurement_type == 'boolean':
+            return 5 if self.boolean_value else 0
+        elif measurement_type == 'numeric':
+            # Assume numeric is already on appropriate scale or needs manual handling
+            return min(5, max(0, value))
+        
+        return None

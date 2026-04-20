@@ -336,9 +336,11 @@ class ExamsSerializer(serializers.ModelSerializer):
     section_id = serializers.PrimaryKeyRelatedField(queryset=Section.objects.all(), source='section', write_only=True)
     section_details = SectionSerializer(source='section', read_only=True)
 
+    created_by_id = serializers.PrimaryKeyRelatedField(queryset=User.objects.all(), source='created_by', write_only=True, required=False)
+
     class Meta:
         model = Exam
-        fields = ['id', 'name', 'term_id', 'term_details', 'exam_type', 'subject_id', 'subject', 'class_id', 'class_details', 'section_id', 'section_details', 'branch_id', 'start_date', 'end_date', 'start_time', 'end_time', 'max_score', 'description']
+        fields = ['id', 'name', 'term_id', 'term_details', 'exam_type', 'subject_id', 'subject', 'class_id', 'class_details', 'section_id', 'section_details', 'branch_id', 'start_date', 'end_date', 'start_time', 'end_time', 'max_score', 'description', 'created_by_id']
 
 class SubjectExamDaysSerializer(serializers.ModelSerializer):
     subject_id = serializers.PrimaryKeyRelatedField(queryset=Subject.objects.all(), source='subject', write_only=True)

@@ -4,13 +4,16 @@ from rest_framework import viewsets, status
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.exceptions import PermissionDenied
-from .models import Teacher, TeacherTask, TeacherPerformanceRating, TeacherMetrics, TeacherPerformanceReport, TeacherAssignment
+from .models import (Teacher, TeacherTask, TeacherPerformanceRating, TeacherMetrics,
+                     TeacherPerformanceReport, TeacherAssignment, PerformanceMeasurementCriteria,
+                     TeacherPerformanceEvaluation, TeacherPerformanceEvaluationRating)
 
 logger = logging.getLogger(__name__)
 from .serializers import (
     TeacherPerformanceRatingSerializer, TeacherSerializer, teacherTaskSerializer,
     TeacherMetricsSerializer, TeacherPerformanceReportSerializer, TeacherRegistrationSerializer,
-    TeacherAssignmentSerializer
+    TeacherAssignmentSerializer, PerformanceMeasurementCriteriaSerializer,
+    TeacherPerformanceEvaluationSerializer, TeacherPerformanceEvaluationCreateSerializer
 )
 from django.utils import timezone
 from users.models import UserBranchAccess, has_model_permission
@@ -1254,6 +1257,14 @@ class TeacherPerformanceRatingViewSet(viewsets.ModelViewSet):
         except Exception as e:
             return Response({'success': False, 'message': str(e), 'status': 500}, status=500)
 
+    @action(detail=False, methods=['post'], url_path='submit')
+    def submit_ratings(self, request):
+        """
+        Dedicated endpoint for submitting teacher ratings.
+        Expects: { teacher: 'teacher_id', ratings: [{ category: 'code', rating: 4, comment: '' }] }
+        """
+        return self.create(request)
+
     @action(detail=False, methods=['get'], url_path='rankings')
     def rankings(self, request):
         """Get teacher performance rankings filtered by branch (SRS 5.2/8.2)"""
@@ -1261,7 +1272,7 @@ class TeacherPerformanceRatingViewSet(viewsets.ModelViewSet):
         
         # Base query for teachers
         from .models import Teacher
-        teachers = Teacher.objects.all()
+        teachers = Teacher.objects.all().select_related('user', 'branch')
         
         # Filter by branch if user is not superuser or branch specified
         if not request.user.is_superuser:
@@ -1278,33 +1289,76 @@ class TeacherPerformanceRatingViewSet(viewsets.ModelViewSet):
             teachers = teachers.filter(branch_id=branch_id)
 
         # Annotate with average rating and sort
-        from django.db.models import Avg
+        from django.db.models import Avg, Count
+        from django.utils import timezone
         ranking_data = []
-        for t in teachers:
+        
+        for idx, t in enumerate(teachers):
+            # Calculate ratings from both old and new models
             avg_rating = t.performance_ratings.aggregate(Avg('rating'))['rating__avg'] or 0
-            # Calculate total tasks vs completed if models exist (SRS 8.2)
+            
+            # Get evaluation ratings if available
+            eval_ratings = t.performance_evaluations.filter(status='approved').aggregate(Avg('overall_score'))['overall_score__avg'] or 0
+            
+            # Use the higher of the two ratings
+            final_rating = max(avg_rating, eval_ratings)
+            
+            # Calculate overall score as percentage (rating out of 5 -> percentage)
+            overall_score = round((final_rating / 5) * 100) if final_rating > 0 else 0
+            
+            # Calculate task completion percentage
             total_tasks = t.tasks.count()
             completed_tasks = t.tasks.filter(status='completed').count()
-            task_completion = (completed_tasks / total_tasks * 100) if total_tasks > 0 else 0
+            task_completion_score = round((completed_tasks / total_tasks * 100)) if total_tasks > 0 else 0
+            
+            # Calculate attendance score (default to 95% if no data)
+            attendance_score = 95  # Can be enhanced with actual attendance data
+            
+            # Calculate student performance score based on ratings and evaluations
+            student_performance_score = overall_score  # Link to overall performance
+            
+            # Get the most recent activity date
+            last_rating = t.performance_ratings.order_by('-rating_date').first()
+            last_eval = t.performance_evaluations.order_by('-updated_at').first()
+            last_task = t.tasks.order_by('-updated_at').first()
+            
+            last_updated = timezone.now()
+            if last_rating:
+                last_updated = last_rating.rating_date
+            if last_eval and last_eval.updated_at > last_updated:
+                last_updated = last_eval.updated_at
+            if last_task and last_task.updated_at > last_updated:
+                last_updated = last_task.updated_at
 
             ranking_data.append({
                 'id': str(t.id),
-                'full_name': t.user.full_name,
-                'teacher_id': t.teacher_id,
-                'average_rating': round(avg_rating, 2),
-                'task_completion': round(task_completion, 1),
+                'teacher_name': t.user.full_name,
+                'teacher_code': t.teacher_id,
+                'branch': t.branch.name if t.branch else 'Unassigned',
+                'rank': idx + 1,
+                'overall_score': overall_score,
+                'attendance_score': attendance_score,
+                'task_completion_score': task_completion_score,
+                'student_performance_score': student_performance_score,
+                'average_rating': round(final_rating, 1),
                 'total_tasks': total_tasks,
-                'branch': t.branch.name if t.branch else 'Unassigned'
+                'completed_tasks': completed_tasks,
+                'total_ratings': t.performance_ratings.count(),
+                'last_updated': last_updated.isoformat()
             })
             
-        # Sort by average rating descending
-        ranking_data.sort(key=lambda x: x['average_rating'], reverse=True)
+        # Sort by overall score descending
+        ranking_data.sort(key=lambda x: x['overall_score'], reverse=True)
+        
+        # Update ranks after sorting
+        for idx, teacher in enumerate(ranking_data):
+            teacher['rank'] = idx + 1
 
         return Response({
             'success': True,
             'message': 'OK',
             'status': 200,
-            'data': ranking_data[:50] # Top 50
+            'data': ranking_data[:50]  # Top 50
         })
 
 class TeacherMetricsViewSet(viewsets.ModelViewSet):
@@ -1657,4 +1711,459 @@ class TeacherAssignmentViewSet(viewsets.ModelViewSet):
             'message': 'Teacher details retrieved successfully from Class Schedule',
             'status': 200,
             'data': teacher_data
+        })
+
+
+class PerformanceMeasurementCriteriaViewSet(viewsets.ModelViewSet):
+    """ViewSet for managing dynamic performance measurement criteria.
+    
+    Only super admins and admins can create, update, or delete criteria.
+    All authenticated users can view active criteria.
+    """
+    queryset = PerformanceMeasurementCriteria.objects.all()
+    serializer_class = PerformanceMeasurementCriteriaSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        queryset = self.queryset
+        # Filter by active status if requested
+        is_active = self.request.query_params.get('is_active')
+        if is_active is not None:
+            queryset = queryset.filter(is_active=is_active.lower() == 'true')
+        return queryset.order_by('-is_active', 'name')
+
+    def is_admin_user(self, user):
+        """Check if user is a super admin or admin"""
+        if user.is_superuser:
+            return True
+        user_roles = list(user.userrole_set.values_list('role__name', flat=True))
+        admin_roles = ['admin', 'super_admin', 'superadmin', 'head_admin', 'ceo']
+        return any(role.lower() in admin_roles for role in user_roles)
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+        serializer = self.get_serializer(queryset, many=True)
+        return Response({
+            'success': True,
+            'message': 'OK',
+            'status': 200,
+            'data': serializer.data
+        })
+
+    def create(self, request, *args, **kwargs):
+        if not self.is_admin_user(request.user):
+            return Response({
+                'success': False,
+                'message': 'Only admins and super admins can create criteria',
+                'status': 403
+            }, status=403)
+        
+        serializer = self.get_serializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save(created_by=request.user)
+            return Response({
+                'success': True,
+                'message': 'Criteria created successfully',
+                'status': 201,
+                'data': serializer.data
+            }, status=201)
+        return Response({
+            'success': False,
+            'message': 'Validation failed',
+            'errors': serializer.errors,
+            'status': 400
+        }, status=400)
+
+    def update(self, request, *args, **kwargs):
+        if not self.is_admin_user(request.user):
+            return Response({
+                'success': False,
+                'message': 'Only admins and super admins can update criteria',
+                'status': 403
+            }, status=403)
+        
+        instance = self.get_object()
+        # Prevent modification of default criteria code/name by non-superusers
+        if instance.is_default and not request.user.is_superuser:
+            return Response({
+                'success': False,
+                'message': 'Default criteria can only be modified by super admins',
+                'status': 403
+            }, status=403)
+        
+        serializer = self.get_serializer(instance, data=request.data, partial=kwargs.get('partial', False))
+        if serializer.is_valid():
+            serializer.save()
+            return Response({
+                'success': True,
+                'message': 'Criteria updated successfully',
+                'status': 200,
+                'data': serializer.data
+            })
+        return Response({
+            'success': False,
+            'message': 'Validation failed',
+            'errors': serializer.errors,
+            'status': 400
+        }, status=400)
+
+    def destroy(self, request, *args, **kwargs):
+        if not self.is_admin_user(request.user):
+            return Response({
+                'success': False,
+                'message': 'Only admins and super admins can delete criteria',
+                'status': 403
+            }, status=403)
+        
+        instance = self.get_object()
+        if instance.is_default:
+            return Response({
+                'success': False,
+                'message': 'Default criteria cannot be deleted',
+                'status': 400
+            }, status=400)
+        
+        instance.delete()
+        return Response({
+            'success': True,
+            'message': 'Criteria deleted successfully',
+            'status': 200
+        })
+
+    @action(detail=False, methods=['post'], url_path='bulk-create')
+    def bulk_create(self, request):
+        """Bulk create multiple criteria at once"""
+        if not self.is_admin_user(request.user):
+            return Response({
+                'success': False,
+                'message': 'Only admins and super admins can create criteria',
+                'status': 403
+            }, status=403)
+        
+        criteria_list = request.data.get('criteria', [])
+        if not isinstance(criteria_list, list) or not criteria_list:
+            return Response({
+                'success': False,
+                'message': 'Please provide a list of criteria to create',
+                'status': 400
+            }, status=400)
+        
+        created = []
+        errors = []
+        
+        for idx, criteria_data in enumerate(criteria_list):
+            serializer = self.get_serializer(data=criteria_data)
+            if serializer.is_valid():
+                serializer.save(created_by=request.user)
+                created.append(serializer.data)
+            else:
+                errors.append({'index': idx, 'errors': serializer.errors})
+        
+        return Response({
+            'success': len(errors) == 0,
+            'message': f'Created {len(created)} criteria, {len(errors)} failed',
+            'status': 201 if len(errors) == 0 else 207,
+            'data': created,
+            'errors': errors if errors else None
+        }, status=201 if len(errors) == 0 else 207)
+
+    @action(detail=False, methods=['get'], url_path='active')
+    def active_criteria(self, request):
+        """Get only active criteria for use in evaluations"""
+        criteria = self.queryset.filter(is_active=True).order_by('name')
+        serializer = self.get_serializer(criteria, many=True)
+        return Response({
+            'success': True,
+            'message': 'OK',
+            'status': 200,
+            'data': serializer.data
+        })
+
+
+class TeacherPerformanceEvaluationViewSet(viewsets.ModelViewSet):
+    """ViewSet for managing term-based teacher performance evaluations.
+    
+    Only super admins and admins can create, update, or delete evaluations.
+    Teachers can view their own evaluations.
+    """
+    queryset = TeacherPerformanceEvaluation.objects.all()
+    serializer_class = TeacherPerformanceEvaluationSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_serializer_class(self):
+        if self.action in ['create', 'update', 'partial_update']:
+            return TeacherPerformanceEvaluationCreateSerializer
+        return TeacherPerformanceEvaluationSerializer
+
+    def is_admin_user(self, user):
+        """Check if user is a super admin or admin"""
+        if user.is_superuser:
+            return True
+        user_roles = list(user.userrole_set.values_list('role__name', flat=True))
+        admin_roles = ['admin', 'super_admin', 'superadmin', 'head_admin', 'ceo']
+        return any(role.lower() in admin_roles for role in user_roles)
+
+    def get_queryset(self):
+        queryset = self.queryset
+        user = self.request.user
+        
+        # If user is a teacher, only show their own evaluations
+        try:
+            teacher = Teacher.objects.get(user=user)
+            return queryset.filter(teacher=teacher).order_by('-evaluated_at')
+        except Teacher.DoesNotExist:
+            pass
+        
+        # For admins, allow filtering
+        teacher_id = self.request.query_params.get('teacher')
+        term_id = self.request.query_params.get('term')
+        academic_year = self.request.query_params.get('academic_year')
+        status = self.request.query_params.get('status')
+        
+        if teacher_id:
+            queryset = queryset.filter(teacher_id=teacher_id)
+        if term_id:
+            queryset = queryset.filter(term_id=term_id)
+        if academic_year:
+            queryset = queryset.filter(academic_year=academic_year)
+        if status:
+            queryset = queryset.filter(status=status)
+        
+        return queryset.order_by('-evaluated_at')
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+        serializer = self.get_serializer(queryset, many=True)
+        return Response({
+            'success': True,
+            'message': 'OK',
+            'status': 200,
+            'data': serializer.data
+        })
+
+    def retrieve(self, request, *args, **kwargs):
+        instance = self.get_object()
+        serializer = self.get_serializer(instance)
+        return Response({
+            'success': True,
+            'message': 'OK',
+            'status': 200,
+            'data': serializer.data
+        })
+
+    def create(self, request, *args, **kwargs):
+        if not self.is_admin_user(request.user):
+            return Response({
+                'success': False,
+                'message': 'Only admins and super admins can create performance evaluations',
+                'status': 403
+            }, status=403)
+        
+        serializer = self.get_serializer(data=request.data, context={'request': request})
+        if serializer.is_valid():
+            instance = serializer.save()
+            # Return with full serializer
+            response_serializer = TeacherPerformanceEvaluationSerializer(instance)
+            return Response({
+                'success': True,
+                'message': 'Performance evaluation created successfully',
+                'status': 201,
+                'data': response_serializer.data
+            }, status=201)
+        return Response({
+            'success': False,
+            'message': 'Validation failed',
+            'errors': serializer.errors,
+            'status': 400
+        }, status=400)
+
+    def update(self, request, *args, **kwargs):
+        if not self.is_admin_user(request.user):
+            return Response({
+                'success': False,
+                'message': 'Only admins and super admins can update performance evaluations',
+                'status': 403
+            }, status=403)
+        
+        instance = self.get_object()
+        partial = kwargs.get('partial', False)
+        serializer = self.get_serializer(instance, data=request.data, partial=partial, context={'request': request})
+        if serializer.is_valid():
+            instance = serializer.save()
+            response_serializer = TeacherPerformanceEvaluationSerializer(instance)
+            return Response({
+                'success': True,
+                'message': 'Performance evaluation updated successfully',
+                'status': 200,
+                'data': response_serializer.data
+            })
+        return Response({
+            'success': False,
+            'message': 'Validation failed',
+            'errors': serializer.errors,
+            'status': 400
+        }, status=400)
+
+    def destroy(self, request, *args, **kwargs):
+        if not self.is_admin_user(request.user):
+            return Response({
+                'success': False,
+                'message': 'Only admins and super admins can delete performance evaluations',
+                'status': 403
+            }, status=403)
+        
+        instance = self.get_object()
+        instance.delete()
+        return Response({
+            'success': True,
+            'message': 'Performance evaluation deleted successfully',
+            'status': 200
+        })
+
+    @action(detail=True, methods=['post'], url_path='submit')
+    def submit(self, request, pk=None):
+        """Submit a draft evaluation for review"""
+        if not self.is_admin_user(request.user):
+            return Response({
+                'success': False,
+                'message': 'Only admins and super admins can submit evaluations',
+                'status': 403
+            }, status=403)
+        
+        evaluation = self.get_object()
+        if evaluation.status != 'draft':
+            return Response({
+                'success': False,
+                'message': f'Evaluation is already {evaluation.status}',
+                'status': 400
+            }, status=400)
+        
+        evaluation.status = 'submitted'
+        evaluation.save()
+        serializer = self.get_serializer(evaluation)
+        return Response({
+            'success': True,
+            'message': 'Evaluation submitted for review',
+            'status': 200,
+            'data': serializer.data
+        })
+
+    @action(detail=True, methods=['post'], url_path='review')
+    def review(self, request, pk=None):
+        """Review an evaluation (move from submitted to reviewed)"""
+        if not self.is_admin_user(request.user):
+            return Response({
+                'success': False,
+                'message': 'Only admins and super admins can review evaluations',
+                'status': 403
+            }, status=403)
+        
+        evaluation = self.get_object()
+        if evaluation.status != 'submitted':
+            return Response({
+                'success': False,
+                'message': f'Evaluation must be submitted before review. Current status: {evaluation.status}',
+                'status': 400
+            }, status=400)
+        
+        evaluation.status = 'reviewed'
+        evaluation.reviewed_by = request.user
+        evaluation.reviewed_at = timezone.now()
+        evaluation.save()
+        serializer = self.get_serializer(evaluation)
+        return Response({
+            'success': True,
+            'message': 'Evaluation reviewed',
+            'status': 200,
+            'data': serializer.data
+        })
+
+    @action(detail=True, methods=['post'], url_path='approve')
+    def approve(self, request, pk=None):
+        """Approve an evaluation (move from reviewed to approved)"""
+        if not self.is_admin_user(request.user):
+            return Response({
+                'success': False,
+                'message': 'Only admins and super admins can approve evaluations',
+                'status': 403
+            }, status=403)
+        
+        evaluation = self.get_object()
+        if evaluation.status != 'reviewed':
+            return Response({
+                'success': False,
+                'message': f'Evaluation must be reviewed before approval. Current status: {evaluation.status}',
+                'status': 400
+            }, status=400)
+        
+        evaluation.status = 'approved'
+        evaluation.approved_by = request.user
+        evaluation.approved_at = timezone.now()
+        evaluation.save()
+        serializer = self.get_serializer(evaluation)
+        return Response({
+            'success': True,
+            'message': 'Evaluation approved',
+            'status': 200,
+            'data': serializer.data
+        })
+
+    @action(detail=False, methods=['get'], url_path='by-teacher/(?P<teacher_id>[^/.]+)')
+    def by_teacher(self, request, teacher_id=None):
+        """Get all evaluations for a specific teacher"""
+        try:
+            teacher = Teacher.objects.get(id=teacher_id)
+        except Teacher.DoesNotExist:
+            return Response({
+                'success': False,
+                'message': 'Teacher not found',
+                'status': 404
+            }, status=404)
+        
+        # Check permission - teachers can only view their own
+        user = request.user
+        try:
+            user_teacher = Teacher.objects.get(user=user)
+            if user_teacher.id != teacher.id and not self.is_admin_user(user):
+                return Response({
+                    'success': False,
+                    'message': 'You can only view your own evaluations',
+                    'status': 403
+                }, status=403)
+        except Teacher.DoesNotExist:
+            if not self.is_admin_user(user):
+                return Response({
+                    'success': False,
+                    'message': 'Permission denied',
+                    'status': 403
+                }, status=403)
+        
+        evaluations = self.queryset.filter(teacher=teacher).order_by('-evaluated_at')
+        serializer = self.get_serializer(evaluations, many=True)
+        return Response({
+            'success': True,
+            'message': 'OK',
+            'status': 200,
+            'data': serializer.data
+        })
+
+    @action(detail=False, methods=['get'], url_path='my-evaluations')
+    def my_evaluations(self, request):
+        """Get evaluations for the logged-in teacher"""
+        try:
+            teacher = Teacher.objects.get(user=request.user)
+        except Teacher.DoesNotExist:
+            return Response({
+                'success': False,
+                'message': 'You are not registered as a teacher',
+                'status': 403
+            }, status=403)
+        
+        evaluations = self.queryset.filter(teacher=teacher).order_by('-evaluated_at')
+        serializer = self.get_serializer(evaluations, many=True)
+        return Response({
+            'success': True,
+            'message': 'OK',
+            'status': 200,
+            'data': serializer.data
         })

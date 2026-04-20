@@ -4,7 +4,9 @@ from django.db import transaction
 from users.models import User
 from users.serializers import UserSerializer
 from academics.models import Class, Section, Subject, Term
-from .models import Teacher, TeacherAssignment, TeacherMetrics, TeacherPerformanceRating, TeacherPerformanceReport, TeacherTask
+from .models import (Teacher, TeacherAssignment, TeacherMetrics, TeacherPerformanceRating,
+                     TeacherPerformanceReport, TeacherTask, PerformanceMeasurementCriteria,
+                     TeacherPerformanceEvaluation, TeacherPerformanceEvaluationRating)
 
 class TeacherSerializer(serializers.ModelSerializer):
     user = serializers.PrimaryKeyRelatedField(
@@ -377,3 +379,196 @@ class TeacherAssignmentSerializer(serializers.ModelSerializer):
         if obj.term:
             return {'id': str(obj.term.id), 'name': obj.term.name, 'academic_year': obj.term.academic_year}
         return None
+
+
+class PerformanceMeasurementCriteriaSerializer(serializers.ModelSerializer):
+    """Serializer for dynamic performance measurement criteria"""
+    created_by_name = serializers.CharField(source='created_by.full_name', read_only=True)
+    measurement_type_display = serializers.CharField(source='get_measurement_type_display', read_only=True)
+
+    class Meta:
+        model = PerformanceMeasurementCriteria
+        fields = [
+            'id', 'name', 'description', 'code', 'measurement_type', 'measurement_type_display',
+            'weight', 'is_active', 'is_default', 'created_by', 'created_by_name',
+            'created_at', 'updated_at'
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
+
+    def validate_code(self, value):
+        """Ensure code is unique and lowercase"""
+        value = value.lower().strip()
+        if self.instance and self.instance.code == value:
+            return value
+        if PerformanceMeasurementCriteria.objects.filter(code=value).exists():
+            raise serializers.ValidationError(f"Criteria with code '{value}' already exists.")
+        return value
+
+    def validate_weight(self, value):
+        """Ensure weight is positive"""
+        if value < 0:
+            raise serializers.ValidationError("Weight cannot be negative.")
+        return value
+
+
+class TeacherPerformanceEvaluationRatingSerializer(serializers.ModelSerializer):
+    """Serializer for individual criteria ratings within an evaluation"""
+    criteria_details = PerformanceMeasurementCriteriaSerializer(source='criteria', read_only=True)
+    rated_by_name = serializers.CharField(source='rated_by.full_name', read_only=True)
+
+    class Meta:
+        model = TeacherPerformanceEvaluationRating
+        fields = [
+            'id', 'evaluation', 'criteria', 'criteria_details', 'rating_value',
+            'text_value', 'boolean_value', 'normalized_score', 'comment',
+            'rated_by', 'rated_by_name', 'created_at', 'updated_at'
+        ]
+        read_only_fields = ['id', 'normalized_score', 'created_at', 'updated_at']
+
+
+class TeacherPerformanceEvaluationSerializer(serializers.ModelSerializer):
+    """Serializer for term-based teacher performance evaluations"""
+    teacher_name = serializers.CharField(source='teacher.user.full_name', read_only=True)
+    teacher_id = serializers.CharField(source='teacher.teacher_id', read_only=True)
+    term_details = serializers.SerializerMethodField()
+    evaluated_by_name = serializers.CharField(source='evaluated_by.full_name', read_only=True)
+    reviewed_by_name = serializers.CharField(source='reviewed_by.full_name', read_only=True)
+    approved_by_name = serializers.CharField(source='approved_by.full_name', read_only=True)
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+    criteria_ratings = TeacherPerformanceEvaluationRatingSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = TeacherPerformanceEvaluation
+        fields = [
+            'id', 'teacher', 'teacher_name', 'teacher_id', 'term', 'term_details',
+            'academic_year', 'status', 'status_display', 'evaluated_by', 'evaluated_by_name',
+            'evaluated_at', 'updated_at', 'overall_score', 'weighted_average',
+            'strengths', 'areas_for_improvement', 'recommendations', 'action_items',
+            'reviewed_by', 'reviewed_by_name', 'reviewed_at',
+            'approved_by', 'approved_by_name', 'approved_at',
+            'criteria_ratings'
+        ]
+        read_only_fields = [
+            'id', 'evaluated_at', 'updated_at', 'overall_score', 'weighted_average',
+            'reviewed_at', 'approved_at'
+        ]
+
+    def get_term_details(self, obj):
+        if obj.term:
+            return {
+                'id': str(obj.term.id),
+                'name': obj.term.name,
+                'academic_year': obj.term.academic_year,
+                'status': obj.term.status,
+                'start_date': obj.term.start_date,
+                'end_date': obj.term.end_date
+            }
+        return None
+
+    def validate(self, data):
+        """Validate that only one evaluation exists per teacher per term"""
+        teacher = data.get('teacher')
+        term = data.get('term')
+        
+        if teacher and term:
+            existing = TeacherPerformanceEvaluation.objects.filter(
+                teacher=teacher, term=term
+            ).exclude(id=self.instance.id if self.instance else None)
+            
+            if existing.exists():
+                raise serializers.ValidationError(
+                    "An evaluation already exists for this teacher in the selected term."
+                )
+        
+        # Auto-set academic_year from term if not provided
+        if term and not data.get('academic_year'):
+            data['academic_year'] = term.academic_year
+            
+        return data
+
+
+class TeacherPerformanceEvaluationCreateSerializer(serializers.ModelSerializer):
+    """Serializer for creating evaluations with criteria ratings"""
+    criteria_ratings = serializers.ListField(
+        child=serializers.DictField(),
+        required=False,
+        write_only=True,
+        help_text="List of criteria ratings: [{'criteria': 'uuid', 'rating_value': 4.5, 'comment': '...'}, ...]"
+    )
+
+    class Meta:
+        model = TeacherPerformanceEvaluation
+        fields = [
+            'id', 'teacher', 'term', 'academic_year', 'status',
+            'strengths', 'areas_for_improvement', 'recommendations', 'action_items',
+            'criteria_ratings'
+        ]
+        read_only_fields = ['id']
+
+    def create(self, validated_data):
+        criteria_ratings_data = validated_data.pop('criteria_ratings', [])
+        user = self.context['request'].user
+        validated_data['evaluated_by'] = user
+        
+        # Set academic_year from term if not provided
+        if not validated_data.get('academic_year') and validated_data.get('term'):
+            validated_data['academic_year'] = validated_data['term'].academic_year
+        
+        evaluation = TeacherPerformanceEvaluation.objects.create(**validated_data)
+        
+        # Create criteria ratings
+        for rating_data in criteria_ratings_data:
+            criteria_id = rating_data.get('criteria')
+            try:
+                criteria = PerformanceMeasurementCriteria.objects.get(id=criteria_id)
+                TeacherPerformanceEvaluationRating.objects.create(
+                    evaluation=evaluation,
+                    criteria=criteria,
+                    rating_value=rating_data.get('rating_value'),
+                    text_value=rating_data.get('text_value', ''),
+                    boolean_value=rating_data.get('boolean_value'),
+                    comment=rating_data.get('comment', ''),
+                    rated_by=user
+                )
+            except PerformanceMeasurementCriteria.DoesNotExist:
+                continue
+        
+        # Calculate overall score
+        evaluation.calculate_overall_score()
+        evaluation.save(update_fields=['overall_score', 'weighted_average'])
+        
+        return evaluation
+
+    def update(self, instance, validated_data):
+        criteria_ratings_data = validated_data.pop('criteria_ratings', [])
+        user = self.context['request'].user
+        
+        # Update evaluation fields
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        instance.save()
+        
+        # Update or create criteria ratings
+        for rating_data in criteria_ratings_data:
+            criteria_id = rating_data.get('criteria')
+            try:
+                criteria = PerformanceMeasurementCriteria.objects.get(id=criteria_id)
+                rating, created = TeacherPerformanceEvaluationRating.objects.update_or_create(
+                    evaluation=instance,
+                    criteria=criteria,
+                    defaults={
+                        'rating_value': rating_data.get('rating_value'),
+                        'text_value': rating_data.get('text_value', ''),
+                        'boolean_value': rating_data.get('boolean_value'),
+                        'comment': rating_data.get('comment', ''),
+                        'rated_by': user
+                    }
+                )
+            except PerformanceMeasurementCriteria.DoesNotExist:
+                continue
+        
+        # Recalculate overall score
+        instance.calculate_overall_score()
+        instance.save(update_fields=['overall_score', 'weighted_average'])
+        
+        return instance

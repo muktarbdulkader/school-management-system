@@ -789,8 +789,8 @@ class ExamResultsSerializer(serializers.ModelSerializer):
     class Meta:
         model = ExamResults
         fields = ['id', 'student_id', 'student_details', 'teacher_assignment_id', 'teacher_assignment_details',
-                  'subject_details', 'exam_id', 'exam_details', 'max_score', 'score', 'percentage', 
-                  'letter_grade', 'remarks', 'recorded_by', 'recorded_by_details', 'recorded_at']
+                  'subject_details', 'exam_id', 'exam_details', 'max_score', 'score', 'percentage',
+                  'grade', 'remarks', 'recorded_by', 'recorded_by_details', 'recorded_at']
 
     def validate_marks_obtained(self, value):
         """Validate marks are within range"""

@@ -90,6 +90,7 @@ export default function GradeBookPage() {
   });
 
   const [teacherProfile, setTeacherProfile] = useState(null);
+  const [teacherAssignments, setTeacherAssignments] = useState([]);
 
   const user = useSelector((state) => state?.user?.user);
 
@@ -237,6 +238,8 @@ export default function GradeBookPage() {
 
         setClasses(uniqueClasses);
         setSubjects(uniqueSubjects);
+        // Store full assignments data for later use
+        setTeacherAssignments(teacherSubjects);
 
         // Set defaults from state or first available
         if (stateData.classId) {
@@ -350,10 +353,24 @@ export default function GradeBookPage() {
 
       setExams(examsList);
 
-      // Fetch exam results
+      // Fetch exam results with filters
       let resultsList = [];
       try {
-        const resultsRes = await fetch(`${Backend.api}${Backend.examResults}`, { headers: header });
+        const resultsQueryParams = new URLSearchParams();
+        if (grade) resultsQueryParams.append('class_id', grade);
+        if (section) resultsQueryParams.append('section_id', section);
+        if (subject) resultsQueryParams.append('subject_id', subject);
+
+        const resultsRes = await fetch(`${Backend.api}${Backend.examResults}?${resultsQueryParams}`, { headers: header });
+
+        // Check if response is JSON before parsing
+        const contentType = resultsRes.headers.get('content-type');
+        if (!contentType || !contentType.includes('application/json')) {
+          const text = await resultsRes.text();
+          console.error('[Gradebook] Exam results API returned non-JSON:', text.substring(0, 200));
+          throw new Error('Invalid response format from server');
+        }
+
         const resultsData = await resultsRes.json();
         resultsList = resultsData.success ? resultsData.data || [] : [];
         console.log('Exam results from API:', resultsList.length);
@@ -546,14 +563,32 @@ export default function GradeBookPage() {
         'Content-Type': 'application/json',
       };
 
+      // Find teacher_assignment_id for this class/section/subject
+      const assignment = teacherAssignments.find(a =>
+        a.class_id === grade &&
+        (a.section_id === section || (!a.section_id && !section)) &&
+        a.id === subject
+      );
+
+      if (!assignment) {
+        console.log('[Grade] Available assignments:', teacherAssignments);
+        console.log('[Grade] Looking for class_id:', grade, 'section_id:', section, 'subject_id:', subject);
+        toast.error('Teacher assignment not found for this class/section/subject');
+        return;
+      }
+
+      // Use assignment_id if available, otherwise fall back to id
+      const teacherAssignmentId = assignment.assignment_id || assignment.id;
+      console.log('[Grade] Found assignment:', assignment, 'Using ID:', teacherAssignmentId);
+
       const payload = {
         student_id: selectedStudent.id,
-        subject_id: subject,
+        teacher_assignment_id: teacherAssignmentId,
         exam_id: selectedExam,
         score: parseFloat(gradeForm.score),
         max_score: parseFloat(gradeForm.max_score),
         remarks: gradeForm.remarks,
-        branch_id: user?.branch_id || null,
+        branch_id: teacherProfile?.branch_id || null,
       };
 
       const response = await fetch(`${Backend.api}${Backend.examResults}`, {

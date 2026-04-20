@@ -1720,25 +1720,60 @@ class ExamResultsViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         user = self.request.user
         branch_id = self.request.query_params.get('branch_id')
+        class_id = self.request.query_params.get('class_id')
+        section_id = self.request.query_params.get('section_id')
+        subject_id = self.request.query_params.get('subject_id')
+        
         if branch_id and not has_model_permission(user, 'examresults', 'view', branch_id):
             raise PermissionDenied("No permission to view exam results.")
+
+        # Start with base queryset and select_related for performance
+        queryset = self.queryset.select_related('student', 'exam', 'subject', 'recorded_by')
+
+        # Apply filters if provided
+        if class_id:
+            queryset = queryset.filter(exam__class_fk_id=class_id)
+        if section_id:
+            queryset = queryset.filter(exam__section_id=section_id)
+        if subject_id:
+            queryset = queryset.filter(subject_id=subject_id)
 
         if is_teacher(user):
             teacher = Teacher.objects.filter(user=user).first()
             if not teacher:
-                return self.queryset.none()
+                return queryset.none()
             assigned_subjects = TeacherAssignment.objects.filter(teacher=teacher).values_list('subject', flat=True)
             assigned_classes = TeacherAssignment.objects.filter(teacher=teacher).values_list('class_fk', flat=True)
-            return self.queryset.filter(
+            return queryset.filter(
                 subject__in=assigned_subjects,
                 exam__class_fk__in=assigned_classes
             )
         elif is_parent(user):
-            return self.queryset.filter(student_id__parent_links__parent__user=user)
+            return queryset.filter(student_id__parent_links__parent__user=user)
         elif is_student(user):
-            return self.queryset.filter(student_id__user=user)
+            return queryset.filter(student_id__user=user)
         else:
-            return self.queryset.none()
+            return queryset.none()
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+        serializer = self.get_serializer(queryset, many=True)
+        return Response({
+            'success': True,
+            'message': 'OK',
+            'status': 200,
+            'data': serializer.data
+        })
+
+    def retrieve(self, request, *args, **kwargs):
+        instance = self.get_object()
+        serializer = self.get_serializer(instance)
+        return Response({
+            'success': True,
+            'message': 'OK',
+            'status': 200,
+            'data': serializer.data
+        })
 
     def is_administrative_user(self, user):
         """Helper to check if user has admin, super_admin, or staff roles"""
@@ -1758,18 +1793,28 @@ class ExamResultsViewSet(viewsets.ModelViewSet):
         if not is_admin and not is_teacher(user):
             raise PermissionDenied("Only teachers and administrators can create exam results.")
 
-        subject_id = request.data.get('subject_id')
+        teacher_assignment_id = request.data.get('teacher_assignment_id')
         exam_id = request.data.get('exam_id')
-        
-        if not is_admin:
+
+        if not is_admin and teacher_assignment_id:
             from schedule.models import Exam
             teacher = Teacher.objects.filter(user=user).first()
-            if not teacher or not TeacherAssignment.objects.filter(
-                teacher=teacher,
-                subject=subject_id,
-                class_fk=Exam.objects.get(id=exam_id).class_fk
-            ).exists():
-                raise PermissionDenied("You are not authorized to create results for this subject and class.")
+            if not teacher:
+                print(f"[ExamResults] No teacher profile for user {user.email}")
+                raise PermissionDenied("Teacher profile not found.")
+            # Verify the teacher assignment belongs to this teacher
+            assignment = TeacherAssignment.objects.filter(
+                id=teacher_assignment_id,
+                teacher=teacher
+            ).first()
+            if not assignment:
+                # Debug: check if assignment exists at all
+                any_assignment = TeacherAssignment.objects.filter(id=teacher_assignment_id).first()
+                if any_assignment:
+                    print(f"[ExamResults] Assignment {teacher_assignment_id} exists but belongs to teacher {any_assignment.teacher_id}, not {teacher.id}")
+                else:
+                    print(f"[ExamResults] Assignment {teacher_assignment_id} not found")
+                raise PermissionDenied("You are not authorized to create results for this assignment.")
 
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -1782,7 +1827,7 @@ class ExamResultsViewSet(viewsets.ModelViewSet):
         }, status=status.HTTP_201_CREATED)
 
     def perform_create(self, serializer):
-        serializer.save()
+        serializer.save(recorded_by=self.request.user)
 
     def update(self, request, *args, **kwargs):
         user = request.user
@@ -1862,13 +1907,29 @@ class ReportCardViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         user = self.request.user
         branch_id = self.request.query_params.get('branch_id')
+        term_id = self.request.query_params.get('term_id')
+        class_id = self.request.query_params.get('class_id')
+        section_id = self.request.query_params.get('section_id')
+        student_id = self.request.query_params.get('student_id')
+        student_me = self.request.query_params.get('student_me')
         
         if branch_id and not has_model_permission(user, 'reportcard', 'view', branch_id):
             raise PermissionDenied("No permission to view report cards.")
 
         queryset = self.queryset
         
-        if is_student(user):
+        # Apply query parameter filters
+        if term_id:
+            queryset = queryset.filter(term_id=term_id)
+        if class_id:
+            queryset = queryset.filter(class_fk_id=class_id)
+        if section_id:
+            queryset = queryset.filter(section_id=section_id)
+        if student_id:
+            queryset = queryset.filter(student_id=student_id)
+        
+        # Role-based filtering
+        if is_student(user) or student_me:
             student = Student.objects.filter(user=user).first()
             if student:
                 queryset = queryset.filter(student=student)
@@ -1886,6 +1947,26 @@ class ReportCardViewSet(viewsets.ModelViewSet):
                 queryset = queryset.filter(class_fk_id__in=class_ids)
 
         return queryset
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+        serializer = self.get_serializer(queryset, many=True)
+        return Response({
+            'success': True,
+            'message': 'OK',
+            'status': 200,
+            'data': serializer.data
+        })
+
+    def retrieve(self, request, *args, **kwargs):
+        instance = self.get_object()
+        serializer = self.get_serializer(instance)
+        return Response({
+            'success': True,
+            'message': 'OK',
+            'status': 200,
+            'data': serializer.data
+        })
 
     @action(detail=False, methods=['post'], url_path='generate')
     def generate_report_cards(self, request):

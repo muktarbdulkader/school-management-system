@@ -24,7 +24,7 @@ export const ROLES = {
 export const PERMISSIONS = {
   // Dashboard Access
   VIEW_DASHBOARD: 'view_dashboard',
-  
+
   // Student Management
   VIEW_STUDENTS: 'view_students',
   CREATE_STUDENT: 'create_student',
@@ -41,7 +41,7 @@ export const PERMISSIONS = {
   VIEW_STUDENT_GRADES: 'view_student_grades',
   EDIT_STUDENT_GRADES: 'edit_student_grades',
   GENERATE_STUDENT_REPORT: 'generate_student_report',
-  
+
   // Teacher Management
   VIEW_TEACHERS: 'view_teachers',
   CREATE_TEACHER: 'create_teacher',
@@ -53,14 +53,15 @@ export const PERMISSIONS = {
   VIEW_TEACHER_PERFORMANCE: 'view_teacher_performance',
   EVALUATE_TEACHER: 'evaluate_teacher',
   VIEW_TEACHER_RANKING: 'view_teacher_ranking',
-  
+  MANAGE_TEACHER_PERFORMANCE: 'manage_teacher_performance',
+
   // Parent Management
   VIEW_PARENTS: 'view_parents',
   CREATE_PARENT: 'create_parent',
   EDIT_PARENT: 'edit_parent',
   DELETE_PARENT: 'delete_parent',
   UPLOAD_PARENTS: 'upload_parents',
-  
+
   // Class & Schedule Management
   VIEW_CLASSES: 'view_classes',
   CREATE_CLASS: 'create_class',
@@ -70,13 +71,13 @@ export const PERMISSIONS = {
   CREATE_SCHEDULE: 'create_schedule',
   EDIT_SCHEDULE: 'edit_schedule',
   IMPORT_SCHEDULE: 'import_schedule',
-  
+
   // Subject Management
   VIEW_SUBJECTS: 'view_subjects',
   CREATE_SUBJECT: 'create_subject',
   EDIT_SUBJECT: 'edit_subject',
   DELETE_SUBJECT: 'delete_subject',
-  
+
   // Assignment & Homework
   VIEW_ASSIGNMENTS: 'view_assignments',
   CREATE_ASSIGNMENT: 'create_assignment',
@@ -84,14 +85,14 @@ export const PERMISSIONS = {
   DELETE_ASSIGNMENT: 'delete_assignment',
   SUBMIT_ASSIGNMENT: 'submit_assignment',
   GRADE_ASSIGNMENT: 'grade_assignment',
-  
+
   // Lesson Planning
   VIEW_LESSON_PLANS: 'view_lesson_plans',
   CREATE_LESSON_PLAN: 'create_lesson_plan',
   EDIT_LESSON_PLAN: 'edit_lesson_plan',
   DELETE_LESSON_PLAN: 'delete_lesson_plan',
   EVALUATE_LESSON_PLAN: 'evaluate_lesson_plan',
-  
+
   // Communication
   VIEW_ANNOUNCEMENTS: 'view_announcements',
   CREATE_ANNOUNCEMENT: 'create_announcement',
@@ -106,13 +107,13 @@ export const PERMISSIONS = {
   REQUEST_MEETING: 'request_meeting',
   APPROVE_MEETING: 'approve_meeting',
   RATE_MEETING: 'rate_meeting',
-  
+
   // Leave Management
   VIEW_LEAVE_REQUESTS: 'view_leave_requests',
   CREATE_LEAVE_REQUEST: 'create_leave_request',
   APPROVE_LEAVE_REQUEST: 'approve_leave_request',
   REJECT_LEAVE_REQUEST: 'reject_leave_request',
-  
+
   // Task Management
   VIEW_TASKS: 'view_tasks',
   CREATE_TASK: 'create_task',
@@ -120,13 +121,13 @@ export const PERMISSIONS = {
   DELETE_TASK: 'delete_task',
   ASSIGN_TASK: 'assign_task',
   COMPLETE_TASK: 'complete_task',
-  
+
   // Resource Management
   VIEW_RESOURCES: 'view_resources',
   UPLOAD_RESOURCES: 'upload_resources',
   DELETE_RESOURCES: 'delete_resources',
   DOWNLOAD_RESOURCES: 'download_resources',
-  
+
   // Inventory/Materials Management
   VIEW_INVENTORY: 'view_inventory',
   CREATE_INVENTORY: 'create_inventory',
@@ -136,37 +137,37 @@ export const PERMISSIONS = {
   VIEW_MATERIAL_REQUESTS: 'view_material_requests',
   REQUEST_PURCHASE: 'request_purchase',
   REQUEST_DUPLICATION: 'request_duplication',
-  
+
   // Library Management
   VIEW_LIBRARY: 'view_library',
   MANAGE_LIBRARY: 'manage_library',
   BORROW_BOOK: 'borrow_book',
   RETURN_BOOK: 'return_book',
-  
+
   // Finance
   VIEW_EXPENSES: 'view_expenses',
   VIEW_FINANCIAL_REPORTS: 'view_financial_reports',
   MANAGE_PAYMENTS: 'manage_payments',
-  
+
   // Reports & Analytics
   VIEW_REPORTS: 'view_reports',
   GENERATE_REPORTS: 'generate_reports',
   EXPORT_DATA: 'export_data',
   VIEW_ANALYTICS: 'view_analytics',
-  
+
   // Blog
   VIEW_BLOG: 'view_blog',
   CREATE_BLOG_POST: 'create_blog_post',
   EDIT_BLOG_POST: 'edit_blog_post',
   DELETE_BLOG_POST: 'delete_blog_post',
-  
+
   // User Management
   VIEW_USERS: 'view_users',
   CREATE_USER: 'create_user',
   EDIT_USER: 'edit_user',
   DELETE_USER: 'delete_user',
   MANAGE_ROLES: 'manage_roles',
-  
+
   // System Configuration
   SYSTEM_SETTINGS: 'system_settings',
   MANAGE_BRANCHES: 'manage_branches',
@@ -320,6 +321,7 @@ export const ROLE_PERMISSIONS = {
     PERMISSIONS.VIEW_TEACHER_PERFORMANCE,
     PERMISSIONS.EVALUATE_TEACHER,
     PERMISSIONS.VIEW_TEACHER_RANKING,
+    PERMISSIONS.MANAGE_TEACHER_PERFORMANCE,
     PERMISSIONS.VIEW_USERS,
     PERMISSIONS.CREATE_USER,
     PERMISSIONS.EDIT_USER,
@@ -349,6 +351,7 @@ export const ROLE_PERMISSIONS = {
     PERMISSIONS.DELETE_USER,
     PERMISSIONS.MANAGE_ROLES,
     PERMISSIONS.VIEW_TEACHER_PERFORMANCE,
+    PERMISSIONS.MANAGE_TEACHER_PERFORMANCE,
     PERMISSIONS.VIEW_REPORTS,
     PERMISSIONS.GENERATE_REPORTS,
   ],
@@ -438,15 +441,15 @@ export const ROLE_PERMISSIONS = {
   ],
 
   [ROLES.HEAD_ADMIN]: [
-    ...Object.values(PERMISSIONS).filter(p => 
-      p !== PERMISSIONS.SYSTEM_SETTINGS && 
+    ...Object.values(PERMISSIONS).filter(p =>
+      p !== PERMISSIONS.SYSTEM_SETTINGS &&
       p !== PERMISSIONS.MANAGE_ROLES
     ),
   ],
 
   [ROLES.CEO]: [
-    ...Object.values(PERMISSIONS).filter(p => 
-      p !== PERMISSIONS.CREATE_LEAVE_REQUEST && 
+    ...Object.values(PERMISSIONS).filter(p =>
+      p !== PERMISSIONS.CREATE_LEAVE_REQUEST &&
       p !== PERMISSIONS.REQUEST_MATERIALS &&
       p !== PERMISSIONS.REQUEST_PURCHASE &&
       p !== PERMISSIONS.REQUEST_DUPLICATION
@@ -454,8 +457,8 @@ export const ROLE_PERMISSIONS = {
   ],
 
   [ROLES.SUPER_ADMIN]: [
-    ...Object.values(PERMISSIONS).filter(p => 
-      p !== PERMISSIONS.CREATE_LEAVE_REQUEST && 
+    ...Object.values(PERMISSIONS).filter(p =>
+      p !== PERMISSIONS.CREATE_LEAVE_REQUEST &&
       p !== PERMISSIONS.REQUEST_MATERIALS &&
       p !== PERMISSIONS.REQUEST_PURCHASE &&
       p !== PERMISSIONS.REQUEST_DUPLICATION
@@ -466,7 +469,7 @@ export const ROLE_PERMISSIONS = {
 // Helper function to check if user has permission
 export const hasPermission = (userRoles, permission) => {
   if (!userRoles || userRoles.length === 0) return false;
-  
+
   return userRoles.some(role => {
     const normalizedRole = typeof role === 'string' ? role.toLowerCase() : role.name?.toLowerCase();
     const rolePermissions = ROLE_PERMISSIONS[normalizedRole] || [];
@@ -503,7 +506,7 @@ export const getRolePriority = (role) => {
     [ROLES.PARENT]: 10,
     [ROLES.STUDENT]: 5,
   };
-  
+
   const normalizedRole = typeof role === 'string' ? role.toLowerCase() : role.name?.toLowerCase();
   return priorities[normalizedRole] || 0;
 };
@@ -511,7 +514,7 @@ export const getRolePriority = (role) => {
 // Helper function to get user's highest role
 export const getHighestRole = (userRoles) => {
   if (!userRoles || userRoles.length === 0) return null;
-  
+
   return userRoles.reduce((highest, current) => {
     const currentPriority = getRolePriority(current);
     const highestPriority = getRolePriority(highest);

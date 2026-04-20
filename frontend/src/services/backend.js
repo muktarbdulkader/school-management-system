@@ -60,9 +60,21 @@ const Backend = {
   teachersClassAssessments: 'teachers/class_assessments',
   teacherTasks: 'teacher-tasks/',
   teacherRatings: 'teacher-ratings/',
+  teacherRatingsSubmit: 'teacher-ratings/submit/',
   teachersPerformanceRatings: 'teacher-ratings/',
   teacherMetrics: 'teacher-metrics/',
   teacherReports: 'teacher-reports/',
+
+  // Dynamic Performance Measurement (New)
+  performanceCriteria: 'performance-criteria/',
+  performanceCriteriaActive: 'performance-criteria/active/',
+  performanceCriteriaBulkCreate: 'performance-criteria/bulk-create/',
+  performanceEvaluations: 'performance-evaluations/',
+  myPerformanceEvaluations: 'performance-evaluations/my-evaluations/',
+  performanceEvaluationByTeacher: (teacherId) => `performance-evaluations/by-teacher/${teacherId}/`,
+  performanceEvaluationSubmit: (id) => `performance-evaluations/${id}/submit/`,
+  performanceEvaluationReview: (id) => `performance-evaluations/${id}/review/`,
+  performanceEvaluationApprove: (id) => `performance-evaluations/${id}/approve/`,
 
   // Academics
   classes: 'classes/',

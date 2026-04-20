@@ -137,6 +137,11 @@ const UploadResourcePage = Loadable(lazy(() => import('views/library/UploadResou
 const ResourceRequestsPage = Loadable(lazy(() => import('views/resource-requests')));
 const DataExportPage = Loadable(lazy(() => import('views/data-export')));
 const TeacherPerformancePage = Loadable(lazy(() => import('views/teacher-performance')));
+
+// Academic Reports - Role-based views
+const TeacherReportCards = Loadable(lazy(() => import('views/academic-reports/teacher')));
+const StudentAcademicReport = Loadable(lazy(() => import('views/academic-reports/student')));
+const ParentAcademicOverview = Loadable(lazy(() => import('views/academic-reports/parent')));
 const HealthRecordsPage = Loadable(lazy(() => import('views/health')));
 const SectionsPage = Loadable(lazy(() => import('views/sections')));
 const SubjectsPage = Loadable(lazy(() => import('views/subjects')));
@@ -1162,6 +1167,32 @@ const MainRoutes = {
       element: (
         <Protected>
           <ViewKpiDetail />
+        </Protected>
+      ),
+    },
+
+    // Academic Reports - Role-based
+    {
+      path: 'academic-reports/teacher',
+      element: (
+        <Protected requiredRole="teacher">
+          <TeacherReportCards />
+        </Protected>
+      ),
+    },
+    {
+      path: 'academic-reports/student',
+      element: (
+        <Protected requiredRole="student">
+          <StudentAcademicReport />
+        </Protected>
+      ),
+    },
+    {
+      path: 'academic-reports/parent',
+      element: (
+        <Protected requiredRole="parent">
+          <ParentAcademicOverview />
         </Protected>
       ),
     },
