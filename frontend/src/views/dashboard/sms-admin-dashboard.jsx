@@ -6,7 +6,7 @@ import {
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
   Paper, Chip, Button, Stack, IconButton, Dialog, DialogTitle,
   DialogContent, DialogActions, TextField, MenuItem, CircularProgress, Divider,
-  Switch, FormControlLabel
+  Switch, FormControlLabel, Alert
 } from '@mui/material';
 import {
   IconUsers, IconSchool, IconBook, IconCalendar, IconBell,
@@ -766,21 +766,33 @@ const TLHTab = ({ navigate }) => (
 );
 
 // ── Ranking Tab ─────────────────────────────────────────────────────────────
-const RankingTab = ({ stats, loading }) => {
+const RankingTab = ({ stats, loading, evalSettings, currentTerm }) => {
   const theme = useTheme();
 
   if (loading) return <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}><ActivityIndicator size={40} /></Box>;
 
+  // Rankings based on TERM status - if term is closed/completed, rankings are 0
+  const isTermClosed = currentTerm?.status === 'closed' || !currentTerm;
+  const isEvalOpen = evalSettings?.is_evaluation_period_open === true && !isTermClosed;
   const teachers = stats.teacher_rankings || [];
 
   return (
     <DrogaCard>
+      {/* Term Status Alert */}
+      {isTermClosed && (
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          Term is COMPLETED - All rankings are reset to 0
+        </Alert>
+      )}
+
       <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 3 }}>
         <Box>
           <Typography variant="h4">Teacher Performance Rankings</Typography>
-          <Typography variant="caption" color="text.secondary">Top performing staff based on attendance, task completion, and student progress.</Typography>
+          <Typography variant="caption" color="text.secondary">
+            Overall Score = 40% Student/Parent Ratings + 25% Attendance + 20% Task Completion + 15% Evaluations
+          </Typography>
         </Box>
-        <IconTrophy size={32} color="#ffd700" />
+        <IconTrophy size={32} color={isEvalOpen ? '#ffd700' : '#ccc'} />
       </Stack>
 
       <TableContainer component={Paper} variant="outlined">
@@ -798,37 +810,46 @@ const RankingTab = ({ stats, loading }) => {
             </TableRow>
           </TableHead>
           <TableBody>
-            {teachers.map((teacher) => (
-              <TableRow key={teacher.teacher_id} sx={{ '&:hover': { bgcolor: '#fdfdfd' } }}>
-                <TableCell align="center">
-                  <Box sx={{
-                    width: 28, height: 28, borderRadius: '50%', bgcolor: teacher.rank <= 3 ? '#fff9c4' : 'transparent',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold',
-                    border: teacher.rank <= 3 ? '1px solid #ffd600' : 'none'
-                  }}>
-                    {teacher.rank}
-                  </Box>
-                </TableCell>
-                <TableCell>
-                  <Typography variant="subtitle2">{teacher.teacher_name}</Typography>
-                  <Typography variant="caption" color="text.secondary">{teacher.teacher_code}</Typography>
-                </TableCell>
-                <TableCell>{teacher.branch}</TableCell>
-                <TableCell align="center">
-                  <Chip
-                    label={`${teacher.overall_score}%`}
-                    color={teacher.overall_score >= 85 ? 'success' : (teacher.overall_score >= 70 ? 'primary' : 'warning')}
-                    size="small"
-                  />
-                </TableCell>
-                <TableCell align="center">{teacher.attendance_score}%</TableCell>
-                <TableCell align="center">{teacher.task_completion_score}%</TableCell>
-                <TableCell align="center">{teacher.student_performance_score}%</TableCell>
-                <TableCell align="center">
-                  <Typography variant="caption">{new Date(teacher.last_updated).toLocaleDateString()}</Typography>
-                </TableCell>
-              </TableRow>
-            ))}
+            {teachers.map((teacher) => {
+              // Reset all scores to 0 when evaluation period is closed
+              const overallScore = isEvalOpen ? teacher.overall_score : 0;
+              const attendanceScore = isEvalOpen ? teacher.attendance_score : 0;
+              const taskScore = isEvalOpen ? teacher.task_completion_score : 0;
+              const studentScore = isEvalOpen ? teacher.student_performance_score : 0;
+              const rank = isEvalOpen ? teacher.rank : '-';
+
+              return (
+                <TableRow key={teacher.teacher_id} sx={{ '&:hover': { bgcolor: '#fdfdfd' } }}>
+                  <TableCell align="center">
+                    <Box sx={{
+                      width: 28, height: 28, borderRadius: '50%', bgcolor: (isEvalOpen && teacher.rank <= 3) ? '#fff9c4' : 'transparent',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold',
+                      border: (isEvalOpen && teacher.rank <= 3) ? '1px solid #ffd600' : 'none'
+                    }}>
+                      {rank}
+                    </Box>
+                  </TableCell>
+                  <TableCell>
+                    <Typography variant="subtitle2">{teacher.teacher_name}</Typography>
+                    <Typography variant="caption" color="text.secondary">{teacher.teacher_code}</Typography>
+                  </TableCell>
+                  <TableCell>{teacher.branch}</TableCell>
+                  <TableCell align="center">
+                    <Chip
+                      label={`${overallScore}%`}
+                      color={overallScore >= 85 ? 'success' : (overallScore >= 70 ? 'primary' : 'warning')}
+                      size="small"
+                    />
+                  </TableCell>
+                  <TableCell align="center">{attendanceScore}%</TableCell>
+                  <TableCell align="center">{taskScore}%</TableCell>
+                  <TableCell align="center">{studentScore}%</TableCell>
+                  <TableCell align="center">
+                    <Typography variant="caption">{new Date(teacher.last_updated).toLocaleDateString()}</Typography>
+                  </TableCell>
+                </TableRow>
+              );
+            })}
             {teachers.length === 0 && (
               <TableRow>
                 <TableCell colSpan={8} align="center" sx={{ py: 4 }}>
@@ -1270,6 +1291,8 @@ const SMSAdminDashboard = () => {
     recent_activity: []
   });
   const [activeTab, setActiveTab] = useState(0);
+  const [evalSettings, setEvalSettings] = useState({ is_evaluation_period_open: false, start_date: null, end_date: null });
+  const [currentTerm, setCurrentTerm] = useState(null);
 
   // Determine which tabs this user can see
   const visibleTabs = ALL_TABS.filter(t => {
@@ -1295,6 +1318,21 @@ const SMSAdminDashboard = () => {
           const bData = await bRes.json();
           setBranches(Array.isArray(bData.data) ? bData.data : (bData.results || []));
         }
+      }
+
+      // Fetch evaluation period settings
+      const evalSettingsRes = await fetch(`${Backend.api}/api/performance-criteria/evaluation-settings/`, { headers: { Authorization: `Bearer ${token}` } });
+      if (evalSettingsRes.ok) {
+        const evalData = await evalSettingsRes.json();
+        setEvalSettings(evalData.data || { is_evaluation_period_open: false, start_date: null, end_date: null });
+      }
+
+      // Fetch current term
+      const termsRes = await fetch(`${Backend.api}${Backend.terms}?is_current=true`, { headers: { Authorization: `Bearer ${token}` } });
+      if (termsRes.ok) {
+        const termsData = await termsRes.json();
+        const terms = termsData.data || termsData.results || [];
+        setCurrentTerm(terms.length > 0 ? terms[0] : null);
       }
 
       const [studentsRes, teachersRes, classesRes, subjectsRes, parentsRes, leavesRes, announcementsRes, attendanceRes, branchClassesRes, branchStudentsRes, teacherRankingsRes] =
@@ -1412,7 +1450,7 @@ const SMSAdminDashboard = () => {
       case 'analyst': return <AnalystTab navigate={navigate} />;
       case 'communication': return <CommunicationTab navigate={navigate} />;
       case 'head_admin': return <HeadAdminTab stats={stats} loading={loading} navigate={navigate} refreshStats={fetchDashboardStats} />;
-      case 'ranking': return <RankingTab stats={stats} loading={loading} />;
+      case 'ranking': return <RankingTab stats={stats} loading={loading} evalSettings={evalSettings} currentTerm={currentTerm} />
       case 'library': return <LibraryTab navigate={navigate} />;
       default: return null;
     }

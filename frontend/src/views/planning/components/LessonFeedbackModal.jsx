@@ -20,6 +20,8 @@ export default function LessonFeedbackModal({
   onSucceed,
   planId, // <-- comes as prop
   classId, // <-- comes as prop
+  subunitId, // <-- comes as prop (for marking subunit completed)
+  sectionId, // <-- comes as prop (optional)
 }) {
   const [section, setSection] = useState('');
   const [sections, setSections] = useState([]);
@@ -109,12 +111,23 @@ export default function LessonFeedbackModal({
 
 
   const handleSubmit = async () => {
+    // Combine worked_well and to_be_improved into lesson_plan_evaluation
+    const evaluationText = `What Worked Well:\n${workedWell}\n\nTo Be Improved:\n${toBeImproved}`;
+
     const payload = {
       lesson_plan_id: planId,
-      section,
-      worked_well: workedWell,
-      to_be_improved: toBeImproved,
+      lesson_plan_evaluation: evaluationText,
     };
+
+    // Only add section if selected
+    if (section) {
+      payload.section = section;
+    }
+
+    console.log('Submitting feedback payload:', payload);
+    console.log('Plan ID:', planId);
+    console.log('Section:', section);
+
     const API = Backend.api + Backend.lessonPlanEvaluations;
     try {
       setPosting(true);
@@ -128,14 +141,59 @@ export default function LessonFeedbackModal({
         body: JSON.stringify(payload),
       });
 
-      if (!res.ok) throw new Error('Failed to submit feedback');
-      console.log('Feedback submitted successfully', res);
-      toast.success('Feedback submitted successfully');
+      const data = await res.json();
+      console.log('Full response:', res.status, data);
+
+      if (!res.ok) {
+        // Show full error details
+        let errorMsg = 'Failed to submit feedback';
+        if (data?.message) errorMsg = data.message;
+        if (data?.detail) errorMsg = data.detail;
+        if (data?.errors) errorMsg = JSON.stringify(data.errors);
+        if (data?.section) errorMsg = `Section error: ${data.section}`;
+        if (data?.lesson_plan) errorMsg = `Lesson plan error: ${data.lesson_plan}`;
+        if (data?.lesson_plan_evaluation) errorMsg = `Evaluation error: ${data.lesson_plan_evaluation}`;
+
+        console.error('Feedback error details:', data);
+        throw new Error(errorMsg);
+      }
+
+      console.log('Feedback submitted successfully', data);
+
+      // Also mark the subunit as completed if we have subunitId and classId
+      if (subunitId && classId) {
+        try {
+          const markCompleteUrl = `${Backend.api}lesson_plans/mark_subunit_completed/${classId}/${sectionId || 'null'}/${subunitId}/`;
+          console.log('Marking subunit as completed:', markCompleteUrl);
+
+          const markRes = await fetch(markCompleteUrl, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${token}`,
+            },
+          });
+
+          const markData = await markRes.json();
+          console.log('Mark subunit completed response:', markData);
+
+          if (markRes.ok) {
+            toast.success('Subunit marked as completed - progress will reflect in parent dashboard');
+          } else {
+            console.error('Failed to mark subunit completed:', markData);
+          }
+        } catch (markErr) {
+          console.error('Error marking subunit completed:', markErr);
+          // Don't fail the whole operation if marking complete fails
+        }
+      }
+
+      toast.success(data?.message || 'Feedback submitted successfully');
       if (onSucceed) onSucceed(); // notify parent to refresh plans
       onClose(true); // success callback
     } catch (err) {
       console.error(err);
-      toast.error('Something went wrong!');
+      toast.error(err.message || 'Something went wrong!');
     } finally {
       setPosting(false);
     }
@@ -153,12 +211,12 @@ export default function LessonFeedbackModal({
           <>
             <TextField
               select
-              label="Class Section"
+              label="Class Section (Optional)"
               fullWidth
               margin="normal"
               value={section}
               onChange={(e) => setSection(e.target.value)}
-              helperText="Select which class section this feedback is for (e.g., Section A, B, C)"
+              helperText={sections.length === 0 ? "No sections available - you can submit without a section" : "Select which class section this feedback is for"}
             >
               {sections.length === 0 && (
                 <MenuItem disabled value="">

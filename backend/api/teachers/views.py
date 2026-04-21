@@ -1100,6 +1100,17 @@ class TeacherPerformanceRatingViewSet(viewsets.ModelViewSet):
 
     def create(self, request, *args, **kwargs):
         user = request.user
+        
+        # Check if evaluation period is open
+        from .models import EvaluationPeriodSettings
+        eval_settings_obj = EvaluationPeriodSettings.get_settings()
+        
+        if not eval_settings_obj.is_open:
+            return Response({
+                'success': False,
+                'message': 'Evaluation period is closed. You cannot submit ratings at this time.',
+                'status': 403
+            }, status=403)
 
         # Check if user is a teacher - teachers cannot rate
         try:
@@ -1162,6 +1173,27 @@ class TeacherPerformanceRatingViewSet(viewsets.ModelViewSet):
                     'message': 'Teacher ID is required (either at root or inside ratings list)',
                     'status': 400
                 }, status=400)
+            
+            # Check if user has already rated this teacher in current evaluation period
+            from django.utils import timezone
+            from datetime import datetime
+            
+            existing_ratings_query = TeacherPerformanceRating.objects.filter(
+                teacher=teacher,
+                rated_by=user
+            )
+            
+            # If evaluation period has a start date, only check ratings after that date
+            # Use created_at (DateTimeField) instead of rating_date (DateField) for proper comparison
+            if eval_settings_obj.start_date:
+                existing_ratings_query = existing_ratings_query.filter(created_at__gte=eval_settings_obj.start_date)
+            
+            if existing_ratings_query.exists():
+                return Response({
+                    'success': False,
+                    'message': 'You have already rated this teacher. You can only rate once per evaluation period.',
+                    'status': 403
+                }, status=403)
 
             # Verify student/parent has connection to this teacher
             if is_student:
@@ -1270,11 +1302,31 @@ class TeacherPerformanceRatingViewSet(viewsets.ModelViewSet):
         """
         Get all ratings submitted by the current user (student/parent).
         Shows which teachers they rated and what ratings they gave.
+        Only returns ratings from the current evaluation period.
         """
         user = request.user
+        
+        # Get current evaluation period settings
+        from .models import EvaluationPeriodSettings
+        eval_settings = EvaluationPeriodSettings.get_settings()
+        
+        # STRICT: If no start_date is set (period not properly initialized), return NO ratings
+        # This prevents showing old ratings when a new period is opened without proper dates
+        if not eval_settings.start_date:
+            return Response({
+                'success': True,
+                'message': 'OK',
+                'status': 200,
+                'count': 0,
+                'data': []
+            })
+        
+        # Only show ratings from current evaluation period (after start_date)
+        # Use created_at (DateTimeField) instead of rating_date (DateField) for proper comparison
         ratings = TeacherPerformanceRating.objects.filter(
-            rated_by=user
-        ).select_related('teacher', 'teacher__user').order_by('-rating_date')
+            rated_by=user,
+            created_at__gte=eval_settings.start_date
+        ).select_related('teacher', 'teacher__user').order_by('-created_at')
         
         data = []
         for r in ratings:
@@ -1296,103 +1348,6 @@ class TeacherPerformanceRatingViewSet(viewsets.ModelViewSet):
             'count': len(data),
             'data': data
         })
-
-    @action(detail=False, methods=['get'], url_path='rankings')
-    def rankings(self, request):
-        """Get teacher performance rankings filtered by branch (SRS 5.2/8.2)"""
-        branch_id = request.query_params.get('branch_id')
-        
-        # Base query for teachers
-        from .models import Teacher
-        teachers = Teacher.objects.all().select_related('user', 'branch')
-        
-        # Filter by branch if user is not superuser or branch specified
-        if not request.user.is_superuser:
-            from users.models import UserBranchAccess
-            accessible_branches = list(UserBranchAccess.objects.filter(user=request.user).values_list('branch_id', flat=True))
-            if branch_id:
-                if branch_id in [str(b) for b in accessible_branches]:
-                    teachers = teachers.filter(branch_id=branch_id)
-                else:
-                    return Response({'success': False, 'message': 'Unauthorized branch access'}, status=403)
-            else:
-                teachers = teachers.filter(branch_id__in=accessible_branches)
-        elif branch_id:
-            teachers = teachers.filter(branch_id=branch_id)
-
-        # Annotate with average rating and sort
-        from django.db.models import Avg, Count
-        from django.utils import timezone
-        ranking_data = []
-        
-        for idx, t in enumerate(teachers):
-            # Calculate ratings from both old and new models
-            avg_rating = t.performance_ratings.aggregate(Avg('rating'))['rating__avg'] or 0
-            
-            # Get evaluation ratings if available
-            eval_ratings = t.performance_evaluations.filter(status='approved').aggregate(Avg('overall_score'))['overall_score__avg'] or 0
-            
-            # Use the higher of the two ratings
-            final_rating = max(avg_rating, eval_ratings)
-            
-            # Calculate overall score as percentage (rating out of 5 -> percentage)
-            overall_score = round((final_rating / 5) * 100) if final_rating > 0 else 0
-            
-            # Calculate task completion percentage
-            total_tasks = t.tasks.count()
-            completed_tasks = t.tasks.filter(status='completed').count()
-            task_completion_score = round((completed_tasks / total_tasks * 100)) if total_tasks > 0 else 0
-            
-            # Calculate attendance score (default to 95% if no data)
-            attendance_score = 95  # Can be enhanced with actual attendance data
-            
-            # Calculate student performance score based on ratings and evaluations
-            student_performance_score = overall_score  # Link to overall performance
-            
-            # Get the most recent activity date
-            last_rating = t.performance_ratings.order_by('-rating_date').first()
-            last_eval = t.performance_evaluations.order_by('-updated_at').first()
-            last_task = t.tasks.order_by('-updated_at').first()
-            
-            last_updated = timezone.now()
-            if last_rating:
-                last_updated = last_rating.rating_date
-            if last_eval and last_eval.updated_at > last_updated:
-                last_updated = last_eval.updated_at
-            if last_task and last_task.updated_at > last_updated:
-                last_updated = last_task.updated_at
-
-            ranking_data.append({
-                'id': str(t.id),
-                'teacher_name': t.user.full_name,
-                'teacher_code': t.teacher_id,
-                'branch': t.branch.name if t.branch else 'Unassigned',
-                'rank': idx + 1,
-                'overall_score': overall_score,
-                'attendance_score': attendance_score,
-                'task_completion_score': task_completion_score,
-                'student_performance_score': student_performance_score,
-                'average_rating': round(final_rating, 1),
-                'total_tasks': total_tasks,
-                'completed_tasks': completed_tasks,
-                'total_ratings': t.performance_ratings.count(),
-                'last_updated': last_updated.isoformat()
-            })
-            
-        # Sort by overall score descending
-        ranking_data.sort(key=lambda x: x['overall_score'], reverse=True)
-        
-        # Update ranks after sorting
-        for idx, teacher in enumerate(ranking_data):
-            teacher['rank'] = idx + 1
-
-        return Response({
-            'success': True,
-            'message': 'OK',
-            'status': 200,
-            'data': ranking_data[:50]  # Top 50
-        })
-
 class TeacherMetricsViewSet(viewsets.ModelViewSet):
     queryset = TeacherMetrics.objects.all()
     serializer_class = TeacherMetricsSerializer
@@ -1440,34 +1395,245 @@ class TeacherPerformanceReportViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(queryset, many=True)
         return Response({'success': True, 'message': 'OK', 'status': 200, 'data': serializer.data})
 
+    def create(self, request, *args, **kwargs):
+        """Create a new performance report with duplicate prevention"""
+        from .models import EvaluationPeriodSettings, Teacher
+        
+        # Get current evaluation period settings
+        eval_settings_obj = EvaluationPeriodSettings.get_settings()
+        
+        # Get teacher from request data
+        teacher_id = request.data.get('teacher')
+        if not teacher_id:
+            return Response({
+                'success': False,
+                'message': 'Teacher ID is required',
+                'status': 400
+            }, status=400)
+        
+        try:
+            teacher = Teacher.objects.get(id=teacher_id)
+        except Teacher.DoesNotExist:
+            return Response({
+                'success': False,
+                'message': 'Teacher not found',
+                'status': 404
+            }, status=404)
+        
+        # Check if evaluation period is open
+        if not eval_settings_obj.is_open:
+            return Response({
+                'success': False,
+                'message': 'Evaluation period is closed. Cannot generate reports.',
+                'status': 403
+            }, status=403)
+        
+        # Check if a report already exists for this teacher in current evaluation period
+        if eval_settings_obj.start_date:
+            existing_report = TeacherPerformanceReport.objects.filter(
+                teacher=teacher,
+                generated_at__gte=eval_settings_obj.start_date
+            ).exists()
+            
+            if existing_report:
+                return Response({
+                    'success': False,
+                    'message': 'A report has already been generated for this teacher in the current evaluation period.',
+                    'status': 403
+                }, status=403)
+        
+        # Proceed with creation
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        
+        return Response({
+            'success': True,
+            'message': 'Performance report generated successfully',
+            'status': 201,
+            'data': serializer.data
+        }, status=201)
+
     def perform_create(self, serializer):
-        serializer.save(generated_by=self.request.user)
+        # Get current evaluation period ID from database
+        from .models import EvaluationPeriodSettings
+        eval_settings_obj = EvaluationPeriodSettings.get_settings()
+        
+        serializer.save(
+            generated_by=self.request.user,
+            evaluation_period_id=eval_settings_obj.period_id
+        )
 
     @action(detail=False, methods=['get'], url_path='rankings')
     def rankings(self, request):
         """
-        Get teacher rankings based on the latest performance reports.
-        Returns top 25 teachers by overall score with detailed breakdowns.
+        Get teacher rankings - ONE entry per teacher with latest report.
+        Uses actual system data (metrics, ratings) for accurate scoring.
         """
-        reports = self.queryset.select_related('teacher__user', 'teacher__branch').order_by('-overall_score')[:25]
+        branch_id = request.query_params.get('branch_id')
         
+        # Get evaluation period settings for filtering
+        from .models import EvaluationPeriodSettings
+        eval_settings_obj = EvaluationPeriodSettings.get_settings()
+        
+        # Get all teachers (not reports) to ensure one entry per teacher
+        from .models import Teacher
+        teachers = Teacher.objects.all().select_related('user', 'branch').order_by('id')
+        
+        # Apply branch filter
+        if branch_id:
+            teachers = teachers.filter(branch_id=branch_id)
+        elif not request.user.is_superuser:
+            from users.models import UserBranchAccess
+            accessible_branches = list(UserBranchAccess.objects.filter(
+                user=request.user
+            ).values_list('branch_id', flat=True))
+            teachers = teachers.filter(branch_id__in=accessible_branches)
+        
+        # Get latest report for each teacher (subquery for efficiency)
+        from django.db.models import OuterRef, Subquery, Avg
+        latest_report_subquery = TeacherPerformanceReport.objects.filter(
+            teacher=OuterRef('pk')
+        ).order_by('-generated_at').values('id')[:1]
+        
+        # Prefetch latest reports
+        latest_reports = {
+            r.teacher_id: r 
+            for r in TeacherPerformanceReport.objects.filter(
+                id__in=Subquery(latest_report_subquery)
+            ).select_related('teacher__user', 'teacher__branch')
+        }
+        
+        # Build rankings - one per teacher
         data = []
-        for idx, r in enumerate(reports):
-            data.append({
-                'rank': idx + 1,
-                'teacher_id': str(r.teacher.id),
-                'teacher_name': r.teacher.user.full_name,
-                'teacher_code': r.teacher.teacher_id,
-                'branch': r.teacher.branch.name if r.teacher.branch else 'N/A',
-                'overall_score': float(r.overall_score),
-                'attendance_score': float(r.attendance_score),
-                'task_completion_score': float(r.task_completion_score),
-                'student_performance_score': float(r.student_performance_score),
-                'rating_score': float(r.rating_score),
-                'period': r.report_period,
-                'last_updated': r.generated_at
-            })
+        seen_teachers = set()
+        
+        for teacher in teachers:
+            if str(teacher.id) in seen_teachers:
+                continue
+            seen_teachers.add(str(teacher.id))
             
+            # Get teacher's latest report or use default values
+            report = latest_reports.get(teacher.id)
+            if report:
+                overall_score = float(report.overall_score)
+                attendance_score = float(report.attendance_score)
+                task_completion_score = float(report.task_completion_score)
+                student_performance_score = float(report.student_performance_score)
+                rating_score = float(report.rating_score)
+                period = report.report_period
+                last_updated = report.generated_at
+            else:
+                # No report exists - use calculated system metrics
+                metrics = teacher.metrics.order_by('-month').first()
+                if metrics:
+                    attendance_score = float(metrics.attendance_percentage or 0)
+                    task_completion_score = float(metrics.task_completion_rate or 0) * 100
+                    student_performance_score = float(metrics.average_student_performance or 0)
+                else:
+                    attendance_score = 0
+                    task_completion_score = 0
+                    student_performance_score = 0
+                
+                # Get average rating - FILTERED by evaluation period start_date
+                ratings_query = teacher.performance_ratings.all()
+                if eval_settings_obj.start_date:
+                    ratings_query = ratings_query.filter(created_at__gte=eval_settings_obj.start_date)
+                avg_rating = ratings_query.aggregate(avg=Avg('rating'))['avg'] or 0
+                rating_score = (avg_rating / 5) * 100 if avg_rating else 0
+                
+                # Calculate weighted overall score
+                overall_score = (
+                    rating_score * 0.40 +
+                    attendance_score * 0.25 +
+                    task_completion_score * 0.20 +
+                    student_performance_score * 0.15
+                )
+                period = 'system_calculated'
+                last_updated = timezone.now()
+            
+            data.append({
+                'teacher_id': str(teacher.id),
+                'teacher_name': teacher.user.full_name,
+                'teacher_code': teacher.teacher_id,
+                'branch': teacher.branch.name if teacher.branch else 'N/A',
+                'overall_score': overall_score,
+                'attendance_score': attendance_score,
+                'task_completion_score': task_completion_score,
+                'student_performance_score': student_performance_score,
+                'rating_score': rating_score,
+                'period': period,
+                'last_updated': last_updated
+            })
+        
+        # Sort by overall score descending and assign ranks
+        data.sort(key=lambda x: x['overall_score'], reverse=True)
+        for idx, item in enumerate(data):
+            item['rank'] = idx + 1
+        
+        return Response({
+            'success': True,
+            'message': 'OK',
+            'status': 200,
+            'data': data[:25]  # Top 25
+        })
+
+    @action(detail=False, methods=['get'], url_path='my-evaluations')
+    def my_evaluations(self, request):
+        """
+        Get the latest admin evaluation with recommendations for the current teacher.
+        Teachers can see admin-written strengths, areas for improvement, and recommendations.
+        """
+        user = request.user
+        
+        try:
+            teacher = Teacher.objects.get(user=user)
+        except Teacher.DoesNotExist:
+            return Response({
+                'success': False,
+                'message': 'Teacher profile not found',
+                'status': 404
+            }, status=404)
+        
+        # Get the latest approved evaluation with admin recommendations
+        latest_eval = TeacherPerformanceEvaluation.objects.filter(
+            teacher=teacher,
+            status='approved'
+        ).order_by('-evaluated_at').first()
+        
+        if not latest_eval:
+            return Response({
+                'success': True,
+                'message': 'No formal evaluation available yet',
+                'status': 200,
+                'data': None
+            })
+        
+        # Get criteria ratings for this evaluation
+        criteria_ratings = []
+        for rating in latest_eval.criteria_ratings.all():
+            criteria_ratings.append({
+                'criteria_name': rating.criteria.name if rating.criteria else 'Unknown',
+                'rating': rating.rating,
+                'weight': rating.criteria.weight if rating.criteria else 1
+            })
+        
+        data = {
+            'id': str(latest_eval.id),
+            'term_name': latest_eval.term.name if latest_eval.term else 'N/A',
+            'academic_year': latest_eval.academic_year,
+            'overall_score': latest_eval.overall_score,
+            'weighted_average': latest_eval.weighted_average,
+            'status': latest_eval.status,
+            'evaluated_by': latest_eval.evaluated_by.full_name if latest_eval.evaluated_by else 'Admin',
+            'evaluated_at': latest_eval.evaluated_at.isoformat() if latest_eval.evaluated_at else None,
+            'strengths': latest_eval.strengths or '',
+            'areas_for_improvement': latest_eval.areas_for_improvement or '',
+            'recommendations': latest_eval.recommendations or '',
+            'action_items': latest_eval.action_items or '',
+            'criteria_ratings': criteria_ratings
+        }
+        
         return Response({
             'success': True,
             'message': 'OK',
@@ -1914,15 +2080,11 @@ class PerformanceMeasurementCriteriaViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'], url_path='evaluation-settings')
     def evaluation_settings(self, request):
         """Get evaluation period settings - accessible to all authenticated users"""
-        from django.core.cache import cache
-        from django.utils import timezone
+        from .models import EvaluationPeriodSettings
         
-        settings = cache.get('teacher_evaluation_settings', {
-            'is_evaluation_period_open': True,
-            'start_date': None,
-            'end_date': None,
-            'message': 'Evaluation period is open'
-        })
+        # Get settings from database (persistent, survives restarts)
+        settings_obj = EvaluationPeriodSettings.get_settings()
+        settings = settings_obj.to_dict()
         
         return Response({
             'success': True,
@@ -1941,37 +2103,67 @@ class PerformanceMeasurementCriteriaViewSet(viewsets.ModelViewSet):
                 'status': 403
             }, status=403)
         
-        from django.core.cache import cache
+        from .models import EvaluationPeriodSettings
         from django.utils import timezone
+        from datetime import datetime
+        import uuid
         
         is_open = request.data.get('is_open', True)
         start_date = request.data.get('start_date')
         end_date = request.data.get('end_date')
         message = request.data.get('message', 'Evaluation period is open' if is_open else 'Evaluation period is closed')
         
-        # Get current settings to check if we're transitioning from closed to open
-        current_settings = cache.get('teacher_evaluation_settings', {})
-        was_open = current_settings.get('is_evaluation_period_open', False)
+        # Get current settings from database
+        settings_obj = EvaluationPeriodSettings.get_settings()
+        was_open = settings_obj.is_open
         
-        # If opening the period and no start_date provided, set it to now
-        # This allows has_rated to track ratings only from this period
-        if is_open and not was_open and not start_date:
-            start_date = timezone.now().isoformat()
+        # Generate a new evaluation period ID when opening a fresh period
+        if is_open and not was_open:
+            # Opening a new period - generate fresh period ID and start date
+            period_id = str(uuid.uuid4())
+            if not start_date:
+                start_date = timezone.now()
+            # Reset message for new period
+            message = 'Evaluation period is now OPEN - Students/Parents can rate teachers'
+        elif not is_open and was_open:
+            # Closing the period - keep the period_id for reference
+            period_id = settings_obj.period_id
+            if not message:
+                message = 'Evaluation period is CLOSED - No new ratings allowed'
+        else:
+            # No change in state, keep existing period_id
+            period_id = settings_obj.period_id
+            if not start_date and settings_obj.start_date:
+                start_date = settings_obj.start_date
         
         # If closing the period, keep the existing start_date
         if not is_open and not start_date:
-            start_date = current_settings.get('start_date')
+            start_date = settings_obj.start_date
         
-        settings = {
-            'is_evaluation_period_open': is_open,
-            'start_date': start_date,
-            'end_date': end_date,
-            'message': message,
-            'updated_by': request.user.full_name,
-            'updated_at': timezone.now().isoformat()
-        }
+        # Parse dates if they are strings
+        if isinstance(start_date, str):
+            try:
+                start_date = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
+            except:
+                start_date = timezone.now()
         
-        cache.set('teacher_evaluation_settings', settings, timeout=None)
+        if isinstance(end_date, str):
+            try:
+                end_date = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
+            except:
+                end_date = None
+        
+        # Save to database (persistent)
+        settings_obj.is_open = is_open
+        settings_obj.period_id = period_id
+        settings_obj.start_date = start_date
+        settings_obj.end_date = end_date
+        settings_obj.message = message
+        settings_obj.updated_by = request.user
+        settings_obj.save()
+        
+        # Also update cache for performance (but now it's backed by database)
+        settings = settings_obj.to_dict()
         
         return Response({
             'success': True,

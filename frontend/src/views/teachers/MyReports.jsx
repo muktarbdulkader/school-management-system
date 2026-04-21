@@ -33,13 +33,22 @@ import {
 import {
   Add as AddIcon,
   ExpandMore as ExpandMoreIcon,
-  Assessment as AssessmentIcon
+  Assessment as AssessmentIcon,
+  EmojiEvents as EmojiEventsIcon,
+  TrendingUp as TrendingUpIcon,
+  CalendarToday as CalendarIcon,
+  Star as StarIcon,
+  CheckCircle as CheckCircleIcon,
+  Warning as WarningIcon,
+  Lightbulb as LightbulbIcon,
+  School as SchoolIcon
 } from '@mui/icons-material';
 import Backend from 'services/backend';
 import { Storage } from 'configration/storage';
 
 const MyReports = () => {
   const [reports, setReports] = useState([]);
+  const [adminEvaluation, setAdminEvaluation] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [openDialog, setOpenDialog] = useState(false);
@@ -132,9 +141,17 @@ const MyReports = () => {
   };
 
   const getScoreColor = (score) => {
-    if (score >= 80) return 'success';
-    if (score >= 60) return 'warning';
+    const num = parseFloat(score) || 0;
+    if (num >= 80) return 'success';
+    if (num >= 60) return 'warning';
     return 'error';
+  };
+
+  const getScoreGradient = (score) => {
+    const num = parseFloat(score) || 0;
+    if (num >= 80) return 'linear-gradient(135deg, #4caf50 0%, #2e7d32 100%)';
+    if (num >= 60) return 'linear-gradient(135deg, #ff9800 0%, #ed6c02 100%)';
+    return 'linear-gradient(135deg, #f44336 0%, #d32f2f 100%)';
   };
 
   const getLatestReport = () => {
@@ -152,58 +169,140 @@ const MyReports = () => {
   }
 
   return (
-    <Box sx={{ p: 3 }}>
-      <Typography variant="h4" gutterBottom>My Performance Reports</Typography>
+    <Box sx={{ p: 3, maxWidth: 1000, margin: '0 auto', bgcolor: '#f5f7fa', minHeight: '100vh' }}>
+      {/* Header */}
+      <Box sx={{ mb: 4, display: 'flex', alignItems: 'center', gap: 2 }}>
+        <Box sx={{
+          width: 56,
+          height: 56,
+          borderRadius: '16px',
+          bgcolor: 'primary.main',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          boxShadow: '0 8px 16px rgba(25, 118, 210, 0.3)'
+        }}>
+          <SchoolIcon sx={{ color: 'white', fontSize: 28 }} />
+        </Box>
+        <Box>
+          <Typography variant="h4" fontWeight={700} color="#1a237e">
+            My Performance Reports
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            Track your teaching performance and growth
+          </Typography>
+        </Box>
+      </Box>
 
       {error && (
-        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>
+        <Alert severity="error" sx={{ mb: 3, borderRadius: 2 }} onClose={() => setError(null)}>
           {error}
         </Alert>
       )}
 
-      {/* Latest Report Summary */}
+      {/* Latest Report - Hero Card */}
       {latestReport && (
-        <Card sx={{ mb: 3, bgcolor: 'primary.light' }}>
-          <CardContent>
-            <Box display="flex" alignItems="center" mb={2}>
-              <AssessmentIcon sx={{ mr: 1 }} />
-              <Typography variant="h6">Latest Performance Report</Typography>
-              <Chip
-                label={latestReport.report_period}
-                color="primary"
-                size="small"
-                sx={{ ml: 2 }}
-              />
+        <Card sx={{
+          mb: 4,
+          borderRadius: 4,
+          boxShadow: '0 8px 32px rgba(0,0,0,0.08)',
+          overflow: 'hidden',
+          border: '1px solid',
+          borderColor: 'divider'
+        }}>
+          {/* Header Banner */}
+          <Box sx={{
+            bgcolor: 'primary.main',
+            color: 'white',
+            p: 2,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between'
+          }}>
+            <Box display="flex" alignItems="center" gap={1}>
+              <EmojiEventsIcon />
+              <Typography variant="h6" fontWeight={600}>Latest Performance Report</Typography>
             </Box>
-            <Grid container spacing={2}>
-              <Grid item xs={12} md={4}>
-                <Typography variant="h3" color="primary.main">
-                  {latestReport.overall_score}
-                </Typography>
-                <Typography variant="body2" color="textSecondary">
-                  Overall Score
-                </Typography>
-                <LinearProgress
-                  variant="determinate"
-                  value={parseFloat(latestReport.overall_score)}
-                  color={getScoreColor(parseFloat(latestReport.overall_score))}
-                  sx={{ mt: 1 }}
-                />
+            <Chip
+              label={latestReport.report_period?.toUpperCase()}
+              sx={{
+                bgcolor: 'rgba(255,255,255,0.9)',
+                color: 'primary.main',
+                fontWeight: 700,
+                borderRadius: 2
+              }}
+              size="small"
+            />
+          </Box>
+
+          <CardContent sx={{ p: 4 }}>
+            <Grid container spacing={4} alignItems="center">
+              {/* Score Circle */}
+              <Grid item xs={12} md={3}>
+                <Box sx={{ textAlign: 'center' }}>
+                  <Box sx={{
+                    width: 140,
+                    height: 140,
+                    borderRadius: '50%',
+                    background: getScoreGradient(latestReport.overall_score),
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    margin: '0 auto',
+                    boxShadow: '0 8px 24px rgba(0,0,0,0.15)',
+                    color: 'white'
+                  }}>
+                    <Typography variant="h2" fontWeight={800} lineHeight={1}>
+                      {latestReport.overall_score}
+                    </Typography>
+                    <Typography variant="caption" fontWeight={500}>
+                      SCORE
+                    </Typography>
+                  </Box>
+                  <Box sx={{ mt: 2 }}>
+                    <Chip
+                      label={parseFloat(latestReport.overall_score) >= 80 ? 'Excellent' : parseFloat(latestReport.overall_score) >= 60 ? 'Good' : 'Needs Improvement'}
+                      color={getScoreColor(latestReport.overall_score)}
+                      size="small"
+                      sx={{ fontWeight: 600 }}
+                    />
+                  </Box>
+                </Box>
               </Grid>
-              <Grid item xs={12} md={8}>
-                <Grid container spacing={2}>
-                  <Grid item xs={6} sm={4}>
-                    <Typography variant="body2" color="textSecondary">Attendance</Typography>
-                    <Typography variant="h6">{latestReport.attendance_score}</Typography>
+
+              {/* Details */}
+              <Grid item xs={12} md={9}>
+                <Grid container spacing={3}>
+                  <Grid item xs={12}>
+                    <Paper sx={{ p: 2, borderRadius: 2, bgcolor: 'grey.50' }}>
+                      <Box display="flex" alignItems="center" gap={1} mb={1}>
+                        <CalendarIcon color="primary" fontSize="small" />
+                        <Typography variant="subtitle2" fontWeight={600} color="text.secondary">
+                          REPORT PERIOD
+                        </Typography>
+                      </Box>
+                      <Typography variant="body1" fontWeight={500}>
+                        {latestReport.start_date} to {latestReport.end_date}
+                      </Typography>
+                    </Paper>
                   </Grid>
-                  <Grid item xs={6} sm={4}>
-                    <Typography variant="body2" color="textSecondary">Task Completion</Typography>
-                    <Typography variant="h6">{latestReport.task_completion_score}</Typography>
-                  </Grid>
-                  <Grid item xs={6} sm={4}>
-                    <Typography variant="body2" color="textSecondary">Student Performance</Typography>
-                    <Typography variant="h6">{latestReport.student_performance_score}</Typography>
-                  </Grid>
+
+                  {latestReport.recommendations && (
+                    <Grid item xs={12}>
+                      <Paper sx={{ p: 2, borderRadius: 2, bgcolor: 'info.lighter', border: '1px solid', borderColor: 'info.light' }}>
+                        <Box display="flex" alignItems="center" gap={1} mb={1}>
+                          <LightbulbIcon color="info" fontSize="small" />
+                          <Typography variant="subtitle2" fontWeight={600} color="info.dark">
+                            RECOMMENDATIONS
+                          </Typography>
+                        </Box>
+                        <Typography variant="body2" color="text.secondary">
+                          {latestReport.recommendations}
+                        </Typography>
+                      </Paper>
+                    </Grid>
+                  )}
                 </Grid>
               </Grid>
             </Grid>
@@ -211,108 +310,151 @@ const MyReports = () => {
         </Card>
       )}
 
-      {/* Add Report Button */}
-      <Box sx={{ mb: 2 }}>
-        {/* <Button
-          variant="contained"
-          startIcon={<AddIcon />}
-          onClick={() => setOpenDialog(true)}
-        >
-          Generate New Report
-        </Button> */}
+      {/* Reports List Header */}
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 3 }}>
+        <TrendingUpIcon color="primary" />
+        <Typography variant="h5" fontWeight={700} color="#1a237e">
+          Report History
+        </Typography>
+        <Chip label={reports.length} size="small" sx={{ fontWeight: 600 }} />
       </Box>
 
-      {/* Reports List */}
-      <Typography variant="h6" gutterBottom>Report History ({reports.length})</Typography>
-
       {reports.length === 0 ? (
-        <Paper sx={{ p: 4, textAlign: 'center' }}>
-          <Typography color="textSecondary">
-            No performance reports found. Generate your first report!
+        <Paper sx={{ p: 4, textAlign: 'center', borderRadius: 3, boxShadow: '0 4px 16px rgba(0,0,0,0.05)' }}>
+          <AssessmentIcon sx={{ fontSize: 48, color: 'grey.300', mb: 2 }} />
+          <Typography color="textSecondary" variant="h6" gutterBottom>
+            No performance reports yet
+          </Typography>
+          <Typography color="text.secondary" variant="body2">
+            Your reports will appear here once generated by admin
           </Typography>
         </Paper>
       ) : (
-        reports.map((report) => (
-          <Accordion key={report.id} sx={{ mb: 1 }}>
-            <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-              <Box display="flex" alignItems="center" width="100%">
-                <Chip
-                  label={report.report_period}
-                  color="primary"
-                  size="small"
-                  sx={{ mr: 2 }}
-                />
-                <Typography sx={{ flexGrow: 1 }}>
-                  {report.start_date} to {report.end_date}
-                </Typography>
-                <Typography variant="h6" color={getScoreColor(parseFloat(report.overall_score))}>
-                  {report.overall_score}
-                </Typography>
-              </Box>
-            </AccordionSummary>
-            <AccordionDetails>
-              <Grid container spacing={2}>
-                <Grid item xs={12} md={6}>
-                  <Typography variant="subtitle2" gutterBottom>Key Strengths</Typography>
-                  <Typography variant="body2" color="textSecondary" paragraph>
-                    {report.strengths || 'Not provided'}
-                  </Typography>
-                  <Typography variant="subtitle2" gutterBottom>Areas for Improvement</Typography>
-                  <Typography variant="body2" color="textSecondary">
-                    {report.areas_for_improvement || 'Not provided'}
-                  </Typography>
-                </Grid>
-                <Grid item xs={12} md={6}>
-                  <Typography variant="subtitle2" gutterBottom>Score Breakdown</Typography>
-                  <Box sx={{ mb: 1 }}>
-                    <Typography variant="body2">Attendance: {report.attendance_score}</Typography>
-                    <LinearProgress
-                      variant="determinate"
-                      value={parseFloat(report.attendance_score)}
-                      color={getScoreColor(parseFloat(report.attendance_score))}
-                      sx={{ height: 6 }}
-                    />
-                  </Box>
-                  <Box sx={{ mb: 1 }}>
-                    <Typography variant="body2">Task Completion: {report.task_completion_score}</Typography>
-                    <LinearProgress
-                      variant="determinate"
-                      value={parseFloat(report.task_completion_score)}
-                      color={getScoreColor(parseFloat(report.task_completion_score))}
-                      sx={{ height: 6 }}
-                    />
-                  </Box>
-                  <Box sx={{ mb: 1 }}>
-                    <Typography variant="body2">Student Performance: {report.student_performance_score}</Typography>
-                    <LinearProgress
-                      variant="determinate"
-                      value={parseFloat(report.student_performance_score)}
-                      color={getScoreColor(parseFloat(report.student_performance_score))}
-                      sx={{ height: 6 }}
-                    />
-                  </Box>
-                  <Box sx={{ mb: 1 }}>
-                    <Typography variant="body2">Rating: {report.rating_score}</Typography>
-                    <LinearProgress
-                      variant="determinate"
-                      value={parseFloat(report.rating_score)}
-                      color={getScoreColor(parseFloat(report.rating_score))}
-                      sx={{ height: 6 }}
-                    />
-                  </Box>
-                </Grid>
-              </Grid>
-              {report.recommendations && (
-                <Box mt={2}>
-                  <Typography variant="subtitle2" gutterBottom>Recommendations</Typography>
-                  <Typography variant="body2" color="textSecondary">
-                    {report.recommendations}
-                  </Typography>
-                </Box>
-              )}
-            </AccordionDetails>
-          </Accordion>
-        ))
+        <Grid container spacing={2}>
+          {reports.map((report, index) => (
+            <Grid item xs={12} key={report.id}>
+              <Paper sx={{
+                borderRadius: 3,
+                overflow: 'hidden',
+                boxShadow: '0 4px 16px rgba(0,0,0,0.05)',
+                border: '1px solid',
+                borderColor: 'divider',
+                transition: 'all 0.3s ease',
+                '&:hover': {
+                  boxShadow: '0 8px 24px rgba(0,0,0,0.1)',
+                  transform: 'translateY(-2px)'
+                }
+              }}>
+                {/* Accordion Header */}
+                <Accordion
+                  defaultExpanded={index === 0}
+                  sx={{
+                    boxShadow: 'none',
+                    '&:before': { display: 'none' }
+                  }}
+                >
+                  <AccordionSummary
+                    expandIcon={<ExpandMoreIcon />}
+                    sx={{
+                      bgcolor: index === 0 ? 'primary.lighter' : 'background.paper',
+                      borderRadius: 3,
+                      '& .MuiAccordionSummary-content': { marginY: 1.5 }
+                    }}
+                  >
+                    <Box display="flex" alignItems="center" width="100%" gap={2}>
+                      <Chip
+                        label={report.report_period}
+                        color={index === 0 ? 'primary' : 'default'}
+                        size="small"
+                        sx={{
+                          fontWeight: 700,
+                          textTransform: 'uppercase',
+                          minWidth: 80
+                        }}
+                      />
+                      <Box sx={{ flexGrow: 1 }}>
+                        <Typography variant="body2" color="text.secondary" fontWeight={500}>
+                          {report.start_date} to {report.end_date}
+                        </Typography>
+                      </Box>
+                      <Box sx={{
+                        px: 2,
+                        py: 0.5,
+                        borderRadius: 2,
+                        bgcolor: parseFloat(report.overall_score) >= 80 ? 'success.lighter' : parseFloat(report.overall_score) >= 60 ? 'warning.lighter' : 'error.lighter'
+                      }}>
+                        <Typography
+                          variant="h6"
+                          fontWeight={800}
+                          sx={{
+                            color: parseFloat(report.overall_score) >= 80 ? 'success.dark' : parseFloat(report.overall_score) >= 60 ? 'warning.dark' : 'error.dark'
+                          }}
+                        >
+                          {report.overall_score}
+                        </Typography>
+                      </Box>
+                    </Box>
+                  </AccordionSummary>
+
+                  <AccordionDetails sx={{ p: 3, pt: 2 }}>
+                    <Grid container spacing={3}>
+                      {/* Strengths */}
+                      {report.strengths && (
+                        <Grid item xs={12} md={6}>
+                          <Paper sx={{ p: 2.5, borderRadius: 2, bgcolor: 'success.lighter', height: '100%' }}>
+                            <Box display="flex" alignItems="center" gap={1} mb={1.5}>
+                              <CheckCircleIcon color="success" fontSize="small" />
+                              <Typography variant="subtitle2" fontWeight={700} color="success.dark">
+                                KEY STRENGTHS
+                              </Typography>
+                            </Box>
+                            <Typography variant="body2" color="text.secondary" sx={{ lineHeight: 1.6 }}>
+                              {report.strengths}
+                            </Typography>
+                          </Paper>
+                        </Grid>
+                      )}
+
+                      {/* Areas for Improvement */}
+                      {report.areas_for_improvement && (
+                        <Grid item xs={12} md={6}>
+                          <Paper sx={{ p: 2.5, borderRadius: 2, bgcolor: 'error.lighter', height: '100%' }}>
+                            <Box display="flex" alignItems="center" gap={1} mb={1.5}>
+                              <WarningIcon color="error" fontSize="small" />
+                              <Typography variant="subtitle2" fontWeight={700} color="error.dark">
+                                AREAS FOR IMPROVEMENT
+                              </Typography>
+                            </Box>
+                            <Typography variant="body2" color="text.secondary" sx={{ lineHeight: 1.6 }}>
+                              {report.areas_for_improvement}
+                            </Typography>
+                          </Paper>
+                        </Grid>
+                      )}
+
+                      {/* Recommendations */}
+                      {report.recommendations && (
+                        <Grid item xs={12}>
+                          <Paper sx={{ p: 2.5, borderRadius: 2, bgcolor: 'info.lighter', border: '1px solid', borderColor: 'info.light' }}>
+                            <Box display="flex" alignItems="center" gap={1} mb={1.5}>
+                              <LightbulbIcon color="info" fontSize="small" />
+                              <Typography variant="subtitle2" fontWeight={700} color="info.dark">
+                                RECOMMENDATIONS
+                              </Typography>
+                            </Box>
+                            <Typography variant="body2" color="text.secondary" sx={{ lineHeight: 1.6 }}>
+                              {report.recommendations}
+                            </Typography>
+                          </Paper>
+                        </Grid>
+                      )}
+                    </Grid>
+                  </AccordionDetails>
+                </Accordion>
+              </Paper>
+            </Grid>
+          ))}
+        </Grid>
       )}
 
       {/* Create Report Dialog */}

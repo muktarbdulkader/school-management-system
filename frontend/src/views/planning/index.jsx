@@ -293,7 +293,7 @@ const Planning = () => {
   };
 
   const handleConfirmedDelete = async (plan) => {
-    const API = `${Backend.api}${Backend.getMyPlans}/${plan.id}`;
+    const API = `${Backend.api}${Backend.getMyPlans}${plan.id}/`;
     setLoading(true);
     try {
       const token = await GetToken();
@@ -484,6 +484,8 @@ const Planning = () => {
           onSucceed={refreshPlans}
           planId={selectedPlan.id}
           classId={selectedPlan?.class_fk_details?.id || selectedPlan?.learner_group_details?.id}
+          subunitId={selectedPlan?.subunit_id || selectedPlan?.subunit?.id}
+          sectionId={selectedPlan?.section_id}
         />
       )}
       {selectedPlan && (

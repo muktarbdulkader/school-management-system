@@ -272,7 +272,7 @@ class LessonActivitiesSerializer(serializers.ModelSerializer):
 
 # ==================== Lesson Plan Evaluations ====================
 class LessonPlanEvaluationsSerializer(serializers.ModelSerializer):
-    lesson_plan_id = serializers.PrimaryKeyRelatedField(
+    lesson_plan = serializers.PrimaryKeyRelatedField(
         queryset=LessonPlans.objects.all(),
         write_only=True,
         required=True

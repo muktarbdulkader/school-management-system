@@ -77,7 +77,7 @@ class LessonActivities(models.Model):
 class LessonPlanEvaluations(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     lesson_plan = models.ForeignKey(LessonPlans, on_delete=models.CASCADE)
-    section = models.ForeignKey('academics.Section', on_delete=models.CASCADE)
+    section = models.ForeignKey('academics.Section', on_delete=models.CASCADE, null=True, blank=True)
     lesson_plan_evaluation = models.TextField()
 
     def __str__(self):

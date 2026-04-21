@@ -204,7 +204,7 @@ const StudentDashboard = () => {
                 Welcome to MALD School Management System
               </Typography>
               <Typography variant="h5" color="text.secondary" sx={{ mt: 1 }}>
-                Student Portal
+                Portal
               </Typography>
             </Box>
           </DrogaCard>
@@ -494,7 +494,7 @@ const StudentDashboard = () => {
         </Grid>
 
         {/* Rate Your Teachers — inline section */}
-        <Grid item xs={12}>
+        {/* <Grid item xs={12}>
           <DrogaCard>
             <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
               <Box>
@@ -528,7 +528,7 @@ const StudentDashboard = () => {
               ))}
             </Grid>
           </DrogaCard>
-        </Grid>
+        </Grid> */}
       </Grid>
 
       {/* Rating Dialog */}

@@ -238,12 +238,22 @@ class TeacherPerformanceReport(models.Model):
     # Metadata
     generated_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='reports_generated')
     generated_at = models.DateTimeField(auto_now_add=True)
+    
+    # Evaluation period tracking - to identify which period this report belongs to
+    evaluation_period_id = models.CharField(
+        max_length=100,
+        null=True,
+        blank=True,
+        help_text="Unique ID of the evaluation period when this report was generated"
+    )
 
     class Meta:
         ordering = ['-generated_at']
         indexes = [
             models.Index(fields=['teacher', 'report_period']),
             models.Index(fields=['start_date', 'end_date']),
+            models.Index(fields=['evaluation_period_id']),
+            models.Index(fields=['teacher', 'evaluation_period_id']),
         ]
 
     def __str__(self):
@@ -543,3 +553,63 @@ class TeacherPerformanceEvaluationRating(models.Model):
             return min(5, max(0, value))
         
         return None
+
+
+class EvaluationPeriodSettings(models.Model):
+    """Persistent storage for teacher evaluation period settings.
+    
+    This ensures settings survive server restarts, unlike cache.
+    Only one record should exist (singleton pattern).
+    """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    
+    # Period status
+    is_open = models.BooleanField(default=False, help_text="Is the evaluation period currently open")
+    period_id = models.CharField(max_length=100, null=True, blank=True, help_text="Unique ID for current evaluation period")
+    
+    # Period dates
+    start_date = models.DateTimeField(null=True, blank=True, help_text="When this evaluation period started")
+    end_date = models.DateTimeField(null=True, blank=True, help_text="When this evaluation period ends (optional)")
+    
+    # Display message
+    message = models.TextField(blank=True, null=True, help_text="Message to display about evaluation period status")
+    
+    # Tracking
+    updated_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='evaluation_settings_updated')
+    updated_at = models.DateTimeField(auto_now=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        db_table = 'teacher_evaluation_period_settings'
+        ordering = ['-updated_at']
+    
+    def __str__(self):
+        status = "OPEN" if self.is_open else "CLOSED"
+        return f"Evaluation Period {status} (ID: {self.period_id})"
+    
+    @classmethod
+    def get_settings(cls):
+        """Get or create the singleton settings record."""
+        # Always get the first record, or create if none exists
+        first = cls.objects.first()
+        if first:
+            return first
+        
+        # Create initial record
+        return cls.objects.create(
+            is_open=False,
+            period_id=None,
+            message='Evaluation period is not configured'
+        )
+    
+    def to_dict(self):
+        """Convert to dictionary format matching the old cache format."""
+        return {
+            'is_evaluation_period_open': self.is_open,
+            'period_id': self.period_id,
+            'start_date': self.start_date.isoformat() if self.start_date else None,
+            'end_date': self.end_date.isoformat() if self.end_date else None,
+            'message': self.message,
+            'updated_by': self.updated_by.full_name if self.updated_by else 'System',
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None
+        }

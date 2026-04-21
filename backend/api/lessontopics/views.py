@@ -1171,6 +1171,11 @@ class LessonPlanEvaluationsViewSet(viewsets.ModelViewSet):
         if lesson_plan.created_by.teacher.user != user:
             raise PermissionDenied("Only the creating teacher can add evaluations to this lesson plan.")
 
+        # Map lesson_plan_id to lesson_plan for serializer
+        data['lesson_plan'] = lesson_plan_id
+        if 'lesson_plan_id' in data:
+            del data['lesson_plan_id']
+
         serializer = self.get_serializer(data=data)
         serializer.is_valid(raise_exception=True)
         self.perform_create(serializer)

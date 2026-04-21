@@ -1560,7 +1560,9 @@ class ParentStudentViewSet(viewsets.ModelViewSet):
             }
         }
 
-        # Subjects with teachers
+        # Subjects with teachers and unit-based progress
+        from lessontopics.models import ClassUnitProgress, ClassSubunitProgress, ObjectiveUnits, ObjectiveSubunits
+
         student_subjects = StudentSubject.objects.filter(student=student).select_related('subject')
         subjects_data = []
         for ss in student_subjects:
@@ -1576,12 +1578,53 @@ class ParentStudentViewSet(viewsets.ModelViewSet):
             if schedule_slot and schedule_slot.teacher_assignment:
                 teacher_assignment = schedule_slot.teacher_assignment
                 teacher_name = teacher_assignment.teacher.user.full_name if teacher_assignment and teacher_assignment.teacher and teacher_assignment.teacher.user else "Not assigned"
+
+            # Calculate progress from unit/subunit completion
+            subject_progress = 0
+            try:
+                # Get all units for this subject
+                units = ObjectiveUnits.objects.filter(category__subject=subject)
+                total_subunits = 0
+                completed_subunits = 0
+
+                for unit in units:
+                    subunits = ObjectiveSubunits.objects.filter(unit=unit)
+                    for sub in subunits:
+                        total_subunits += 1
+                        sub_prog = ClassSubunitProgress.objects.filter(
+                            class_fk=student.grade,
+                            section=student.section,
+                            subject=subject,
+                            subunit=sub
+                        ).first()
+                        if sub_prog and sub_prog.is_completed:
+                            completed_subunits += 1
+
+                # Calculate percentage
+                if total_subunits > 0:
+                    subject_progress = int((completed_subunits / total_subunits) * 100)
+                else:
+                    # Fallback: check if any units are marked completed
+                    unit_progress = ClassUnitProgress.objects.filter(
+                        class_fk=student.grade,
+                        section=student.section,
+                        subject=subject,
+                        is_completed=True
+                    )
+                    total_units = units.count()
+                    completed_units = unit_progress.count()
+                    if total_units > 0:
+                        subject_progress = int((completed_units / total_units) * 100)
+            except Exception as e:
+                print(f"Error calculating progress for subject {subject.name}: {e}")
+                subject_progress = 0
+
             subjects_data.append({
                 'id': str(ss.id),
                 'subject_id': str(subject.id),
                 'subject_name': subject.name or "Unknown Subject",
                 'teacher_name': teacher_name or "Not assigned",
-                'progress': 0,
+                'progress': subject_progress,
                 'enrolled_on': ss.enrolled_on.isoformat() if ss.enrolled_on else None
             })
 

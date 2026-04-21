@@ -55,9 +55,21 @@ export default function TeacherRatingsPage() {
   });
   const isEvaluationPeriod = evaluationSettings.is_evaluation_period_open;
 
+  // Fetch data on component mount
   useEffect(() => {
     fetchData();
-  }, [user]);
+  }, []);
+
+  // Also refresh data when window becomes visible (user returns to tab)
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        fetchData();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, []);
 
   const fetchData = async () => {
     setLoading(true);
@@ -336,7 +348,15 @@ export default function TeacherRatingsPage() {
   };
 
   const TeacherCard = ({ teacher }) => {
-    const stats = teacher.rating_stats || { overall_avg: 0, total_count: 0, categories: {} };
+    // Find this student's personal rating for this teacher (not the average from all students)
+    const myRatingForThisTeacher = myRatings.find(r =>
+      r.teacher === teacher.id || r.teacher_id === teacher.id ||
+      r.teacher === teacher.teacher_id || r.teacher_id === teacher.teacher_id
+    );
+
+    // Use student's personal rating, not the overall average
+    const myRatingValue = myRatingForThisTeacher?.rating || 0;
+    const hasRated = !!myRatingForThisTeacher;
 
     return (
       <Card sx={{
@@ -372,35 +392,37 @@ export default function TeacherRatingsPage() {
 
             <Divider sx={{ my: 2 }} />
 
+            {/* Show STUDENT'S PERSONAL RATING only (not other students' reviews) */}
             <Stack direction="row" justifyContent="center" alignItems="center" spacing={1} sx={{ mb: 2 }}>
-              <Typography variant="h3" fontWeight={800} color="primary">
-                {stats.overall_avg > 0 ? stats.overall_avg.toFixed(1) : '--'}
+              <Typography variant="h3" fontWeight={800} color={hasRated ? 'primary' : 'text.disabled'}>
+                {hasRated ? myRatingValue.toFixed(1) : '--'}
               </Typography>
               <Box sx={{ textAlign: 'left' }}>
-                <Rating value={stats.overall_avg || 0} readOnly precision={0.5} size="small" />
+                <Rating value={myRatingValue} readOnly precision={0.5} size="small" />
                 <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                  {stats.total_count} Reviews
+                  {hasRated ? 'Your Rating' : 'Not Rated'}
                 </Typography>
               </Box>
             </Stack>
 
-            {/* Show top 3 criteria with highest ratings */}
+            {/* Show criteria breakdown from student's personal rating only */}
             <Grid container spacing={1} sx={{ mb: 3 }}>
               {criteria.slice(0, 3).map(c => {
-                const ratingValue = stats.categories?.[c.code];
-                // Calculate percentage: (rating / 5) * 100
-                const percentage = ratingValue ? Math.round((ratingValue / 5) * 100) : 0;
+                // Get student's rating for this specific criteria from their personal rating
+                const criteriaRatings = myRatingForThisTeacher?.criteria_ratings || {};
+                const myCriteriaRating = criteriaRatings[c.code] || (myRatingForThisTeacher?.category === c.code ? myRatingValue : 0);
+                const percentage = myCriteriaRating ? Math.round((myCriteriaRating / 5) * 100) : 0;
                 return (
                   <Grid item xs={4} key={c.code}>
-                    <Tooltip title={`${c.name}: ${percentage}%`}>
+                    <Tooltip title={`${c.name}: ${hasRated ? percentage + '%' : 'Not rated'}`}>
                       <Box sx={{
                         p: 0.5,
                         borderRadius: 2,
-                        bgcolor: ratingValue ? 'primary.light' : 'action.hover',
-                        color: ratingValue ? 'white' : 'inherit'
+                        bgcolor: hasRated ? 'primary.light' : 'action.hover',
+                        color: hasRated ? 'white' : 'inherit'
                       }}>
                         <Typography variant="caption" sx={{ fontWeight: 800 }}>
-                          {percentage > 0 ? `${percentage}%` : '--'}
+                          {hasRated ? `${percentage}%` : '--'}
                         </Typography>
                       </Box>
                     </Tooltip>
@@ -414,14 +436,17 @@ export default function TeacherRatingsPage() {
                 variant={teacher.has_rated ? "outlined" : "contained"}
                 color={teacher.has_rated ? "success" : "primary"}
                 fullWidth
+                disabled={teacher.has_rated}
                 onClick={() => {
-                  setSelectedTeacher(teacher);
-                  setRatingDialog(true);
+                  if (!teacher.has_rated) {
+                    setSelectedTeacher(teacher);
+                    setRatingDialog(true);
+                  }
                 }}
                 sx={{ borderRadius: 10, py: 1, fontWeight: 700 }}
                 startIcon={teacher.has_rated ? <Verified /> : null}
               >
-                {teacher.has_rated ? "Rated" : "Rate Now"}
+                {teacher.has_rated ? "Already Rated ✓" : "Rate Now"}
               </Button>
             )}
             {!isEvaluationPeriod && canRateTeachers && (
@@ -480,7 +505,7 @@ export default function TeacherRatingsPage() {
                       Performance by Criteria (Admin Defined)
                     </Typography>
                     <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
-                      Based on criteria set by Super Admin/Admin. Each criteria is calculated as percentage out of 100%.
+                      Each criteria is calculated as percentage out of 100%.
                     </Typography>
                     <Stack spacing={2}>
                       {criteriaLoading ? (
@@ -681,7 +706,7 @@ export default function TeacherRatingsPage() {
               Rate {selectedTeacher?.full_name || selectedTeacher?.user_details?.full_name} across criteria
             </Typography>
             <Typography variant="caption" color="text.secondary" align="center" sx={{ display: 'block', mt: 0.5, mb: 2 }}>
-              Criteria are defined by Super Admin/Admin. Each rating out of 5 stars is calculated as percentage (out of 100%).
+              Each rating out of 5 stars is calculated as percentage (out of 100%).
             </Typography>
           </DialogTitle>
           <DialogContent sx={{ px: 4 }}>

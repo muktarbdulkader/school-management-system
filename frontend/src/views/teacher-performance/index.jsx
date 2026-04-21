@@ -4,7 +4,7 @@ import {
     Rating, LinearProgress, Table, TableBody, TableCell,
     TableContainer, TableHead, TableRow, Dialog, DialogTitle,
     DialogContent, DialogActions, TextField, MenuItem, CircularProgress,
-    InputAdornment, IconButton, Tooltip
+    InputAdornment, IconButton, Tooltip, Alert
 } from '@mui/material';
 import {
     IconRefresh, IconPlus, IconStar, IconFileText, IconDownload,
@@ -47,23 +47,62 @@ const MetricCard = ({ label, value, sub, color = 'primary', icon: Icon }) => (
 );
 
 // ── Report Generation Dialog ─────────────────────────────────────────────────
-const ReportDialog = ({ open, onClose, teacher }) => {
+const ReportDialog = ({ open, onClose, teacher, evalSettings, onSuccess }) => {
     const [form, setForm] = useState({
         report_period: 'monthly',
         start_date: dayjs().startOf('month').format('YYYY-MM-DD'),
         end_date: dayjs().endOf('month').format('YYYY-MM-DD'),
+        overall_score: '',
         strengths: '',
         areas_for_improvement: '',
-        recommendations: '',
-        overall_score: ''
+        recommendations: ''
     });
     const [saving, setSaving] = useState(false);
+
+    // Pre-populate overall_score from teacher's ranking data when dialog opens
+    useEffect(() => {
+        if (open && teacher) {
+            // If evaluation is closed, score is 0
+            const isEvalOpen = evalSettings?.is_evaluation_period_open || false;
+            let rankingScore = '0';
+
+            if (isEvalOpen) {
+                // Extract score from teacher data - either calculated_score or derive from rating_stats
+                if (teacher.calculated_score !== undefined && teacher.calculated_score !== null) {
+                    rankingScore = Math.round(teacher.calculated_score).toString();
+                } else if (teacher.rating_stats?.overall_avg) {
+                    // Convert 5-star rating to percentage (e.g., 4.5/5 = 90%)
+                    rankingScore = Math.round((teacher.rating_stats.overall_avg / 5) * 100).toString();
+                } else if (teacher.overall_score) {
+                    rankingScore = Math.round(teacher.overall_score).toString();
+                }
+            }
+
+            setForm(prev => ({
+                ...prev,
+                overall_score: rankingScore
+            }));
+        }
+    }, [open, teacher, evalSettings]);
 
     const handleSave = async () => {
         if (!form.start_date || !form.end_date || !form.overall_score) {
             toast.error('Fill required fields');
             return;
         }
+
+        // Check if teacher already has a report
+        if (teacher?.is_reported) {
+            toast.error('Report already generated for this teacher in this evaluation period');
+            return;
+        }
+
+        // Check if evaluation period is open
+        if (!evalSettings?.is_evaluation_period_open) {
+            toast.error('Cannot generate report: Evaluation period is closed');
+            return;
+        }
+
         setSaving(true);
         try {
             const token = await GetToken();
@@ -75,6 +114,7 @@ const ReportDialog = ({ open, onClose, teacher }) => {
             const data = await res.json();
             if (res.ok) {
                 toast.success('Report generated successfully');
+                onSuccess?.(); // Refresh teacher data to show updated status
                 onClose();
             } else {
                 toast.error(data.message || 'Failed to generate report');
@@ -90,16 +130,46 @@ const ReportDialog = ({ open, onClose, teacher }) => {
         <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth PaperProps={{ sx: { borderRadius: 3 } }}>
             <DialogTitle sx={{ fontWeight: 700 }}>Generate Performance Report</DialogTitle>
             <DialogContent>
+                {/* Already Reported Alert */}
+                {teacher?.is_reported && (
+                    <Alert severity="info" sx={{ mb: 2 }}>
+                        <Typography variant="body2" fontWeight={600}>
+                            Report Already Generated
+                        </Typography>
+                        <Typography variant="caption">
+                            This teacher already has a report for this evaluation period. Cannot generate duplicate reports.
+                        </Typography>
+                    </Alert>
+                )}
+                {/* Evaluation Period Status Alert */}
+                {!evalSettings?.is_evaluation_period_open && (
+                    <Alert severity="warning" sx={{ mb: 2 }}>
+                        <Typography variant="body2" fontWeight={600}>
+                            Evaluation Period is CLOSED
+                        </Typography>
+                        <Typography variant="caption">
+                            All scores are reset to 0. You cannot generate reports when evaluation is closed.
+                        </Typography>
+                    </Alert>
+                )}
                 <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 3 }}>
                     Teacher: {teacher?.user_details?.full_name || 'Selected Teacher'}
+                    {teacher?.is_reported && (
+                        <Chip
+                            label="Already Reported"
+                            color="info"
+                            size="small"
+                            sx={{ ml: 1 }}
+                        />
+                    )}
                 </Typography>
                 <Stack spacing={2.5} sx={{ mt: 1 }}>
-                    <TextField select label="Report Period" value={form.report_period} onChange={e => setForm({ ...form, report_period: e.target.value })} fullWidth>
+                    <TextField select label="Report Period" value={form.report_period} onChange={e => setForm({ ...form, report_period: e.target.value })} fullWidth disabled={teacher?.is_reported}>
                         {['monthly', 'quarterly', 'semester', 'annual'].map(p => <MenuItem key={p} value={p}>{p.charAt(0).toUpperCase() + p.slice(1)}</MenuItem>)}
                     </TextField>
                     <Stack direction="row" spacing={2}>
-                        <TextField label="Start Date *" type="date" value={form.start_date} onChange={e => setForm({ ...form, start_date: e.target.value })} fullWidth InputLabelProps={{ shrink: true }} />
-                        <TextField label="End Date *" type="date" value={form.end_date} onChange={e => setForm({ ...form, end_date: e.target.value })} fullWidth InputLabelProps={{ shrink: true }} />
+                        <TextField label="Start Date *" type="date" value={form.start_date} onChange={e => setForm({ ...form, start_date: e.target.value })} fullWidth InputLabelProps={{ shrink: true }} disabled={teacher?.is_reported} />
+                        <TextField label="End Date *" type="date" value={form.end_date} onChange={e => setForm({ ...form, end_date: e.target.value })} fullWidth InputLabelProps={{ shrink: true }} disabled={teacher?.is_reported} />
                     </Stack>
                     <TextField
                         label="Overall Score (0-100) *"
@@ -108,17 +178,37 @@ const ReportDialog = ({ open, onClose, teacher }) => {
                         onChange={e => setForm({ ...form, overall_score: e.target.value })}
                         fullWidth
                         inputProps={{ min: 0, max: 100 }}
-                        helperText="Quantitative performance summary"
+                        disabled={!evalSettings?.is_evaluation_period_open || teacher?.is_reported}
+                        helperText={
+                            teacher?.is_reported
+                                ? "Report already generated - cannot modify"
+                                : !evalSettings?.is_evaluation_period_open
+                                    ? "Evaluation closed - Score is 0"
+                                    : teacher?.calculated_score || teacher?.rating_stats?.overall_avg
+                                        ? "Auto-populated from teacher ranking data (editable)"
+                                        : "Enter performance score (0-100)"
+                        }
                     />
-                    <TextField label="Key Strengths" value={form.strengths} onChange={e => setForm({ ...form, strengths: e.target.value })} fullWidth multiline rows={2} />
-                    <TextField label="Areas for Improvement" value={form.areas_for_improvement} onChange={e => setForm({ ...form, areas_for_improvement: e.target.value })} fullWidth multiline rows={2} />
-                    <TextField label="Final Recommendations" value={form.recommendations} onChange={e => setForm({ ...form, recommendations: e.target.value })} fullWidth multiline rows={2} />
+                    <TextField label="Key Strengths" value={form.strengths} onChange={e => setForm({ ...form, strengths: e.target.value })} fullWidth multiline rows={2} disabled={teacher?.is_reported} />
+                    <TextField label="Areas for Improvement" value={form.areas_for_improvement} onChange={e => setForm({ ...form, areas_for_improvement: e.target.value })} fullWidth multiline rows={2} disabled={teacher?.is_reported} />
+                    <TextField label="Final Recommendations" value={form.recommendations} onChange={e => setForm({ ...form, recommendations: e.target.value })} fullWidth multiline rows={2} disabled={teacher?.is_reported} />
                 </Stack>
             </DialogContent>
             <DialogActions sx={{ p: 3 }}>
                 <Button onClick={onClose} color="inherit">Cancel</Button>
-                <Button variant="contained" onClick={handleSave} disabled={saving} startIcon={saving ? <CircularProgress size={18} /> : <IconFileText size={18} />}>
-                    {saving ? 'Generating...' : 'Generate Report'}
+                <Button
+                    variant="contained"
+                    onClick={handleSave}
+                    disabled={saving || !evalSettings?.is_evaluation_period_open || teacher?.is_reported}
+                    startIcon={saving ? <CircularProgress size={18} /> : <IconFileText size={18} />}
+                >
+                    {teacher?.is_reported
+                        ? 'Already Reported'
+                        : !evalSettings?.is_evaluation_period_open
+                            ? 'Evaluation Closed'
+                            : saving
+                                ? 'Generating...'
+                                : 'Generate Report'}
                 </Button>
             </DialogActions>
         </Dialog>
@@ -145,6 +235,10 @@ const TeacherPerformancePage = () => {
     const [teacherDetailsOpen, setTeacherDetailsOpen] = useState(false);
     const [teacherPerformanceData, setTeacherPerformanceData] = useState(null);
 
+    // Evaluation period status - controls report generation and score display
+    const [evalSettings, setEvalSettings] = useState({ is_evaluation_period_open: false });
+    const [reportsList, setReportsList] = useState([]);
+
     const userRoles = useSelector((state) => state.user?.user?.roles || []);
     const isAdmin = userRoles.some(r => ['admin', 'super_admin', 'head_admin', 'ceo'].includes(r?.toLowerCase()));
     // Use hasPermission OR isAdmin check for super admin/ceo fallback
@@ -161,22 +255,43 @@ const TeacherPerformancePage = () => {
             const token = await GetToken();
             const headers = { Authorization: `Bearer ${token}` };
 
-            // Fetch teachers list, criteria, tasks, and reports in parallel
-            const [teachersRes, criteriaRes, tasksRes, reportsRes] = await Promise.all([
+            // Fetch teachers list, criteria, tasks, reports, and evaluation settings in parallel
+            const [teachersRes, criteriaRes, tasksRes, reportsRes, evalSettingsRes] = await Promise.all([
                 fetch(`${Backend.api}${Backend.teachers}`, { headers }),
                 fetch(`${Backend.api}${Backend.performanceCriteriaActive}`, { headers }),
                 fetch(`${Backend.api}${Backend.teacherTasks}`, { headers }),
-                fetch(`${Backend.api}${Backend.teacherReports}`, { headers })
+                fetch(`${Backend.api}${Backend.teacherReports}`, { headers }),
+                fetch(`${Backend.api}${Backend.performanceEvaluationSettings}`, { headers })
             ]);
 
             const teachersData = await teachersRes.json();
             const criteriaData = await criteriaRes.json();
             const tasksData = await tasksRes.json();
             const reportsData = await reportsRes.json();
+            const evalSettingsData = await evalSettingsRes.json();
 
             const teacherList = teachersData.data || [];
             const tasksList = tasksData.data || [];
-            const reportsList = reportsData.data || [];
+            const allReports = reportsData.data || [];
+            const evalPeriodStatus = evalSettingsData.data || { is_evaluation_period_open: false, period_id: null };
+
+            // Get current evaluation period ID
+            const currentPeriodId = evalPeriodStatus?.period_id;
+            const isEvalOpen = evalPeriodStatus?.is_evaluation_period_open || false;
+
+            // Filter reports to only those created in current evaluation period
+            // STRICT: Only show reports with matching period_id when period tracking is active
+            const reportsInCurrentPeriod = allReports.filter(r => {
+                // If we have a current period ID, only show reports with that ID
+                if (currentPeriodId) {
+                    return r.evaluation_period_id === currentPeriodId;
+                }
+                // No period tracking - show nothing (all old reports archived)
+                return false;
+            });
+
+            setReportsList(reportsInCurrentPeriod);
+            setEvalSettings(evalPeriodStatus);
 
             setTeachers(teacherList);
             setCriteria(criteriaData.data || []);
@@ -204,16 +319,25 @@ const TeacherPerformancePage = () => {
             const openTasks = totalTasks - completedTasks;
 
             // Calculate reports metrics
-            const totalReports = reportsList.length;
+            const totalReports = reportsInCurrentPeriod.length;
 
-            // Update teacher data with calculated attendance if not present
-            const updatedTeachers = teacherList.map(t => ({
-                ...t,
-                attendance_percentage: t.attendance_percentage || avgAttendance,
-                calculated_score: t.rating_stats?.overall_avg
-                    ? Math.round((t.rating_stats.overall_avg / 5) * 100)
-                    : 0
-            }));
+            // Update teacher data with calculated attendance
+            const updatedTeachers = teacherList.map(t => {
+                // Calculate score - if evaluation is closed, score is 0
+                let calculatedScore = 0;
+                if (isEvalOpen && t.rating_stats?.overall_avg) {
+                    calculatedScore = Math.round((t.rating_stats.overall_avg / 5) * 100);
+                }
+
+                return {
+                    ...t,
+                    attendance_percentage: t.attendance_percentage || avgAttendance,
+                    calculated_score: calculatedScore,
+                    // Use backend's is_reported which checks by evaluation period
+                    // Reset rating display when evaluation closed
+                    rating_stats: isEvalOpen ? t.rating_stats : { overall_avg: 0, total_count: 0 }
+                };
+            });
 
             setTeachers(updatedTeachers);
 
@@ -437,30 +561,53 @@ const TeacherPerformancePage = () => {
                                             </Box>
                                         </TableCell>
                                         <TableCell>
-                                            {(() => {
-                                                const score = teacher.calculated_score || Math.round(((teacher.rating_stats?.overall_avg || 0) / 5) * 100);
-                                                let label = 'Needs Improvement';
-                                                let color = 'error';
-                                                if (score >= 85) {
-                                                    label = 'High Performer';
-                                                    color = 'success';
-                                                } else if (score >= 70) {
-                                                    label = 'Good';
-                                                    color = 'primary';
-                                                } else if (score >= 50) {
-                                                    label = 'Average';
-                                                    color = 'warning';
-                                                }
-                                                return (
+                                            <Stack spacing={0.5} alignItems="flex-start">
+                                                {(() => {
+                                                    const score = teacher.calculated_score || 0;
+                                                    let label = 'Needs Improvement';
+                                                    let color = 'error';
+                                                    if (score >= 85) {
+                                                        label = 'High Performer';
+                                                        color = 'success';
+                                                    } else if (score >= 70) {
+                                                        label = 'Good';
+                                                        color = 'primary';
+                                                    } else if (score >= 50) {
+                                                        label = 'Average';
+                                                        color = 'warning';
+                                                    }
+                                                    return (
+                                                        <Chip
+                                                            label={label}
+                                                            size="small"
+                                                            color={color}
+                                                            variant="light"
+                                                            sx={{ borderRadius: 1 }}
+                                                        />
+                                                    );
+                                                })()}
+                                                {/* Show Reported status */}
+                                                {teacher.is_reported && (
                                                     <Chip
-                                                        label={label}
+                                                        icon={<IconFileText size={14} />}
+                                                        label="Reported"
                                                         size="small"
-                                                        color={color}
-                                                        variant="light"
-                                                        sx={{ borderRadius: 1 }}
+                                                        color="info"
+                                                        variant="filled"
+                                                        sx={{ borderRadius: 1, fontWeight: 600 }}
                                                     />
-                                                );
-                                            })()}
+                                                )}
+                                                {/* Show Evaluation Period Status */}
+                                                {!evalSettings?.is_evaluation_period_open && (
+                                                    <Chip
+                                                        label="Eval Closed"
+                                                        size="small"
+                                                        color="default"
+                                                        variant="outlined"
+                                                        sx={{ borderRadius: 1, fontSize: '0.7rem' }}
+                                                    />
+                                                )}
+                                            </Stack>
                                         </TableCell>
                                         <TableCell align="right">
                                             <Stack direction="row" spacing={1} justifyContent="flex-end">
@@ -483,10 +630,25 @@ const TeacherPerformancePage = () => {
                                                         <IconClipboardList size={20} />
                                                     </IconButton>
                                                 </Tooltip>
-                                                <Tooltip title="Generate Report">
-                                                    <IconButton size="small" color="secondary" onClick={() => handleGenerateReport(teacher)}>
-                                                        <IconFileText size={20} />
-                                                    </IconButton>
+                                                <Tooltip
+                                                    title={
+                                                        teacher.is_reported
+                                                            ? "Report already generated for this teacher"
+                                                            : !evalSettings?.is_evaluation_period_open
+                                                                ? "Evaluation period is closed - cannot generate reports"
+                                                                : "Generate Report"
+                                                    }
+                                                >
+                                                    <span>
+                                                        <IconButton
+                                                            size="small"
+                                                            color="secondary"
+                                                            onClick={() => handleGenerateReport(teacher)}
+                                                            disabled={teacher.is_reported || !evalSettings?.is_evaluation_period_open}
+                                                        >
+                                                            <IconFileText size={20} />
+                                                        </IconButton>
+                                                    </span>
                                                 </Tooltip>
                                             </Stack>
                                         </TableCell>
@@ -503,6 +665,8 @@ const TeacherPerformancePage = () => {
                 open={reportOpen}
                 onClose={() => setReportOpen(false)}
                 teacher={selectedTeacher}
+                evalSettings={evalSettings}
+                onSuccess={fetchData}
             />
 
             {selectedTeacher && (

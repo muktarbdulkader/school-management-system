@@ -65,6 +65,7 @@ const Backend = {
   teachersPerformanceRatings: 'teacher-ratings/',
   teacherMetrics: 'teacher-metrics/',
   teacherReports: 'teacher-reports/',
+  teacherMyEvaluations: 'teacher-reports/my-evaluations/',
 
   // Dynamic Performance Measurement (New)
   performanceCriteria: 'performance-criteria/',

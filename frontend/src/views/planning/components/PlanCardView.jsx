@@ -188,13 +188,43 @@ const PlanCard = ({ open, onClose, plan, onUpdated, onEdit, onDelete }) => {
     return result;
   };
 
+  // Parse lesson plan evaluation to extract worked well and to be improved
+  const parseLessonPlanEvaluation = (evaluationText) => {
+    if (!evaluationText) return { worked_well: '', to_be_improved: '' };
+
+    const result = { worked_well: '', to_be_improved: '' };
+
+    // Split by "What Worked Well:" and "To Be Improved:"
+    const workedWellMatch = evaluationText.match(/What Worked Well:\s*([\s\S]*?)(?=To Be Improved:|$)/i);
+    const toBeImprovedMatch = evaluationText.match(/To Be Improved:\s*([\s\S]*?)$/i);
+
+    if (workedWellMatch) {
+      result.worked_well = workedWellMatch[1].trim();
+    }
+    if (toBeImprovedMatch) {
+      result.to_be_improved = toBeImprovedMatch[1].trim();
+    }
+
+    // Fallback: if no patterns matched but text exists, use as worked_well
+    if (!result.worked_well && !result.to_be_improved && evaluationText.trim()) {
+      result.worked_well = evaluationText.trim();
+    }
+
+    return result;
+  };
+
   const learnerActivities = parseLearnerActivities(activity?.learner_activity);
   const assessmentParts = parseFormativeAssessment(activity?.formative_assessment);
 
   // Get evaluation data from evaluations array
   const evaluation = plan?.evaluations?.[0] || plan?._evaluation;
-  const workedWell = plan?.worked_well || evaluation?.worked_well;
-  const toBeImproved = plan?.to_be_improved || evaluation?.to_be_improved;
+
+  // Parse lesson_plan_evaluation if available
+  const evaluationText = evaluation?.lesson_plan_evaluation || plan?.lesson_plan_evaluation;
+  const parsedEvaluation = parseLessonPlanEvaluation(evaluationText);
+
+  const workedWell = plan?.worked_well || evaluation?.worked_well || parsedEvaluation.worked_well;
+  const toBeImproved = plan?.to_be_improved || evaluation?.to_be_improved || parsedEvaluation.to_be_improved;
 
   const evaluationExists =
     Boolean(plan?.section_details) ||
@@ -457,17 +487,45 @@ const PlanCard = ({ open, onClose, plan, onUpdated, onEdit, onDelete }) => {
                   )}
               </Box>
 
-              <Typography
-                variant="body2"
-                sx={{ whiteSpace: 'pre-line', color: 'text.primary', mb: 2 }}
-              >
-                {plan?.learning_objectives
-                  ? !expanded.objectives &&
-                    plan.learning_objectives.length > 200
-                    ? previewText(plan.learning_objectives)
-                    : plan.learning_objectives
-                  : 'No description available.'}
-              </Typography>
+              {/* Learning Objectives Content */}
+              {(plan?.learning_objectives || plan?.learning_objectives_details?.description) ? (
+                <Box
+                  sx={{
+                    p: 1.5,
+                    bgcolor: 'info.lighter',
+                    borderRadius: 1.5,
+                    border: '1px solid',
+                    borderColor: 'info.light',
+                    mb: 2,
+                  }}
+                >
+                  <Typography
+                    variant="body2"
+                    sx={{ whiteSpace: 'pre-line', color: 'text.primary' }}
+                  >
+                    {!expanded.objectives &&
+                      (plan.learning_objectives || plan?.learning_objectives_details?.description || '').length > 200
+                      ? previewText(plan.learning_objectives || plan?.learning_objectives_details?.description)
+                      : (plan.learning_objectives || plan?.learning_objectives_details?.description)}
+                  </Typography>
+                </Box>
+              ) : (
+                <Box
+                  sx={{
+                    p: 2,
+                    bgcolor: 'grey.50',
+                    borderRadius: 1.5,
+                    border: '1px dashed',
+                    borderColor: 'grey.300',
+                    mb: 2,
+                    textAlign: 'center',
+                  }}
+                >
+                  <Typography variant="body2" color="text.secondary">
+                    No learning objectives available for this lesson plan.
+                  </Typography>
+                </Box>
+              )}
 
               <Collapse in={expanded.objectives} timeout="auto" unmountOnExit>
                 {/* full text already shown when expanded */}
@@ -575,93 +633,147 @@ const PlanCard = ({ open, onClose, plan, onUpdated, onEdit, onDelete }) => {
                 </Box>
               </Box>
 
-              {/* Worked well (expandable) */}
+              {/* Worked well section */}
               <Box
                 sx={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
+                  p: 1.5,
+                  bgcolor: workedWell ? 'success.lighter' : 'grey.50',
+                  borderRadius: 1.5,
+                  border: '1px solid',
+                  borderColor: workedWell ? 'success.light' : 'grey.200',
+                  mb: 2,
+                  transition: 'all 0.2s ease',
+                  '&:hover': workedWell ? {
+                    boxShadow: '0 2px 8px rgba(76, 175, 80, 0.15)',
+                  } : {},
                 }}
               >
-                <Typography variant="caption" color="text.secondary">
-                  What worked well
-                </Typography>
-                {workedWell && workedWell.length > 120 && (
-                  <IconButton
-                    onClick={() => toggle('worked')}
-                    aria-expanded={expanded.worked}
-                    size="small"
+                <Box
+                  sx={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    mb: workedWell ? 1 : 0,
+                  }}
+                >
+                  <Typography
+                    variant="subtitle2"
+                    fontWeight={700}
                     sx={{
-                      transform: expanded.worked
-                        ? 'rotate(180deg)'
-                        : 'rotate(0deg)',
-                      transition: 'transform 200ms',
+                      color: workedWell ? 'success.dark' : 'text.secondary',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 0.5,
                     }}
                   >
-                    <ExpandMoreIcon />
-                  </IconButton>
+                    ✓ What Worked Well
+                  </Typography>
+                  {workedWell && workedWell.length > 120 && (
+                    <IconButton
+                      onClick={() => toggle('worked')}
+                      aria-expanded={expanded.worked}
+                      size="small"
+                      sx={{
+                        transform: expanded.worked
+                          ? 'rotate(180deg)'
+                          : 'rotate(0deg)',
+                        transition: 'transform 200ms',
+                      }}
+                    >
+                      <ExpandMoreIcon />
+                    </IconButton>
+                  )}
+                </Box>
+
+                {workedWell ? (
+                  <Box>
+                    <Typography variant="body2" sx={{ whiteSpace: 'pre-line', color: 'text.primary' }}>
+                      {!expanded.worked && workedWell.length > 120
+                        ? previewText(workedWell, 120)
+                        : workedWell}
+                    </Typography>
+                  </Box>
+                ) : (
+                  <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic' }}>
+                    No feedback provided yet
+                  </Typography>
                 )}
+
+                <Collapse in={expanded.worked} timeout="auto" unmountOnExit>
+                  {/* full text already shown when expanded */}
+                </Collapse>
               </Box>
 
-              {workedWell ? (
-                <Box sx={{ mb: 1.5, mt: 0.5 }}>
-                  <Typography variant="body2" sx={{ whiteSpace: 'pre-line' }}>
-                    {!expanded.worked && workedWell.length > 120
-                      ? previewText(workedWell, 120)
-                      : workedWell}
-                  </Typography>
-                </Box>
-              ) : (
-                <Box sx={{ mb: 1.5, opacity: 0.7 }}>
-                  <Typography variant="body2">—</Typography>
-                </Box>
-              )}
-
-              <Collapse in={expanded.worked} timeout="auto" unmountOnExit>
-                {/* full text already shown when expanded */}
-              </Collapse>
-
-              {/* To be improved */}
+              {/* To be improved section */}
               <Box
                 sx={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
+                  p: 1.5,
+                  bgcolor: toBeImproved ? 'warning.lighter' : 'grey.50',
+                  borderRadius: 1.5,
+                  border: '1px solid',
+                  borderColor: toBeImproved ? 'warning.light' : 'grey.200',
+                  mb: 2,
+                  transition: 'all 0.2s ease',
+                  '&:hover': toBeImproved ? {
+                    boxShadow: '0 2px 8px rgba(255, 152, 0, 0.15)',
+                  } : {},
                 }}
               >
-                <Typography variant="caption" color="text.secondary">
-                  To be improved
-                </Typography>
-                {toBeImproved && toBeImproved.length > 120 && (
-                  <IconButton
-                    onClick={() => toggle('improved')}
-                    aria-expanded={expanded.improved}
-                    size="small"
+                <Box
+                  sx={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    mb: toBeImproved ? 1 : 0,
+                  }}
+                >
+                  <Typography
+                    variant="subtitle2"
+                    fontWeight={700}
                     sx={{
-                      transform: expanded.improved
-                        ? 'rotate(180deg)'
-                        : 'rotate(0deg)',
-                      transition: 'transform 200ms',
+                      color: toBeImproved ? 'warning.dark' : 'text.secondary',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 0.5,
                     }}
                   >
-                    <ExpandMoreIcon />
-                  </IconButton>
-                )}
-              </Box>
-
-              {toBeImproved ? (
-                <Box sx={{ mb: 1.5, mt: 0.5 }}>
-                  <Typography variant="body2" sx={{ whiteSpace: 'pre-line' }}>
-                    {!expanded.improved && toBeImproved.length > 120
-                      ? previewText(toBeImproved, 120)
-                      : toBeImproved}
+                    ⚡ Areas for Improvement
                   </Typography>
+                  {toBeImproved && toBeImproved.length > 120 && (
+                    <IconButton
+                      onClick={() => toggle('improved')}
+                      aria-expanded={expanded.improved}
+                      size="small"
+                      sx={{
+                        transform: expanded.improved
+                          ? 'rotate(180deg)'
+                          : 'rotate(0deg)',
+                        transition: 'transform 200ms',
+                      }}
+                    >
+                      <ExpandMoreIcon />
+                    </IconButton>
+                  )}
                 </Box>
-              ) : (
-                <Box sx={{ mb: 1.5, opacity: 0.7 }}>
-                  <Typography variant="body2">—</Typography>
-                </Box>
-              )}
+
+                {toBeImproved ? (
+                  <Box>
+                    <Typography variant="body2" sx={{ whiteSpace: 'pre-line', color: 'text.primary' }}>
+                      {!expanded.improved && toBeImproved.length > 120
+                        ? previewText(toBeImproved, 120)
+                        : toBeImproved}
+                    </Typography>
+                  </Box>
+                ) : (
+                  <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic' }}>
+                    No improvement areas specified
+                  </Typography>
+                )}
+
+                <Collapse in={expanded.improved} timeout="auto" unmountOnExit>
+                  {/* full text already shown when expanded */}
+                </Collapse>
+              </Box>
 
               <Divider sx={{ my: 2 }} />
               <Stack
@@ -779,8 +891,16 @@ const PlanCard = ({ open, onClose, plan, onUpdated, onEdit, onDelete }) => {
               </Box>
 
               <Collapse in={expanded.learner} timeout="auto" unmountOnExit>
-                <Box sx={{ mt: 1 }}>
-                  {renderLearnerActivities(learnerActivities)}
+                <Box sx={{ mt: 2 }}>
+                  {Object.keys(learnerActivities).length > 0 ? (
+                    <Box sx={{ p: 2, bgcolor: 'primary.lighter', borderRadius: 1.5, border: '1px solid', borderColor: 'primary.light' }}>
+                      {renderLearnerActivities(learnerActivities)}
+                    </Box>
+                  ) : (
+                    <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic', py: 1 }}>
+                      No learner activities specified
+                    </Typography>
+                  )}
                 </Box>
               </Collapse>
 
@@ -847,8 +967,8 @@ const PlanCard = ({ open, onClose, plan, onUpdated, onEdit, onDelete }) => {
                       Extra challenges
                     </Typography>
                   </Stack>
-                  {plan?.extra_challenges &&
-                    plan.extra_challenges.length > 60 && (
+                  {(assessmentParts.extra_challenges || activity?.extra_challenges || plan?.extra_challenges) &&
+                    (assessmentParts.extra_challenges?.length > 60 || activity?.extra_challenges?.length > 60 || plan?.extra_challenges?.length > 60) && (
                       <IconButton
                         onClick={() => toggle('extra')}
                         aria-expanded={expanded.extra}
@@ -866,11 +986,23 @@ const PlanCard = ({ open, onClose, plan, onUpdated, onEdit, onDelete }) => {
                 </Box>
 
                 <Collapse in={expanded.extra} timeout="auto" unmountOnExit>
-                  {assessmentParts.extra_challenges && (
-                    <Typography variant="body2" sx={{ whiteSpace: 'pre-line' }}>
-                      {assessmentParts.extra_challenges}
+                  {/* Extra Challenges Content */}
+                  {(assessmentParts.extra_challenges || activity?.extra_challenges || plan?.extra_challenges) ? (
+                    <Box sx={{ mb: 2, p: 1.5, bgcolor: 'warning.lighter', borderRadius: 1.5, border: '1px solid', borderColor: 'warning.light' }}>
+                      <Typography variant="subtitle2" fontWeight={600} color="warning.dark" gutterBottom>
+                        Challenge Activities
+                      </Typography>
+                      <Typography variant="body2" sx={{ whiteSpace: 'pre-line', color: 'text.primary' }}>
+                        {assessmentParts.extra_challenges || activity?.extra_challenges || plan?.extra_challenges}
+                      </Typography>
+                    </Box>
+                  ) : (
+                    <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic', py: 1 }}>
+                      No extra challenges specified
                     </Typography>
                   )}
+
+                  {/* Accommodation */}
                   {assessmentParts.accomodation && (
                     <Box sx={{ mt: 1, display: 'flex', gap: 1 }}>
                       <AccessibilityNewIcon />

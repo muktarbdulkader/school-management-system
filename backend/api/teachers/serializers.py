@@ -18,6 +18,7 @@ class TeacherSerializer(serializers.ModelSerializer):
     subject_details = serializers.SerializerMethodField()
     specialization = serializers.SerializerMethodField()
     has_rated = serializers.SerializerMethodField()
+    is_reported = serializers.SerializerMethodField()
     branch_name = serializers.CharField(source='branch.name', read_only=True)
     class_grade_name = serializers.CharField(source='class_grade.grade', read_only=True)
     section_name = serializers.CharField(source='section.name', read_only=True)
@@ -29,7 +30,7 @@ class TeacherSerializer(serializers.ModelSerializer):
             'id', 'user', 'user_details', 'name', 'teacher_id', 'branch', 'branch_name',
             'class_grade', 'class_grade_name', 'section', 'section_name', 'subjects', 'subjects_list',
             'subject_specialties', 'rating', 'attendance_percentage', 'rating_stats',
-            'subject_details', 'specialization', 'has_rated', 'created_at'
+            'subject_details', 'specialization', 'has_rated', 'is_reported', 'created_at'
         ]
         read_only_fields = ['teacher_id', 'created_at']
 
@@ -46,7 +47,27 @@ class TeacherSerializer(serializers.ModelSerializer):
 
     def get_rating_stats(self, obj):
         from django.db.models import Avg, Count
-        ratings = TeacherPerformanceRating.objects.filter(teacher=obj)
+        from teachers.models import EvaluationPeriodSettings
+        
+        # Get evaluation period settings from database
+        eval_settings_obj = EvaluationPeriodSettings.get_settings()
+        
+        # STRICT: If no start_date is set (period not properly initialized), return ZERO stats
+        # This ensures ratings don't show when evaluation period is reset
+        if not eval_settings_obj.start_date:
+            return {
+                'overall_avg': 0,
+                'total_count': 0,
+                'categories': {}
+            }
+        
+        # Only count ratings from current evaluation period (after start_date)
+        # Use created_at (DateTimeField) instead of rating_date (DateField) for proper comparison
+        ratings = TeacherPerformanceRating.objects.filter(
+            teacher=obj,
+            created_at__gte=eval_settings_obj.start_date
+        )
+        
         overall_avg = ratings.aggregate(Avg('rating'))['rating__avg'] or 0
         total_count = ratings.count()
 
@@ -97,45 +118,46 @@ class TeacherSerializer(serializers.ModelSerializer):
         if request and request.user.is_authenticated:
             # Check if user has rated during the current evaluation period
             # This allows students to re-rate when admin reopens evaluation period
-            from django.core.cache import cache
-            from django.utils import timezone
-            from datetime import datetime
+            from teachers.models import EvaluationPeriodSettings
             
-            # Get evaluation period settings
-            eval_settings = cache.get('teacher_evaluation_settings', {
-                'is_evaluation_period_open': True,
-                'start_date': None
-            })
+            # Get evaluation period settings from database
+            eval_settings_obj = EvaluationPeriodSettings.get_settings()
             
-            # Build query to check for ratings
-            ratings_query = TeacherPerformanceRating.objects.filter(
+            # assume not rated - allows fresh start when period is reset
+            if not eval_settings_obj.start_date:
+                return False
+            
+            # Only count ratings from current evaluation period (after start_date)
+            # Use created_at (DateTimeField) instead of rating_date (DateField) for proper comparison
+            return TeacherPerformanceRating.objects.filter(
                 teacher=obj, 
-                rated_by=request.user
-            )
-            
-            # If evaluation period has a start date, only count ratings after that date
-            start_date_str = eval_settings.get('start_date')
-            if start_date_str:
-                try:
-                    # Parse ISO format datetime string
-                    if isinstance(start_date_str, str):
-                        # Remove 'Z' and parse
-                        start_date_str = start_date_str.replace('Z', '+00:00')
-                        period_start = datetime.fromisoformat(start_date_str)
-                        ratings_query = ratings_query.filter(rating_date__gte=period_start)
-                except (ValueError, TypeError):
-                    # If parsing fails, check all ratings
-                    pass
-            else:
-                # No start date set - check if any ratings exist (backward compatible)
-                pass
-            
-            return ratings_query.exists()
+                rated_by=request.user,
+                created_at__gte=eval_settings_obj.start_date
+            ).exists()
         return False
 
     def get_subjects_list(self, obj):
         """Return list of subjects assigned to teacher"""
         return [{'id': str(s.id), 'name': s.name} for s in obj.subjects.all()]
+
+    def get_is_reported(self, obj):
+        """Check if a performance report exists for this teacher in current evaluation period"""
+        from teachers.models import EvaluationPeriodSettings
+        
+        # Get evaluation period settings from database
+        eval_settings_obj = EvaluationPeriodSettings.get_settings()
+        
+        # STRICT: If no start_date is set (period not properly initialized), 
+        # assume no report exists - allows fresh start when period is reset
+        if not eval_settings_obj.start_date:
+            return False
+        
+        # Check if any report exists for this teacher from current evaluation period
+        # Use generated_at (DateTimeField) for proper comparison with start_date
+        return TeacherPerformanceReport.objects.filter(
+            teacher=obj,
+            generated_at__gte=eval_settings_obj.start_date
+        ).exists()
 
 
 class TeacherRegistrationSerializer(serializers.Serializer):
