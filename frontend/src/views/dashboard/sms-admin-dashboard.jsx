@@ -776,6 +776,16 @@ const RankingTab = ({ stats, loading, evalSettings, currentTerm }) => {
   const isEvalOpen = evalSettings?.is_evaluation_period_open === true && !isTermClosed;
   const teachers = stats.teacher_rankings || [];
 
+  // DEBUG: Log state to console
+  console.log('[RankingTab DEBUG]', {
+    currentTerm,
+    evalSettings,
+    isTermClosed,
+    isEvalOpen,
+    teacherCount: teachers.length,
+    firstTeacher: teachers[0]
+  });
+
   return (
     <DrogaCard>
       {/* Term Status Alert */}
@@ -812,11 +822,12 @@ const RankingTab = ({ stats, loading, evalSettings, currentTerm }) => {
           <TableBody>
             {teachers.map((teacher) => {
               // Reset all scores to 0 when evaluation period is closed
-              const overallScore = isEvalOpen ? teacher.overall_score : 0;
-              const attendanceScore = isEvalOpen ? teacher.attendance_score : 0;
-              const taskScore = isEvalOpen ? teacher.task_completion_score : 0;
-              const studentScore = isEvalOpen ? teacher.student_performance_score : 0;
-              const rank = isEvalOpen ? teacher.rank : '-';
+              // DEBUG: Show raw values to see what backend returns
+              const overallScore = isEvalOpen ? teacher.overall_score : (teacher.overall_score || 0);
+              const attendanceScore = isEvalOpen ? teacher.attendance_score : (teacher.attendance_score || 0);
+              const taskScore = isEvalOpen ? teacher.task_completion_score : (teacher.task_completion_score || 0);
+              const studentScore = isEvalOpen ? teacher.student_performance_score : (teacher.student_performance_score || 0);
+              const rank = isEvalOpen ? teacher.rank : (teacher.rank || '-');
 
               return (
                 <TableRow key={teacher.teacher_id} sx={{ '&:hover': { bgcolor: '#fdfdfd' } }}>

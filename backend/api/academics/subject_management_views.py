@@ -156,6 +156,28 @@ class ClassSubjectManagementViewSet(viewsets.ModelViewSet):
                     'status': 400,
                     'errors': {'global_subject': ['Subject already exists in this class']}
                 }, status=status.HTTP_400_BAD_REQUEST)
+
+            # Get or create legacy Subject for teacher assignment compatibility
+            from .models import GlobalSubject, Subject, Class
+            try:
+                global_subject = GlobalSubject.objects.get(id=global_subject_id)
+                class_obj = Class.objects.get(id=class_id)
+                # Create or get existing Subject linked to this GlobalSubject
+                subject, created = Subject.objects.get_or_create(
+                    global_subject=global_subject,
+                    defaults={
+                        'name': global_subject.name,
+                        'code': request.data.get('subject_code', '') or global_subject.name[:3].upper(),
+                        'class_grade': class_obj,
+                        'branch': class_obj.branch,
+                    }
+                )
+                # Add subject to request data for serializer
+                request.data['subject'] = str(subject.id)
+            except Exception as e:
+                print(f"Warning: Could not create legacy subject: {e}")
+                pass
+
             serializer = self.get_serializer(data=request.data)
             serializer.is_valid(raise_exception=True)
             self.perform_create(serializer)

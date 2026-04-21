@@ -532,16 +532,18 @@ class ClassSubjectDetailSerializer(serializers.ModelSerializer):
     """
     class_fk = serializers.PrimaryKeyRelatedField(queryset=Class.objects.all(), write_only=True)
     global_subject = serializers.PrimaryKeyRelatedField(queryset=GlobalSubject.objects.all(), write_only=True)
-    
+    subject = serializers.PrimaryKeyRelatedField(queryset=Subject.objects.all(), write_only=True, required=False)
+
     # Read-only nested details
     class_details = serializers.SerializerMethodField()
     global_subject_details = serializers.SerializerMethodField()
-    
+    subject_details = serializers.SerializerMethodField()
+
     class Meta:
         model = ClassSubject
         fields = [
             'id', 'class_fk', 'class_details', 'global_subject', 'global_subject_details',
-            'subject_code', 'book_code', 'syllabus', 'is_active',
+            'subject', 'subject_details', 'subject_code', 'book_code', 'syllabus', 'is_active',
             'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
@@ -566,6 +568,16 @@ class ClassSubjectDetailSerializer(serializers.ModelSerializer):
                 'id': str(obj.global_subject.id),
                 'name': obj.global_subject.name,
                 'description': obj.global_subject.description
+            }
+        return None
+
+    def get_subject_details(self, obj):
+        """Return legacy subject details for teacher assignment compatibility"""
+        if obj.subject:
+            return {
+                'id': str(obj.subject.id),
+                'name': obj.subject.name,
+                'code': obj.subject.code
             }
         return None
 

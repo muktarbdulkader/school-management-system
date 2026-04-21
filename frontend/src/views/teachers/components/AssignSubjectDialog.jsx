@@ -45,12 +45,29 @@ const AssignSubjectDialog = ({ open, onClose, teacherId, onAssignmentSuccess }) 
     if (selectedClass) {
       fetchSections(selectedClass);
       // Filter subjects for selected class
-      // Convert selectedClass to string for UUID comparison
       const selectedClassStr = String(selectedClass);
-      const classSubjects = classSubjectsMap[selectedClassStr] || [];
-      console.log('Selected class:', selectedClassStr, 'Subjects found:', classSubjects);
-      console.log('classSubjectsMap keys:', Object.keys(classSubjectsMap));
-      setFilteredSubjects(classSubjects);
+      const classSubjects = classSubjectsMap[selectedClassStr];
+
+      // If we have class-specific subjects from SubjectManagement, use them
+      if (classSubjects && classSubjects.length > 0) {
+        setFilteredSubjects(classSubjects);
+      } else {
+        // Filter legacy subjects by selected class
+        const filtered = allSubjects.filter(s => {
+          // Match by class_grade (can be ID string or object)
+          const subjectClassId = s.class_grade?.id || s.class_grade;
+          if (subjectClassId) {
+            return String(subjectClassId) === selectedClassStr;
+          }
+          // Also check class_grade_details if present
+          const subjectClassIdFromDetails = s.class_grade_details?.id;
+          if (subjectClassIdFromDetails) {
+            return String(subjectClassIdFromDetails) === selectedClassStr;
+          }
+          return false; // Don't show subjects with no class assigned
+        });
+        setFilteredSubjects(filtered);
+      }
       setSelectedSubject('');
     } else {
       setSections([]);
@@ -58,7 +75,7 @@ const AssignSubjectDialog = ({ open, onClose, teacherId, onAssignmentSuccess }) 
       setSelectedSection('');
       setSelectedSubject('');
     }
-  }, [selectedClass, classSubjectsMap]);
+  }, [selectedClass, classSubjectsMap, allSubjects]);
 
   const fetchInitialData = async () => {
     setLoading(true);
@@ -106,31 +123,68 @@ const AssignSubjectDialog = ({ open, onClose, teacherId, onAssignmentSuccess }) 
       if (classSubjectsRes.ok) {
         const data = await classSubjectsRes.json();
         const classSubjectsData = data.data || data.results || [];
-        console.log('class_subject_management data:', classSubjectsData);
         const classSubjects = {};
-        classSubjectsData.forEach(mapping => {
+        classSubjectsData.forEach((mapping, index) => {
           // class_fk is write_only in serializer, use class_details instead
           const classId = mapping.class_fk || mapping.class_id || mapping.class_details?.id;
           // Convert classId to string for consistent UUID comparison
           const classIdStr = String(classId);
-          console.log('Processing mapping, classId:', classIdStr, 'class_details:', mapping.class_details);
           if (classIdStr && classIdStr !== 'undefined') {
             if (!classSubjects[classIdStr]) {
               classSubjects[classIdStr] = [];
             }
-            // Use global_subject_details for SubjectManagement subjects
-            const subject = mapping.global_subject_details || mapping.global_subject;
-            console.log('Subject found:', subject);
-            if (subject && !classSubjects[classIdStr].find(s => s.id === subject.id)) {
-              classSubjects[classIdStr].push({
-                id: String(subject.id),
-                name: subject.name,
-                code: mapping.subject_code || ''
-              });
+            // Use global_subject_details for display name, subject_details for assignment ID
+            const globalSubject = mapping.global_subject_details || mapping.global_subject;
+            const legacySubject = mapping.subject_details || mapping.subject;
+            // Only add if we have a legacy subject ID (required for teacher assignment)
+            if (legacySubject && legacySubject.id) {
+              const subjectName = globalSubject?.name || legacySubject.name || 'Unknown';
+              const subjectId = String(legacySubject.id);
+              if (!classSubjects[classIdStr].find(s => s.id === subjectId)) {
+                classSubjects[classIdStr].push({
+                  id: subjectId,
+                  name: subjectName,
+                  code: mapping.subject_code || legacySubject.code || ''
+                });
+              }
             }
           }
         });
-        console.log('Built classSubjects map:', classSubjects);
+        // If no subjects from SubjectManagement, fallback to old class_subjects API
+        if (Object.keys(classSubjects).length === 0) {
+          try {
+            const legacyRes = await fetch(`${Backend.api}${Backend.classSubjects}`, {
+              headers: { Authorization: `Bearer ${token}` }
+            });
+            if (legacyRes.ok) {
+              const legacyData = await legacyRes.json();
+              const legacyClassSubjects = legacyData.data || legacyData.results || [];
+              legacyClassSubjects.forEach(mapping => {
+                const classId = mapping.class_fk || mapping.class_id || mapping.class_details?.id;
+                const classIdStr = String(classId);
+                if (classIdStr && classIdStr !== 'undefined') {
+                  if (!classSubjects[classIdStr]) {
+                    classSubjects[classIdStr] = [];
+                  }
+                  const subject = mapping.subject_details || mapping.subject;
+                  if (subject && subject.id) {
+                    const subjectId = String(subject.id);
+                    if (!classSubjects[classIdStr].find(s => s.id === subjectId)) {
+                      classSubjects[classIdStr].push({
+                        id: subjectId,
+                        name: subject.name,
+                        code: subject.code || ''
+                      });
+                    }
+                  }
+                }
+              });
+            }
+          } catch (legacyErr) {
+            // Silent fail - will use allSubjects fallback in useEffect
+          }
+        }
+
         setClassSubjectsMap(classSubjects);
       } else {
         const errorText = await classSubjectsRes.text();

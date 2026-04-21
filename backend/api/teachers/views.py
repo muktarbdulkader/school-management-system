@@ -1513,9 +1513,15 @@ class TeacherPerformanceReportViewSet(viewsets.ModelViewSet):
                 continue
             seen_teachers.add(str(teacher.id))
             
-            # Get teacher's latest report or use default values
+            # Get teacher's latest report - ONLY use if generated in current evaluation period
             report = latest_reports.get(teacher.id)
-            if report:
+            use_report = False
+            if report and eval_settings_obj.start_date:
+                # Only use report if it was generated AFTER the evaluation period started
+                use_report = report.generated_at >= eval_settings_obj.start_date
+            
+            if use_report:
+                # Use report data (generated during current evaluation period)
                 overall_score = float(report.overall_score)
                 attendance_score = float(report.attendance_score)
                 task_completion_score = float(report.task_completion_score)
@@ -1523,8 +1529,15 @@ class TeacherPerformanceReportViewSet(viewsets.ModelViewSet):
                 rating_score = float(report.rating_score)
                 period = report.report_period
                 last_updated = report.generated_at
+                source = 'report'
+                
+                # Debug logging for report usage
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.info(f"[RANKINGS] Teacher {teacher.teacher_id}: source={source}, generated_at={report.generated_at}, overall={overall_score}")
             else:
-                # No report exists - use calculated system metrics
+                # No valid report - calculate from actual system data (metrics + ratings)
+                source = 'calculated'
                 metrics = teacher.metrics.order_by('-month').first()
                 if metrics:
                     attendance_score = float(metrics.attendance_percentage or 0)
@@ -1537,10 +1550,24 @@ class TeacherPerformanceReportViewSet(viewsets.ModelViewSet):
                 
                 # Get average rating - FILTERED by evaluation period start_date
                 ratings_query = teacher.performance_ratings.all()
+                total_ratings_count = ratings_query.count()
+                
+                # Debug: List all ratings for this teacher
+                all_ratings = list(ratings_query.values('id', 'rating', 'created_at', 'rated_by_id')[:5])
+                
+                # Filter by evaluation period start_date if set, otherwise use all ratings
                 if eval_settings_obj.start_date:
                     ratings_query = ratings_query.filter(created_at__gte=eval_settings_obj.start_date)
+                filtered_count = ratings_query.count()
                 avg_rating = ratings_query.aggregate(avg=Avg('rating'))['avg'] or 0
                 rating_score = (avg_rating / 5) * 100 if avg_rating else 0
+                
+                # Debug logging
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.info(f"[RANKINGS] Teacher {teacher.teacher_id}: source={source}, total_ratings={total_ratings_count}, filtered={filtered_count}, start_date={eval_settings_obj.start_date}, avg={avg_rating}, rating_score={rating_score}, attendance={attendance_score}, tasks={task_completion_score}")
+                if all_ratings:
+                    logger.info(f"[RANKINGS] Teacher {teacher.teacher_id}: sample_ratings={all_ratings}")
                 
                 # Calculate weighted overall score
                 overall_score = (
