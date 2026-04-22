@@ -175,18 +175,15 @@ const ReportDialog = ({ open, onClose, teacher, evalSettings, onSuccess }) => {
                         label="Overall Score (0-100) *"
                         type="number"
                         value={form.overall_score}
-                        onChange={e => setForm({ ...form, overall_score: e.target.value })}
                         fullWidth
                         inputProps={{ min: 0, max: 100 }}
-                        disabled={!evalSettings?.is_evaluation_period_open || teacher?.is_reported}
+                        disabled={true}
                         helperText={
                             teacher?.is_reported
-                                ? "Report already generated - cannot modify"
+                                ? "Report already generated"
                                 : !evalSettings?.is_evaluation_period_open
                                     ? "Evaluation closed - Score is 0"
-                                    : teacher?.calculated_score || teacher?.rating_stats?.overall_avg
-                                        ? "Auto-populated from teacher ranking data (editable)"
-                                        : "Enter performance score (0-100)"
+                                    : "Auto-calculated from system data "
                         }
                     />
                     <TextField label="Key Strengths" value={form.strengths} onChange={e => setForm({ ...form, strengths: e.target.value })} fullWidth multiline rows={2} disabled={teacher?.is_reported} />

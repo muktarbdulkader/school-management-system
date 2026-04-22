@@ -105,6 +105,7 @@ const LearningObjectives = Loadable(
 const TeacherRatingsPage = Loadable(lazy(() => import('views/teacher-ratings')));
 const MeetingRequestsPage = Loadable(lazy(() => import('views/meeting-requests')));
 const Grades = Loadable(lazy(() => import('views/Grade')));
+const ExamManagement = Loadable(lazy(() => import('views/exams')));
 const TeachersClassUnits = Loadable(
   lazy(() => import('views/classes/teachers-class-units')),
 );
@@ -351,6 +352,14 @@ const MainRoutes = {
       element: (
         <Protected requiredRole="teacher">
           <Grades />
+        </Protected>
+      ),
+    },
+    {
+      path: 'exams',
+      element: (
+        <Protected>
+          <ExamManagement />
         </Protected>
       ),
     },

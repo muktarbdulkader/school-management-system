@@ -333,14 +333,15 @@ class ExamsSerializer(serializers.ModelSerializer):
     term_details = TermsSerializer(source='term', read_only=True)
     class_id = serializers.PrimaryKeyRelatedField(queryset=Class.objects.all(), source='class_fk', write_only=True)
     class_details = ClassSerializer(source='class_fk', read_only=True)
-    section_id = serializers.PrimaryKeyRelatedField(queryset=Section.objects.all(), source='section', write_only=True)
+    section_id = serializers.PrimaryKeyRelatedField(queryset=Section.objects.all(), source='section', write_only=True, required=False, allow_null=True)
     section_details = SectionSerializer(source='section', read_only=True)
+    branch_id = serializers.PrimaryKeyRelatedField(queryset=Branch.objects.all(), source='branch', write_only=True)
 
     created_by_id = serializers.PrimaryKeyRelatedField(queryset=User.objects.all(), source='created_by', write_only=True, required=False)
 
     class Meta:
         model = Exam
-        fields = ['id', 'name', 'term_id', 'term_details', 'exam_type', 'subject_id', 'subject', 'class_id', 'class_details', 'section_id', 'section_details', 'branch_id', 'start_date', 'end_date', 'start_time', 'end_time', 'max_score', 'description', 'created_by_id']
+        fields = ['id', 'name', 'term_id', 'term_details', 'exam_type', 'subject_id', 'subject', 'class_id', 'class_details', 'section_id', 'section_details', 'branch_id', 'start_date', 'end_date', 'start_time', 'end_time', 'max_score', 'passing_score', 'description', 'created_by_id', 'created_at']
 
 class SubjectExamDaysSerializer(serializers.ModelSerializer):
     subject_id = serializers.PrimaryKeyRelatedField(queryset=Subject.objects.all(), source='subject', write_only=True)

@@ -799,7 +799,7 @@ const RankingTab = ({ stats, loading, evalSettings, currentTerm }) => {
         <Box>
           <Typography variant="h4">Teacher Performance Rankings</Typography>
           <Typography variant="caption" color="text.secondary">
-            Overall Score = 40% Student/Parent Ratings + 25% Attendance + 20% Task Completion + 15% Evaluations
+            Performance Score is calculated from system data (ratings, attendance, tasks, student progress)
           </Typography>
         </Box>
         <IconTrophy size={32} color={isEvalOpen ? '#ffd700' : '#ccc'} />
@@ -812,22 +812,15 @@ const RankingTab = ({ stats, loading, evalSettings, currentTerm }) => {
               <TableCell align="center" sx={{ width: 60 }}>Rank</TableCell>
               <TableCell>Teacher</TableCell>
               <TableCell>Branch</TableCell>
-              <TableCell align="center">Overall Score</TableCell>
-              <TableCell align="center">Attendance</TableCell>
-              <TableCell align="center">Tasks</TableCell>
-              <TableCell align="center">Student Progress</TableCell>
+              <TableCell align="center">Performance Score</TableCell>
               <TableCell align="center">Last Updated</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
             {teachers.map((teacher) => {
-              // Reset all scores to 0 when evaluation period is closed
-              // DEBUG: Show raw values to see what backend returns
-              const overallScore = isEvalOpen ? teacher.overall_score : (teacher.overall_score || 0);
-              const attendanceScore = isEvalOpen ? teacher.attendance_score : (teacher.attendance_score || 0);
-              const taskScore = isEvalOpen ? teacher.task_completion_score : (teacher.task_completion_score || 0);
-              const studentScore = isEvalOpen ? teacher.student_performance_score : (teacher.student_performance_score || 0);
-              const rank = isEvalOpen ? teacher.rank : (teacher.rank || '-');
+              // Performance Score = rating_score from backend (already calculated as percentage)
+              const performanceScore = teacher.rating_score || 0;
+              const rank = teacher.rank || '-';
 
               return (
                 <TableRow key={teacher.teacher_id} sx={{ '&:hover': { bgcolor: '#fdfdfd' } }}>
@@ -847,14 +840,11 @@ const RankingTab = ({ stats, loading, evalSettings, currentTerm }) => {
                   <TableCell>{teacher.branch}</TableCell>
                   <TableCell align="center">
                     <Chip
-                      label={`${overallScore}%`}
-                      color={overallScore >= 85 ? 'success' : (overallScore >= 70 ? 'primary' : 'warning')}
+                      label={`${performanceScore}%`}
+                      color={performanceScore >= 85 ? 'success' : (performanceScore >= 70 ? 'primary' : 'warning')}
                       size="small"
                     />
                   </TableCell>
-                  <TableCell align="center">{attendanceScore}%</TableCell>
-                  <TableCell align="center">{taskScore}%</TableCell>
-                  <TableCell align="center">{studentScore}%</TableCell>
                   <TableCell align="center">
                     <Typography variant="caption">{new Date(teacher.last_updated).toLocaleDateString()}</Typography>
                   </TableCell>
@@ -863,7 +853,7 @@ const RankingTab = ({ stats, loading, evalSettings, currentTerm }) => {
             })}
             {teachers.length === 0 && (
               <TableRow>
-                <TableCell colSpan={8} align="center" sx={{ py: 4 }}>
+                <TableCell colSpan={5} align="center" sx={{ py: 4 }}>
                   No performance data available for this branch/period.
                 </TableCell>
               </TableRow>
