@@ -245,24 +245,45 @@ const ExamForm = ({ open, onClose, exam, onSave, terms, classes, teacherProfile,
     setSubjectsLoading(true);
     try {
       const token = await GetToken();
-      // Fetch subjects that are actually assigned to this class
-      const response = await fetch(`${Backend.api}${Backend.classSubjects}?class_id=${classId}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = await response.json();
+      const headers = { Authorization: `Bearer ${token}` };
+      let allSubjects = [];
 
-      if (data.success && data.data) {
-        // Extract subject info from class_subjects response
-        // Each item has: { id, class_fk, subject_details: { id, name, code, ... }, ... }
-        const subjects = data.data
-          .map(item => item.subject_details)
-          .filter(s => s && s.id) // Remove null entries
-          .filter((v, i, a) => a.findIndex(t => t.id === v.id) === i); // Remove duplicates
-
-        setFilteredSubjects(subjects);
-      } else {
-        setFilteredSubjects([]);
+      // Fetch 1: Class-level subjects (for all users)
+      try {
+        const response = await fetch(`${Backend.api}${Backend.classSubjects}?class_id=${classId}`, { headers });
+        const data = await response.json();
+        if (data.success && data.data) {
+          const classSubjects = data.data
+            .map(item => item.subject_details)
+            .filter(s => s && s.id);
+          allSubjects = [...allSubjects, ...classSubjects];
+        }
+      } catch (e) {
+        console.log('Class subjects fetch failed:', e);
       }
+
+      // Fetch 2: Teacher's direct assignments for this class (for teachers)
+      try {
+        const assignmentsRes = await fetch(`${Backend.auth}${Backend.teachersOverviewDashboard}`, { headers });
+        const assignmentsData = await assignmentsRes.json();
+        if (assignmentsData.success && assignmentsData.data?.subjects) {
+          const teacherSubjects = assignmentsData.data.subjects
+            .filter(a => (a.class_id === classId || a.class_fk?.id === classId))
+            .map(a => a.subject)
+            .filter(s => s && s.id);
+          allSubjects = [...allSubjects, ...teacherSubjects];
+        }
+      } catch (e) {
+        console.log('Teacher assignments fetch failed:', e);
+      }
+
+      // Remove duplicates by ID
+      const uniqueSubjects = allSubjects.filter((v, i, a) =>
+        a.findIndex(t => t.id === v.id) === i
+      );
+
+      console.log('Fetched subjects for class', classId, ':', uniqueSubjects.length);
+      setFilteredSubjects(uniqueSubjects);
     } catch (error) {
       console.error('Error fetching subjects for class:', error);
       setFilteredSubjects([]);

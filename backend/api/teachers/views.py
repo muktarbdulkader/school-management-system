@@ -1593,8 +1593,8 @@ class TeacherPerformanceReportViewSet(viewsets.ModelViewSet):
                 'last_updated': last_updated
             })
         
-        # Sort by overall score descending and assign ranks
-        data.sort(key=lambda x: x['overall_score'], reverse=True)
+        # Sort by rating_score descending and assign ranks (matches frontend display)
+        data.sort(key=lambda x: x['rating_score'], reverse=True)
         for idx, item in enumerate(data):
             item['rank'] = idx + 1
         

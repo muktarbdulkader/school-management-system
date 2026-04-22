@@ -581,12 +581,20 @@ class ClassesViewSet(viewsets.ModelViewSet):
         ).values_list('subject', flat=True).distinct()
 
         # Also get subjects from ClassSubject (direct class-subject links)
-        class_subject_ids = ClassSubject.objects.filter(
-            class_fk=class_obj
+        # Get subjects from legacy subject field
+        class_subject_ids_legacy = ClassSubject.objects.filter(
+            class_fk=class_obj,
+            subject__isnull=False
         ).values_list('subject', flat=True).distinct()
 
+        # Get subjects linked via global_subject (new way) - follow GlobalSubject -> Subject relationship
+        class_subject_ids_via_global = Subject.objects.filter(
+            global_subject__class_assignments__class_fk=class_obj,
+            global_subject__class_assignments__is_active=True
+        ).values_list('id', flat=True).distinct()
+
         # Combine both sources
-        all_subject_ids = set(teacher_assignment_subject_ids) | set(class_subject_ids)
+        all_subject_ids = set(teacher_assignment_subject_ids) | set(class_subject_ids_legacy) | set(class_subject_ids_via_global)
         assigned_subjects = Subject.objects.filter(id__in=all_subject_ids)
 
         if not assigned_subjects.exists():
@@ -602,7 +610,8 @@ class ClassesViewSet(viewsets.ModelViewSet):
                     'subjects_processed': 0,
                     'debug_info': {
                         'teacher_assignments_found': len(teacher_assignment_subject_ids),
-                        'class_subjects_found': len(class_subject_ids),
+                        'class_subjects_legacy_found': len(class_subject_ids_legacy),
+                        'class_subjects_via_global_found': len(class_subject_ids_via_global),
                         'class_id': str(class_obj.id)
                     }
                 }
@@ -1239,12 +1248,20 @@ class SubjectsViewSet(viewsets.ModelViewSet):
         ).values_list('subject', flat=True).distinct()
         
         # Also include subjects linked via ClassSubject
-        class_subject_ids = ClassSubject.objects.filter(
-            class_fk=class_obj
+        # Get subjects from legacy subject field
+        class_subject_ids_legacy = ClassSubject.objects.filter(
+            class_fk=class_obj,
+            subject__isnull=False
         ).values_list('subject', flat=True).distinct()
-        
+
+        # Get subjects linked via global_subject (new way) - follow GlobalSubject -> Subject relationship
+        class_subject_ids_via_global = Subject.objects.filter(
+            global_subject__class_assignments__class_fk=class_obj,
+            global_subject__class_assignments__is_active=True
+        ).values_list('id', flat=True).distinct()
+
         # Combine both sources
-        all_subject_ids = list(set(list(assigned_subjects_ids) + list(class_subject_ids)))
+        all_subject_ids = list(set(list(assigned_subjects_ids) + list(class_subject_ids_legacy) + list(class_subject_ids_via_global)))
         assigned_subjects = Subject.objects.filter(id__in=all_subject_ids)
         
         if not assigned_subjects.exists():

@@ -6,7 +6,7 @@ import {
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
   Paper, Chip, Button, Stack, IconButton, Dialog, DialogTitle,
   DialogContent, DialogActions, TextField, MenuItem, CircularProgress, Divider,
-  Switch, FormControlLabel, Alert
+  Switch, FormControlLabel, Alert, Tooltip
 } from '@mui/material';
 import {
   IconUsers, IconSchool, IconBook, IconCalendar, IconBell,
@@ -820,18 +820,33 @@ const RankingTab = ({ stats, loading, evalSettings, currentTerm }) => {
             {teachers.map((teacher) => {
               // Performance Score = rating_score from backend (already calculated as percentage)
               const performanceScore = teacher.rating_score || 0;
-              const rank = teacher.rank || '-';
+
+              // Get rank color and icon
+              const getRankStyles = (rank) => {
+                if (rank === 1) return { bg: '#ffd700', color: '#000', icon: '🥇' }; // Gold
+                if (rank === 2) return { bg: '#c0c0c0', color: '#000', icon: '🥈' }; // Silver
+                if (rank === 3) return { bg: '#cd7f32', color: '#fff', icon: '🥉' }; // Bronze
+                if (rank <= 5) return { bg: '#4caf50', color: '#fff', icon: null }; // Green
+                if (rank <= 10) return { bg: '#2196f3', color: '#fff', icon: null }; // Blue
+                return { bg: 'transparent', color: 'inherit', icon: null };
+              };
+              const rankStyles = getRankStyles(teacher.rank);
 
               return (
                 <TableRow key={teacher.teacher_id} sx={{ '&:hover': { bgcolor: '#fdfdfd' } }}>
                   <TableCell align="center">
-                    <Box sx={{
-                      width: 28, height: 28, borderRadius: '50%', bgcolor: (isEvalOpen && teacher.rank <= 3) ? '#fff9c4' : 'transparent',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold',
-                      border: (isEvalOpen && teacher.rank <= 3) ? '1px solid #ffd600' : 'none'
-                    }}>
-                      {rank}
-                    </Box>
+                    <Tooltip title={teacher.rank <= 3 ? `Top ${teacher.rank} Performer!` : `Rank ${teacher.rank}`}>
+                      <Box sx={{
+                        width: 32, height: 32, borderRadius: '50%', bgcolor: rankStyles.bg,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold',
+                        color: rankStyles.color, fontSize: rankStyles.icon ? '14px' : '12px',
+                        border: teacher.rank <= 10 ? '2px solid' : 'none',
+                        borderColor: teacher.rank <= 3 ? '#333' : 'transparent',
+                        boxShadow: teacher.rank <= 3 ? '0 2px 4px rgba(0,0,0,0.3)' : 'none'
+                      }}>
+                        {rankStyles.icon || teacher.rank}
+                      </Box>
+                    </Tooltip>
                   </TableCell>
                   <TableCell>
                     <Typography variant="subtitle2">{teacher.teacher_name}</Typography>
