@@ -29,6 +29,8 @@ import {
   DialogContent,
   DialogActions,
   IconButton,
+  Chip,
+  Tooltip,
 } from '@mui/material';
 import { useLocation } from 'react-router-dom';
 import {
@@ -40,6 +42,7 @@ import {
   Close as CloseIcon,
   TableChart as TableChartIcon,
   Save as SaveIcon,
+  Info as InfoIcon,
 } from '@mui/icons-material';
 import GetToken from 'utils/auth-token';
 import Backend from 'services/backend';
@@ -382,14 +385,15 @@ export default function GradeBookPage() {
         }
 
         const resultsData = await resultsRes.json();
+        console.log('[Grade] Full API response:', resultsData);
         resultsList = resultsData.success ? resultsData.data || [] : [];
-        console.log('Exam results from API:', resultsList.length);
+        console.log('[Grade] Exam results extracted:', resultsList.length, resultsList);
       } catch (e) {
         console.error('Failed to fetch exam results:', e);
       }
       setExamResults(resultsList);
-      console.log('[Grade] Students:', studentsList.map(s => ({ id: s.id, name: s.full_name })));
-      console.log('[Grade] Exam Results:', resultsList.map(r => ({ student_id: r.student_id, exam_id: r.exam_id, score: r.score })));
+      console.log('[Grade] Students:', studentsList.map(s => ({ id: s.id, name: s.name || s.full_name })));
+      console.log('[Grade] Exam Results:', resultsList.map(r => ({ student: r.student, exam: r.exam, score: r.score })));
 
       // Calculate statistics
       calculateStats(studentsList, resultsList, examsList);
@@ -412,7 +416,11 @@ export default function GradeBookPage() {
       return;
     }
 
-    const scores = resultsList.map(r => (r.score / r.max_score) * 100);
+    const scores = resultsList.map(r => {
+      const score = parseFloat(r.score) || 0;
+      const maxScore = parseFloat(r.max_score) || 1;
+      return (score / maxScore) * 100;
+    });
     const average = scores.reduce((a, b) => a + b, 0) / scores.length;
     const highest = Math.max(...scores);
     const lowest = Math.min(...scores);
@@ -430,7 +438,7 @@ export default function GradeBookPage() {
   };
 
   const getStudentResults = (studentId) => {
-    return examResults.filter(r => String(r.student_id) === String(studentId));
+    return examResults.filter(r => String(r.student) === String(studentId));
   };
 
   const getStudentTotal = (studentId) => {
@@ -446,7 +454,7 @@ export default function GradeBookPage() {
   };
 
   const getExamScore = (studentId, examId) => {
-    const result = examResults.find(r => String(r.student_id) === String(studentId) && String(r.exam_id) === String(examId));
+    const result = examResults.find(r => String(r.student) === String(studentId) && String(r.exam) === String(examId));
     if (!result) {
       return (
         <IconButton
@@ -614,22 +622,39 @@ export default function GradeBookPage() {
         branch_id: teacherProfile?.branch_id || null,
       };
 
-      const response = await fetch(`${Backend.api}${Backend.examResults}`, {
-        method: 'POST',
+      // Check if grade already exists to determine CREATE vs UPDATE
+      const existingResult = examResults.find(
+        r => String(r.student) === String(selectedStudent.id) && String(r.exam) === String(selectedExam)
+      );
+
+      const isUpdate = !!existingResult;
+      const apiUrl = isUpdate
+        ? `${Backend.api}${Backend.examResults}${existingResult.id}/`
+        : `${Backend.api}${Backend.examResults}`;
+      const method = isUpdate ? 'PUT' : 'POST';
+
+      console.log(`[Grade] ${isUpdate ? 'Updating' : 'Creating'} grade:`, { apiUrl, method, payload });
+
+      const response = await fetch(apiUrl, {
+        method: method,
         headers: header,
         body: JSON.stringify(payload),
       });
 
       const data = await response.json();
-      if (data.success) {
-        toast.success('Grade entered successfully!');
+      console.log('[Grade] Response:', response.status, data);
+
+      if (response.ok && data.success) {
+        toast.success(isUpdate ? 'Grade updated successfully!' : 'Grade entered successfully!');
         setOpenGradeDialog(false);
         setSelectedStudent(null);
         setSelectedExam(null);
         setGradeForm({ score: '', max_score: 100, remarks: '' });
         fetchStudentsAndGrades();
       } else {
-        toast.error(data.message || 'Failed to enter grade');
+        const errorMsg = data.message || data.detail || data.error || 'Failed to enter grade';
+        toast.error(errorMsg);
+        console.error('[Grade] Error response:', data);
       }
     } catch (error) {
       console.error('Error entering grade:', error);
@@ -643,7 +668,7 @@ export default function GradeBookPage() {
 
     // Check if grade already exists
     const existingResult = examResults.find(
-      r => r.student_id === student.id && r.exam_id === examId
+      r => String(r.student) === String(student.id) && String(r.exam) === String(examId)
     );
 
     if (existingResult) {
@@ -671,7 +696,7 @@ export default function GradeBookPage() {
     // Initialize bulk grades array with existing data
     const initialBulkGrades = students.map(student => {
       const existingResult = examResults.find(
-        r => r.student_id === student.id && r.exam_id === exam.id
+        r => String(r.student) === String(student.id) && String(r.exam) === String(exam.id)
       );
       return {
         student_id: student.id,
@@ -971,7 +996,20 @@ export default function GradeBookPage() {
                             </Box>
                           </TableCell>
                         ))}
-                        <TableCell align="center">Total (%)</TableCell>
+                        <TableCell align="center">
+                          <Tooltip title={
+                            <Typography variant="body2">
+                              <strong>Calculation:</strong><br />
+                              Sum of all scores ÷ Sum of all max scores × 100<br />
+                              <em>Example: (34+50+20) ÷ (100+100+100) = 35%</em>
+                            </Typography>
+                          } arrow>
+                            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.5, cursor: 'help' }}>
+                              <span>Total (%)</span>
+                              <InfoIcon fontSize="small" color="action" />
+                            </Box>
+                          </Tooltip>
+                        </TableCell>
                       </TableRow>
                     </TableHead>
                     <TableBody>
@@ -1007,13 +1045,18 @@ export default function GradeBookPage() {
                               </TableCell>
                             ))}
                             <TableCell align="center">
-                              <Typography
-                                variant="body2"
-                                fontWeight="bold"
-                                sx={{ color: getScoreColor(getStudentTotal(student.id)) }}
-                              >
-                                {getStudentTotal(student.id)}
-                              </Typography>
+                              <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                                <Typography
+                                  variant="body2"
+                                  fontWeight="bold"
+                                  sx={{ color: getScoreColor(getStudentTotal(student.id)) }}
+                                >
+                                  {getStudentTotal(student.id)}
+                                </Typography>
+                                <Typography variant="caption" color="text.secondary">
+                                  {getStudentResults(student.id).length}/{exams.length} exams
+                                </Typography>
+                              </Box>
                             </TableCell>
                           </TableRow>
                         ))
@@ -1131,7 +1174,7 @@ export default function GradeBookPage() {
         <DialogTitle>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <Typography variant="h6">
-              Enter Grade for {selectedStudent?.user?.full_name}
+              Enter Grade for {selectedStudent?.name || selectedStudent?.user_details?.full_name || selectedStudent?.user?.full_name || 'Student'}
             </Typography>
             <IconButton onClick={() => setOpenGradeDialog(false)}>
               <CloseIcon />

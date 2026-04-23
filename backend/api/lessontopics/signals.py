@@ -15,7 +15,7 @@ def get_or_create_report_card_subject(student, teacher_assignment, term):
         student=student,
         term=term,
         defaults={
-            'class_fk': student.class_fk,
+            'class_fk': student.grade,
             'section': student.section,
         }
     )

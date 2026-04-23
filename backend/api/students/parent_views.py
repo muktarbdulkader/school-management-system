@@ -466,13 +466,32 @@ class ParentDashboardView(APIView):
             student=student
         ).select_related('exam', 'subject', 'teacher_assignment').order_by('-recorded_at')[:10]
 
+        def infer_exam_type(exam):
+            """Infer exam type from exam name or existing type"""
+            if not exam:
+                return None
+            # Use existing exam_type if available
+            if exam.exam_type:
+                return exam.exam_type
+            # Try to infer from name
+            name_lower = exam.name.lower() if exam.name else ''
+            if 'mid' in name_lower or 'midterm' in name_lower:
+                return 'mid_term'
+            if 'final' in name_lower:
+                return 'final'
+            if 'diagnostic' in name_lower:
+                return 'diagnostic_test'
+            if 'quiz' in name_lower or 'unit' in name_lower:
+                return 'unit_test'
+            return 'other'
+
         return [
             {
                 'id': str(result.id),
                 'exam_id': str(result.exam.id) if result.exam else None,
                 'exam_details': {
                     'name': result.exam.name if result.exam else 'N/A',
-                    'exam_type': result.exam.exam_type if result.exam else None,
+                    'exam_type': infer_exam_type(result.exam),
                 },
                 'subject_id_name': result.subject.name if result.subject else (
                     result.teacher_assignment.subject.name if result.teacher_assignment and result.teacher_assignment.subject else 'N/A'

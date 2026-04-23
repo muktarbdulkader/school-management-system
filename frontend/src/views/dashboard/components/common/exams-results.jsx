@@ -10,15 +10,43 @@ import {
 } from '@tabler/icons-react';
 import { useTheme } from '@mui/material/styles';
 
-// Exam type color mapping
+// Exam type color mapping - handles both backend formats
 const getExamTypeConfig = (type) => {
+  // Debug: log the actual type value received
+  // console.log('[ExamType] Received type:', type);
+
   const configs = {
+    // Backend format (snake_case)
     mid_term: { color: '#ff9800', bgColor: '#fff3e0', label: 'Mid Term', icon: IconSchool },
     diagnostic_test: { color: '#9c27b0', bgColor: '#f3e5f5', label: 'Diagnostic', icon: IconTrendingUp },
     unit_test: { color: '#2196f3', bgColor: '#e3f2fd', label: 'Quiz', icon: IconClipboardCheck },
     final: { color: '#f44336', bgColor: '#ffebee', label: 'Final', icon: IconSchool },
+    // Frontend format (PascalCase/title case from Grade form)
+    Midterm: { color: '#ff9800', bgColor: '#fff3e0', label: 'Mid Term', icon: IconSchool },
+    'Mid Term': { color: '#ff9800', bgColor: '#fff3e0', label: 'Mid Term', icon: IconSchool },
+    midterm: { color: '#ff9800', bgColor: '#fff3e0', label: 'Mid Term', icon: IconSchool },
+    'mid term': { color: '#ff9800', bgColor: '#fff3e0', label: 'Mid Term', icon: IconSchool },
+    Final: { color: '#f44336', bgColor: '#ffebee', label: 'Final', icon: IconSchool },
+    final: { color: '#f44336', bgColor: '#ffebee', label: 'Final', icon: IconSchool },
+    Quiz: { color: '#2196f3', bgColor: '#e3f2fd', label: 'Quiz', icon: IconClipboardCheck },
+    quiz: { color: '#2196f3', bgColor: '#e3f2fd', label: 'Quiz', icon: IconClipboardCheck },
+    Assignment: { color: '#8bc34a', bgColor: '#f1f8e9', label: 'Assignment', icon: IconClipboardCheck },
+    assignment: { color: '#8bc34a', bgColor: '#f1f8e9', label: 'Assignment', icon: IconClipboardCheck },
+    Project: { color: '#9c27b0', bgColor: '#f3e5f5', label: 'Project', icon: IconTrendingUp },
+    project: { color: '#9c27b0', bgColor: '#f3e5f5', label: 'Project', icon: IconTrendingUp },
+    Diagnostic: { color: '#9c27b0', bgColor: '#f3e5f5', label: 'Diagnostic', icon: IconTrendingUp },
+    diagnostic: { color: '#9c27b0', bgColor: '#f3e5f5', label: 'Diagnostic', icon: IconTrendingUp },
+    // Handle null/undefined
+    null: { color: '#757575', bgColor: '#f5f5f5', label: 'Exam', icon: IconBook },
+    undefined: { color: '#757575', bgColor: '#f5f5f5', label: 'Exam', icon: IconBook },
+    '': { color: '#757575', bgColor: '#f5f5f5', label: 'Exam', icon: IconBook },
     other: { color: '#757575', bgColor: '#f5f5f5', label: 'Other', icon: IconBook }
   };
+
+  if (!type || type === 'null' || type === 'undefined') {
+    return configs.null;
+  }
+
   return configs[type] || configs.other;
 };
 
@@ -41,11 +69,196 @@ const getDaysUntil = (dateString) => {
   return diffDays;
 };
 
-const ExamsAndResults = ({ exams, results, assignments }) => {
+// Get grade display config for report card grades
+const getReportCardGradeConfig = (grade) => {
+  const configs = {
+    'EX': { color: '#4caf50', bgColor: '#e8f5e9', label: 'Excellent' },
+    'VG': { color: '#8bc34a', bgColor: '#f1f8e9', label: 'Very Good' },
+    'G': { color: '#ffc107', bgColor: '#fff8e1', label: 'Good' },
+    'S': { color: '#ff9800', bgColor: '#fff3e0', label: 'Satisfactory' },
+    'NI': { color: '#f44336', bgColor: '#ffebee', label: 'Needs Improvement' },
+    'U': { color: '#d32f2f', bgColor: '#ffcdd2', label: 'Unsatisfactory' },
+    'A': { color: '#4caf50', bgColor: '#e8f5e9', label: 'Excellent' },
+    'B': { color: '#8bc34a', bgColor: '#f1f8e9', label: 'Very Good' },
+    'C': { color: '#ffc107', bgColor: '#fff8e1', label: 'Good' },
+    'D': { color: '#ff9800', bgColor: '#fff3e0', label: 'Passing' },
+    'E': { color: '#f44336', bgColor: '#ffebee', label: 'Needs Improvement' },
+    'F': { color: '#d32f2f', bgColor: '#ffcdd2', label: 'Fail' },
+  };
+  return configs[grade] || { color: '#757575', bgColor: '#f5f5f5', label: grade };
+};
+
+const ExamsAndResults = ({ exams, results, assignments, reportCard }) => {
   const theme = useTheme();
 
   return (
     <Grid container spacing={3}>
+      {/* Report Card Summary - Show if available */}
+      {reportCard && reportCard.subjects && reportCard.subjects.length > 0 && (
+        <Grid item xs={12}>
+          <Card
+            sx={{
+              borderRadius: 3,
+              background: 'linear-gradient(145deg, #ffffff 0%, #f8fafc 100%)',
+              boxShadow: '0 4px 20px rgba(0,0,0,0.08)',
+              border: '1px solid rgba(0,0,0,0.04)',
+              mb: 2
+            }}
+          >
+            <CardContent sx={{ p: 3 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                  <Avatar
+                    sx={{
+                      bgcolor: '#e8f5e9',
+                      color: '#4caf50',
+                      width: 48,
+                      height: 48
+                    }}
+                  >
+                    <IconReportAnalytics size={24} />
+                  </Avatar>
+                  <Box>
+                    <Typography variant="h5" fontWeight="700" color="text.primary">
+                      Current Term Grades
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Auto-calculated from Exams (70%), Assignments (20%), Attendance (10%)
+                    </Typography>
+                  </Box>
+                </Box>
+                {reportCard.overall_percentage && (
+                  <Box sx={{ textAlign: 'right' }}>
+                    <Typography variant="h4" fontWeight="bold" color="primary">
+                      {reportCard.overall_percentage.toFixed(1)}%
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Overall Score
+                    </Typography>
+                  </Box>
+                )}
+              </Box>
+
+              <Stack spacing={2}>
+                {reportCard.subjects.slice(0, 4).map((subject) => {
+                  const gradeConfig = getReportCardGradeConfig(subject.descriptive_grade || subject.letter_grade);
+                  return (
+                    <Paper
+                      key={subject.id}
+                      elevation={0}
+                      sx={{
+                        p: 2,
+                        borderRadius: 2,
+                        bgcolor: 'background.paper',
+                        border: '1px solid',
+                        borderColor: 'divider',
+                      }}
+                    >
+                      <Grid container spacing={2} alignItems="center">
+                        <Grid item xs={12} sm={3}>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <Avatar sx={{ width: 32, height: 32, bgcolor: 'primary.main' }}>
+                              <IconBook size={16} />
+                            </Avatar>
+                            <Box>
+                              <Typography variant="subtitle2" fontWeight="600" noWrap>
+                                {subject.subject_details?.name || subject.subject}
+                              </Typography>
+                            </Box>
+                          </Box>
+                        </Grid>
+                        <Grid item xs={12} sm={6}>
+                          <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+                            <Tooltip title={`Exam: ${subject.exam_score?.toFixed(1) || 0}% (70% weight)`}>
+                              <Box sx={{ flex: 1 }}>
+                                <Typography variant="caption" color="text.secondary">Exam</Typography>
+                                <LinearProgress
+                                  variant="determinate"
+                                  value={Math.min(subject.exam_score || 0, 100)}
+                                  sx={{
+                                    height: 6,
+                                    borderRadius: 1,
+                                    bgcolor: 'grey.200',
+                                    '& .MuiLinearProgress-bar': {
+                                      bgcolor: subject.exam_score >= 60 ? '#4caf50' : '#f44336',
+                                    }
+                                  }}
+                                />
+                              </Box>
+                            </Tooltip>
+                            <Tooltip title={`Assignment: ${subject.assignment_avg?.toFixed(1) || 0}% (20% weight)`}>
+                              <Box sx={{ flex: 1 }}>
+                                <Typography variant="caption" color="text.secondary">Assign</Typography>
+                                <LinearProgress
+                                  variant="determinate"
+                                  value={Math.min(subject.assignment_avg || 0, 100)}
+                                  sx={{
+                                    height: 6,
+                                    borderRadius: 1,
+                                    bgcolor: 'grey.200',
+                                    '& .MuiLinearProgress-bar': {
+                                      bgcolor: subject.assignment_avg >= 60 ? '#8bc34a' : '#ff9800',
+                                    }
+                                  }}
+                                />
+                              </Box>
+                            </Tooltip>
+                            <Tooltip title={`Attendance: ${subject.attendance_score?.toFixed(1) || 0}% (10% weight)`}>
+                              <Box sx={{ flex: 1 }}>
+                                <Typography variant="caption" color="text.secondary">Attend</Typography>
+                                <LinearProgress
+                                  variant="determinate"
+                                  value={Math.min(subject.attendance_score || 0, 100)}
+                                  sx={{
+                                    height: 6,
+                                    borderRadius: 1,
+                                    bgcolor: 'grey.200',
+                                    '& .MuiLinearProgress-bar': {
+                                      bgcolor: subject.attendance_score >= 60 ? '#2196f3' : '#ff9800',
+                                    }
+                                  }}
+                                />
+                              </Box>
+                            </Tooltip>
+                          </Box>
+                        </Grid>
+                        <Grid item xs={12} sm={3}>
+                          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 1 }}>
+                            <Box sx={{ textAlign: 'right' }}>
+                              <Typography variant="h6" fontWeight="bold" color={gradeConfig.color}>
+                                {subject.total_score?.toFixed(1) || 0}%
+                              </Typography>
+                            </Box>
+                            <Chip
+                              label={subject.descriptive_grade || subject.letter_grade || '-'}
+                              size="small"
+                              sx={{
+                                bgcolor: gradeConfig.bgColor,
+                                color: gradeConfig.color,
+                                fontWeight: 700,
+                                minWidth: 45
+                              }}
+                            />
+                          </Box>
+                        </Grid>
+                      </Grid>
+                    </Paper>
+                  );
+                })}
+              </Stack>
+
+              {reportCard.subjects.length > 4 && (
+                <Box sx={{ textAlign: 'center', mt: 2 }}>
+                  <Typography variant="caption" color="text.secondary">
+                    +{reportCard.subjects.length - 4} more subjects - View full report card for details
+                  </Typography>
+                </Box>
+              )}
+            </CardContent>
+          </Card>
+        </Grid>
+      )}
+
       {/* Upcoming Exams */}
       <Grid item xs={12} md={4}>
         <Card
@@ -203,7 +416,7 @@ const ExamsAndResults = ({ exams, results, assignments }) => {
         </Card>
       </Grid>
 
-      {/* Exam Results */}
+      {/* Exam Results - Grouped by Subject with Mid/Final breakdown */}
       <Grid item xs={12} md={4}>
         <Card
           sx={{
@@ -231,7 +444,7 @@ const ExamsAndResults = ({ exams, results, assignments }) => {
                   Exam Results
                 </Typography>
                 <Typography variant="caption" color="text.secondary">
-                  {results?.length || 0} results available
+                  {results?.length || 0} results by subject
                 </Typography>
               </Box>
             </Box>
@@ -252,18 +465,29 @@ const ExamsAndResults = ({ exams, results, assignments }) => {
                   No results yet
                 </Typography>
                 <Typography variant="caption" color="text.disabled">
-                  Results will appear here after grading
+                  Mid-term and Final results will appear here after teacher grading
                 </Typography>
               </Box>
             ) : (
               <Stack spacing={2}>
-                {results.map((result) => {
-                  const gradeConfig = getGradeConfig(result.score, result.max_score);
-                  const percentage = (result.score / result.max_score) * 100;
+                {/* Group results by subject */}
+                {Object.entries(
+                  results.reduce((acc, result) => {
+                    const subjectName = result.subject_details?.name || result.subject_id_name || result.subject?.name || 'Unknown';
+                    if (!acc[subjectName]) acc[subjectName] = [];
+                    acc[subjectName].push(result);
+                    return acc;
+                  }, {})
+                ).map(([subjectName, subjectResults]) => {
+                  // Calculate subject total
+                  const totalScore = subjectResults.reduce((sum, r) => sum + (r.score || 0), 0);
+                  const totalMax = subjectResults.reduce((sum, r) => sum + (r.max_score || 100), 0);
+                  const subjectPercentage = (totalScore / totalMax) * 100;
+                  const subjectGrade = getGradeConfig(totalScore, totalMax);
 
                   return (
                     <Paper
-                      key={result.id}
+                      key={subjectName}
                       elevation={0}
                       sx={{
                         p: 2,
@@ -271,85 +495,98 @@ const ExamsAndResults = ({ exams, results, assignments }) => {
                         bgcolor: 'background.paper',
                         border: '1px solid',
                         borderColor: 'divider',
-                        transition: 'all 0.2s ease',
-                        '&:hover': {
-                          boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
-                          transform: 'translateY(-2px)'
-                        }
                       }}
                     >
-                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2 }}>
-                        <Box sx={{ flex: 1, minWidth: 0 }}>
-                          <Typography
-                            variant="subtitle1"
-                            fontWeight="600"
-                            color="text.primary"
-                            noWrap
-                          >
-                            {result.subject_details?.name || result.subject_id_name || result.subject?.name || 'Subject'}
+                      {/* Subject Header with Total */}
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <Avatar sx={{ width: 32, height: 32, bgcolor: 'primary.main' }}>
+                            <IconBook size={16} />
+                          </Avatar>
+                          <Typography variant="subtitle1" fontWeight="600" color="text.primary">
+                            {subjectName}
+                          </Typography>
+                        </Box>
+                        <Box sx={{ textAlign: 'right' }}>
+                          <Typography variant="h6" fontWeight="bold" color={subjectGrade.color}>
+                            {subjectPercentage.toFixed(1)}%
                           </Typography>
                           <Typography variant="caption" color="text.secondary">
-                            {result.exam_name || 'Exam'}
+                            {subjectResults.length} exam{subjectResults.length > 1 ? 's' : ''}
                           </Typography>
                         </Box>
-                        <Tooltip title={gradeConfig.label}>
-                          <Avatar
-                            sx={{
-                              bgcolor: gradeConfig.bgColor,
-                              color: gradeConfig.color,
-                              width: 40,
-                              height: 40,
-                              fontWeight: 700,
-                              fontSize: '1rem'
-                            }}
-                          >
-                            {gradeConfig.letter}
-                          </Avatar>
-                        </Tooltip>
                       </Box>
 
-                      <Box sx={{ mb: 1.5 }}>
-                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.5 }}>
-                          <Typography variant="h4" fontWeight="700" color={gradeConfig.color}>
-                            {result.score}
-                            <Typography component="span" variant="body2" color="text.secondary" sx={{ ml: 0.5 }}>
-                              / {result.max_score}
-                            </Typography>
-                          </Typography>
-                          <Typography variant="body2" fontWeight={600} color={gradeConfig.color}>
-                            {percentage.toFixed(1)}%
-                          </Typography>
-                        </Box>
+                      {/* Individual Exam Results */}
+                      <Stack spacing={1}>
+                        {subjectResults.map((result) => {
+                          const examType = result.exam_details?.exam_type || 'other';
+                          const typeConfig = getExamTypeConfig(examType);
+                          const percentage = (result.score / result.max_score) * 100;
+
+                          // Debug: log the actual exam type received
+                          // console.log('[ExamResult] exam_details:', result.exam_details, 'exam_type:', examType);
+
+                          return (
+                            <Box
+                              key={result.id}
+                              sx={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                p: 1,
+                                borderRadius: 1,
+                                bgcolor: 'grey.50',
+                              }}
+                            >
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                <Tooltip title={`Type: ${examType || 'N/A'}`}>
+                                  <Chip
+                                    label={typeConfig.label}
+                                    size="small"
+                                    sx={{
+                                      bgcolor: typeConfig.bgColor,
+                                      color: typeConfig.color,
+                                      fontWeight: 600,
+                                      fontSize: '0.7rem',
+                                      height: 22,
+                                      minWidth: 70,
+                                      cursor: 'help'
+                                    }}
+                                  />
+                                </Tooltip>
+                                <Typography variant="body2" color="text.secondary">
+                                  {result.exam_details?.name}
+                                </Typography>
+                              </Box>
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                <Typography variant="body2" fontWeight="600" color={percentage >= 60 ? 'success.main' : 'error.main'}>
+                                  {result.score}/{result.max_score}
+                                </Typography>
+                                <Typography variant="caption" color={percentage >= 60 ? 'success.main' : 'error.main'}>
+                                  ({percentage.toFixed(1)}%)
+                                </Typography>
+                              </Box>
+                            </Box>
+                          );
+                        })}
+                      </Stack>
+
+                      {/* Subject Total Progress */}
+                      <Box sx={{ mt: 2 }}>
                         <LinearProgress
                           variant="determinate"
-                          value={percentage}
+                          value={Math.min(subjectPercentage, 100)}
                           sx={{
-                            height: 8,
-                            borderRadius: 4,
-                            bgcolor: 'grey.100',
+                            height: 6,
+                            borderRadius: 3,
+                            bgcolor: 'grey.200',
                             '& .MuiLinearProgress-bar': {
-                              bgcolor: gradeConfig.color,
-                              borderRadius: 4
+                              bgcolor: subjectGrade.color,
+                              borderRadius: 3
                             }
                           }}
                         />
-                      </Box>
-
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                        {percentage >= 80 ? (
-                          <IconTrendingUp size={14} color="#4caf50" />
-                        ) : percentage >= 60 ? (
-                          <IconEqual size={14} color="#ff9800" />
-                        ) : (
-                          <IconTrendingDown size={14} color="#f44336" />
-                        )}
-                        <Typography
-                          variant="caption"
-                          color={percentage >= 60 ? 'success.main' : 'error.main'}
-                          fontWeight={500}
-                        >
-                          {percentage >= 80 ? 'Excellent performance!' : percentage >= 60 ? 'Passing grade' : 'Needs improvement'}
-                        </Typography>
                       </Box>
                     </Paper>
                   );

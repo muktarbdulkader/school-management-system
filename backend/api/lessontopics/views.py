@@ -1731,6 +1731,34 @@ class ExamResultsViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
+        queryset = self.queryset
+        user = self.request.user
+
+        # Get query params
+        class_id = self.request.query_params.get('class_id')
+        section_id = self.request.query_params.get('section_id')
+        subject_id = self.request.query_params.get('subject_id')
+
+        print(f"[ExamResults] Filter params: class_id={class_id}, section_id={section_id}, subject_id={subject_id}")
+
+        # Apply filters
+        if class_id:
+            queryset = queryset.filter(teacher_assignment__class_fk_id=class_id)
+        if section_id:
+            queryset = queryset.filter(teacher_assignment__section_id=section_id)
+        if subject_id:
+            queryset = queryset.filter(teacher_assignment__subject_id=subject_id)
+
+        # Teachers only see their own assignment results
+        if not user.is_superuser and is_teacher(user):
+            teacher = Teacher.objects.filter(user=user).first()
+            if teacher:
+                queryset = queryset.filter(teacher_assignment__teacher=teacher)
+
+        print(f"[ExamResults] Filtered count: {queryset.count()}")
+        return queryset.select_related('student', 'teacher_assignment', 'exam', 'recorded_by')
+
+    def list(self, request, *args, **kwargs):
         user = self.request.user
         branch_id = self.request.query_params.get('branch_id')
         class_id = self.request.query_params.get('class_id')
@@ -1849,7 +1877,12 @@ class ExamResultsViewSet(viewsets.ModelViewSet):
             print(f"[ExamResults] Assignment verified: {assignment.id} for subject {assignment.subject.name}")
 
         serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
+        try:
+            serializer.is_valid(raise_exception=True)
+        except Exception as e:
+            print(f"[ExamResults] Validation error: {serializer.errors}")
+            print(f"[ExamResults] Request data: {request.data}")
+            raise
         self.perform_create(serializer)
         return Response({
             'success': True,

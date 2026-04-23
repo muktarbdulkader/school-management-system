@@ -1437,13 +1437,13 @@ class ExamsViewSet(viewsets.ModelViewSet):
 
             from users.models import UserBranchAccess
             from teachers.models import Teacher
-            
+
             # Check if user has branch access OR is a teacher assigned to this branch
             has_branch_access = UserBranchAccess.objects.filter(user=user, branch_id=branch_id).exists()
-            
+
             teacher = Teacher.objects.filter(user=user).first()
             is_teacher_for_branch = teacher and teacher.branch and str(teacher.branch.id) == str(branch_id)
-            
+
             if not has_branch_access and not is_teacher_for_branch:
                 print(f"[ExamsViewSet] Access denied: User {user.email} has no access to branch {branch_id}")
                 print(f"  - Has UserBranchAccess: {has_branch_access}")
@@ -1451,6 +1451,38 @@ class ExamsViewSet(viewsets.ModelViewSet):
                 if teacher:
                     print(f"  - Teacher branch: {teacher.branch_id if teacher.branch else 'None'}")
                 raise PermissionDenied("You do not have permission to create exams in this branch.")
+
+        # Check for duplicate exam
+        exam_type = request.data.get('exam_type')
+        start_date = request.data.get('start_date')
+        start_time = request.data.get('start_time')
+        class_id = request.data.get('class_id')
+        section_id = request.data.get('section_id')
+
+        if exam_type and start_date and start_time and class_id:
+            duplicate_check = self.queryset.filter(
+                exam_type=exam_type,
+                start_date=start_date,
+                start_time=start_time,
+                class_fk_id=class_id
+            )
+
+            if section_id:
+                duplicate_check = duplicate_check.filter(section_id=section_id)
+
+            if duplicate_check.exists():
+                section_name = ""
+                if section_id:
+                    from academics.models import Section
+                    section = Section.objects.filter(id=section_id).first()
+                    section_name = f" Section {section.name}" if section else ""
+
+                raise serializers.ValidationError({
+                    'non_field_errors': [
+                        f'An exam of type "{exam_type}" already exists for this class{section_name} on {start_date} at {start_time}. '
+                        f'Please choose a different time or edit the existing exam.'
+                    ]
+                })
 
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)

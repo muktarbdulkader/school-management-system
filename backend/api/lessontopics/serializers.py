@@ -768,6 +768,7 @@ class ExamResultsSerializer(serializers.ModelSerializer):
         write_only=True,
         required=True
     )
+    student = serializers.UUIDField(source='student.id', read_only=True)
     student_details = StudentSerializer(source='student', read_only=True)
     teacher_assignment_id = serializers.PrimaryKeyRelatedField(
         queryset=TeacherAssignment.objects.all(),
@@ -784,13 +785,14 @@ class ExamResultsSerializer(serializers.ModelSerializer):
         write_only=True,
         required=True
     )
+    exam = serializers.UUIDField(source='exam.id', read_only=True)
     exam_details = serializers.StringRelatedField(source='exam', read_only=True)
     recorded_by_details = UserSerializer(source='recorded_by', read_only=True)
 
     class Meta:
         model = ExamResults
-        fields = ['id', 'student_id', 'student_details', 'teacher_assignment_id', 'teacher_assignment_details',
-                  'subject_details', 'exam_id', 'exam_details', 'max_score', 'score', 'percentage',
+        fields = ['id', 'student_id', 'student', 'student_details', 'teacher_assignment_id', 'teacher_assignment_details',
+                  'subject_details', 'exam_id', 'exam', 'exam_details', 'max_score', 'score', 'percentage',
                   'grade', 'remarks', 'recorded_by', 'recorded_by_details', 'recorded_at']
 
     def validate_marks_obtained(self, value):

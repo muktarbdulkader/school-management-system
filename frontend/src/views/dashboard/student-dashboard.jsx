@@ -140,6 +140,7 @@ const StudentDashboard = () => {
       setExams(data.exams || []);
       setExamResults(data.exam_results || []);
       setAssignmentGrades(data.assignment_grades || []);
+      setReportCard(data.report_card || null);
       setTeachers((data.teachers || []).slice(0, 6));
 
       setStats({
@@ -394,7 +395,7 @@ const StudentDashboard = () => {
 
         {/* Exams and Results */}
         <Grid item xs={12}>
-          <ExamsAndResults exams={exams} results={examResults} assignments={assignmentGrades} />
+          <ExamsAndResults exams={exams} results={examResults} assignments={assignmentGrades} reportCard={reportCard} />
         </Grid>
 
         {/* Quick Actions */}
