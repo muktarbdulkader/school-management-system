@@ -1391,7 +1391,20 @@ class AssignmentsViewSet(viewsets.ModelViewSet):
         # Check if user is a teacher
         if is_teacher(user):
             queryset = self.queryset.filter(assigned_by=user)
-            print(f"[Assignments] Teacher - Found {queryset.count()} assignments")
+
+            # Apply filters for gradebook view
+            class_id = self.request.query_params.get('class_id')
+            section_id = self.request.query_params.get('section_id')
+            subject_id = self.request.query_params.get('subject_id')
+
+            if class_id:
+                queryset = queryset.filter(teacher_assignment__class_fk_id=class_id)
+            if section_id:
+                queryset = queryset.filter(teacher_assignment__section_id=section_id)
+            if subject_id:
+                queryset = queryset.filter(teacher_assignment__subject_id=subject_id)
+
+            print(f"[Assignments] Teacher - Found {queryset.count()} assignments (filters: class={class_id}, section={section_id}, subject={subject_id})")
             return queryset
 
         # Check if user is a parent
@@ -1604,27 +1617,51 @@ class StudentAssignmentsViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         user = self.request.user
         branch_id = self.request.query_params.get('branch_id')
+        student_ids_param = self.request.query_params.get('student_ids')
+        subject_id = self.request.query_params.get('subject_id')
+
         if branch_id and not has_model_permission(user, 'studentassignments', 'view', branch_id):
             raise PermissionDenied("No permission to view student assignments.")
 
+        queryset = self.queryset
+
+        # Filter by specific student IDs if provided (for gradebook)
+        if student_ids_param:
+            student_ids = student_ids_param.split(',')
+            queryset = queryset.filter(student_id__in=student_ids)
+
+        # Filter by subject if provided
+        if subject_id:
+            queryset = queryset.filter(assignment_id__subject_id=subject_id)
+
+        # Apply role-based filtering
         if is_teacher(user):
-            return self.queryset.filter(assignment_id__assigned_by=user)
+            # Teachers see assignments they created or for their assigned subjects
+            teacher_assignments = TeacherAssignment.objects.filter(teacher__user=user)
+            subject_ids = list(teacher_assignments.values_list('subject_id', flat=True))
+            queryset = queryset.filter(
+                Q(assignment_id__assigned_by=user) |
+                Q(assignment_id__subject_id__in=subject_ids)
+            ).distinct()
         elif is_student(user):
             # Students can see their own submissions
             student = Student.objects.filter(user=user).first()
             if student:
-                return self.queryset.filter(student_id=student)
-            return self.queryset.none()
+                queryset = queryset.filter(student_id=student)
+            else:
+                return self.queryset.none()
         elif is_parent(user):
             # Parents can see their children's submissions
             student_ids = ParentStudent.objects.filter(parent__user=user).values_list('student_id', flat=True)
-            queryset = self.queryset.filter(student_id__id__in=student_ids)
+            queryset = queryset.filter(student_id__id__in=student_ids)
             # Include group assignments where the student is in the group
             group_assignments = Assignments.objects.filter(is_group_assignment=True, students__in=student_ids)
             queryset |= self.queryset.filter(assignment_id__in=group_assignments)
-            return queryset.distinct()
-        else:
+            queryset = queryset.distinct()
+        elif not user.is_superuser:
             return self.queryset.none()
+
+        return queryset.select_related('student', 'assignment')
 
     def create(self, request, *args, **kwargs):
         user = request.user

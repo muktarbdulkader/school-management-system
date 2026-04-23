@@ -79,7 +79,6 @@ const ExamForm = ({ open, onClose, exam, onSave, terms, classes, branches, isSup
     start_time: '',
     end_time: '',
     max_score: 100,
-    passing_score: 40,
     description: '',
   });
   const [loading, setLoading] = useState(false);
@@ -104,7 +103,6 @@ const ExamForm = ({ open, onClose, exam, onSave, terms, classes, branches, isSup
         start_time: exam.start_time || '',
         end_time: exam.end_time || '',
         max_score: exam.max_score || 100,
-        passing_score: exam.passing_score || 40,
         description: exam.description || '',
       });
 
@@ -127,7 +125,6 @@ const ExamForm = ({ open, onClose, exam, onSave, terms, classes, branches, isSup
         start_time: '',
         end_time: '',
         max_score: 100,
-        passing_score: 40,
         description: '',
       });
       setFilteredSections([]);
@@ -154,9 +151,6 @@ const ExamForm = ({ open, onClose, exam, onSave, terms, classes, branches, isSup
       newErrors.end_date = 'End date must be after start date';
     }
     if (formData.max_score <= 0) newErrors.max_score = 'Max score must be greater than 0';
-    if (formData.passing_score < 0 || formData.passing_score > formData.max_score) {
-      newErrors.passing_score = `Passing score must be between 0 and ${formData.max_score}`;
-    }
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -214,8 +208,12 @@ const ExamForm = ({ open, onClose, exam, onSave, terms, classes, branches, isSup
         'Content-Type': 'application/json',
       };
 
+      // Auto-calculate passing score as 50% of max score
+      const passingScore = Math.round(formData.max_score * 0.5);
+
       const payload = {
         ...formData,
+        passing_score: passingScore,
         created_by_id: user?.id,
       };
       console.log('Exam payload:', payload);
@@ -583,17 +581,6 @@ const ExamForm = ({ open, onClose, exam, onSave, terms, classes, branches, isSup
               helperText={errors.max_score}
             />
           </Grid>
-          <Grid item xs={12} md={6}>
-            <TextField
-              fullWidth
-              type="number"
-              label="Passing Score *"
-              value={formData.passing_score}
-              onChange={(e) => handleChange('passing_score', parseFloat(e.target.value))}
-              error={!!errors.passing_score}
-              helperText={errors.passing_score}
-            />
-          </Grid>
           <Grid item xs={12}>
             <TextField
               fullWidth
@@ -663,8 +650,8 @@ const ViewExamDialog = ({ open, onClose, exam }) => {
               <Typography variant="body1">{exam.max_score}</Typography>
             </Grid>
             <Grid item xs={6}>
-              <Typography variant="body2" color="text.secondary">Passing Score</Typography>
-              <Typography variant="body1">{exam.passing_score}</Typography>
+              <Typography variant="body2" color="text.secondary">Passing Score (50%)</Typography>
+              <Typography variant="body1">{exam.passing_score || Math.round(exam.max_score * 0.5)}</Typography>
             </Grid>
             <Grid item xs={6}>
               <Typography variant="body2" color="text.secondary">Date</Typography>
@@ -1353,7 +1340,7 @@ export default function ExamManagement() {
                             Max: {exam.max_score}
                           </Typography>
                           <Typography variant="caption" color="text.secondary">
-                            Pass: {exam.passing_score}
+                            Pass: {exam.passing_score || Math.round(exam.max_score * 0.5)} (50%)
                           </Typography>
                         </TableCell>
                         <TableCell align="right">

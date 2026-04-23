@@ -7,6 +7,14 @@ from academics.serializers import TermsSerializer
 from teachers.serializers import TeacherAssignmentSerializer
 from schedule.models import Exam
 from schedule.serializers import ClassSerializer, SectionSerializer, SubjectSerializer
+
+# Simple Exam serializer for exam details in results
+class SimpleExamSerializer(serializers.ModelSerializer):
+    """Simple exam serializer for nested display"""
+    class Meta:
+        model = Exam
+        fields = ['id', 'name', 'exam_type']
+
 from students.models import Student
 from students.serializers import StudentSerializer
 from teachers.models import Teacher
@@ -683,6 +691,7 @@ class StudentAssignmentsSerializer(serializers.ModelSerializer):
         write_only=True,
         required=True
     )
+    assignment = serializers.UUIDField(source='assignment.id', read_only=True)
     assignment_details = serializers.SerializerMethodField()
     student_id = serializers.PrimaryKeyRelatedField(
         queryset=Student.objects.all(), 
@@ -690,6 +699,7 @@ class StudentAssignmentsSerializer(serializers.ModelSerializer):
         write_only=True,
         required=True
     )
+    student = serializers.UUIDField(source='student.id', read_only=True)
     student_details = StudentSerializer(source='student', read_only=True)
 
     def get_assignment_details(self, obj):
@@ -706,9 +716,9 @@ class StudentAssignmentsSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = StudentAssignments
-        fields = ['id', 'assignment_id', 'assignment_details', 'student_id', 
+        fields = ['id', 'assignment_id', 'assignment', 'assignment_details', 'student_id', 'student',
                 'student_details', 'submission_url', 'grade', 'feedback', 'submitted_date']
-        read_only_fields = ['id', 'submitted_date', 'assignment_details', 'student_details']
+        read_only_fields = ['id', 'submitted_date', 'assignment_details', 'student_details', 'assignment', 'student']
 
     def validate(self, data):
         """Validate student assignment submission"""
@@ -786,7 +796,7 @@ class ExamResultsSerializer(serializers.ModelSerializer):
         required=True
     )
     exam = serializers.UUIDField(source='exam.id', read_only=True)
-    exam_details = serializers.StringRelatedField(source='exam', read_only=True)
+    exam_details = SimpleExamSerializer(source='exam', read_only=True)
     recorded_by_details = UserSerializer(source='recorded_by', read_only=True)
 
     class Meta:

@@ -63,6 +63,8 @@ export default function GradeBookPage() {
   const [students, setStudents] = useState([]);
   const [exams, setExams] = useState([]);
   const [examResults, setExamResults] = useState([]);
+  const [assignments, setAssignments] = useState([]);
+  const [assignmentGrades, setAssignmentGrades] = useState([]);
   const [loading, setLoading] = useState(false);
   const [stats, setStats] = useState({
     classAverage: 0,
@@ -392,11 +394,50 @@ export default function GradeBookPage() {
         console.error('Failed to fetch exam results:', e);
       }
       setExamResults(resultsList);
+
+      // Fetch assignments for this class/section/subject
+      let assignmentsList = [];
+      try {
+        const assignmentsQueryParams = new URLSearchParams();
+        assignmentsQueryParams.append('class_id', grade);
+        if (section) assignmentsQueryParams.append('section_id', section);
+        if (subject) assignmentsQueryParams.append('subject_id', subject);
+
+        const assignmentsRes = await fetch(`${Backend.api}${Backend.assignments}?${assignmentsQueryParams}`, { headers: header });
+        const assignmentsData = await assignmentsRes.json();
+        assignmentsList = assignmentsData.success ? assignmentsData.data || [] : [];
+        console.log('[Grade] Assignments from API:', assignmentsList.length);
+      } catch (e) {
+        console.error('Failed to fetch assignments:', e);
+      }
+      setAssignments(assignmentsList);
+
+      // Fetch assignment grades (student submissions with grades)
+      let assignmentGradesList = [];
+      try {
+        // Fetch all student assignments for these students
+        const studentIds = studentsList.map(s => s.id).join(',');
+        if (studentIds) {
+          const assignmentGradesQueryParams = new URLSearchParams();
+          assignmentGradesQueryParams.append('student_ids', studentIds);
+          if (subject) assignmentGradesQueryParams.append('subject_id', subject);
+
+          const assignmentGradesRes = await fetch(`${Backend.api}${Backend.studentAssignments}?${assignmentGradesQueryParams}`, { headers: header });
+          const assignmentGradesData = await assignmentGradesRes.json();
+          assignmentGradesList = assignmentGradesData.success ? assignmentGradesData.data || [] : [];
+          console.log('[Grade] Assignment grades from API:', assignmentGradesList.length);
+        }
+      } catch (e) {
+        console.error('Failed to fetch assignment grades:', e);
+      }
+      setAssignmentGrades(assignmentGradesList);
+
       console.log('[Grade] Students:', studentsList.map(s => ({ id: s.id, name: s.name || s.full_name })));
       console.log('[Grade] Exam Results:', resultsList.map(r => ({ student: r.student, exam: r.exam, score: r.score })));
+      console.log('[Grade] Assignment Grades:', assignmentGradesList.map(r => ({ student: r.student, assignment: r.assignment, grade: r.grade })));
 
-      // Calculate statistics
-      calculateStats(studentsList, resultsList, examsList);
+      // Calculate statistics (combined exams + assignments)
+      calculateStats(studentsList, resultsList, examsList, assignmentGradesList, assignmentsList);
     } catch (error) {
       console.error('Error in fetchStudentsAndGrades:', error);
       toast.error('Failed to load grades');
@@ -405,8 +446,22 @@ export default function GradeBookPage() {
     }
   };
 
-  const calculateStats = (studentsList, resultsList, examsList) => {
-    if (resultsList.length === 0) {
+  const calculateStats = (studentsList, resultsList, examsList, assignmentGradesList = [], assignmentsList = []) => {
+    // Combine exam results and assignment grades for calculation
+    const allGrades = [
+      ...resultsList.map(r => ({
+        score: parseFloat(r.score) || 0,
+        maxScore: parseFloat(r.max_score) || 1,
+        type: 'exam'
+      })),
+      ...assignmentGradesList.filter(r => r.grade !== null && r.grade !== undefined).map(r => ({
+        score: parseFloat(r.grade) || 0,
+        maxScore: 100, // Assignments typically out of 100
+        type: 'assignment'
+      }))
+    ];
+
+    if (allGrades.length === 0) {
       setStats({
         classAverage: 0,
         highestScore: 0,
@@ -416,18 +471,17 @@ export default function GradeBookPage() {
       return;
     }
 
-    const scores = resultsList.map(r => {
-      const score = parseFloat(r.score) || 0;
-      const maxScore = parseFloat(r.max_score) || 1;
-      return (score / maxScore) * 100;
-    });
+    const scores = allGrades.map(g => (g.score / g.maxScore) * 100);
     const average = scores.reduce((a, b) => a + b, 0) / scores.length;
     const highest = Math.max(...scores);
     const lowest = Math.min(...scores);
 
-    // Count missing results
-    const totalExpected = studentsList.length * examsList.length;
-    const missing = totalExpected - resultsList.length;
+    // Count missing results (exams + assignments)
+    const totalExpectedExams = studentsList.length * examsList.length;
+    const totalExpectedAssignments = studentsList.length * assignmentsList.length;
+    const totalExpected = totalExpectedExams + totalExpectedAssignments;
+    const totalSubmitted = resultsList.length + assignmentGradesList.filter(r => r.grade !== null).length;
+    const missing = totalExpected - totalSubmitted;
 
     setStats({
       classAverage: average.toFixed(0),
@@ -441,12 +495,28 @@ export default function GradeBookPage() {
     return examResults.filter(r => String(r.student) === String(studentId));
   };
 
-  const getStudentTotal = (studentId) => {
-    const results = getStudentResults(studentId);
-    if (results.length === 0) return '0%';
+  const getStudentAssignmentGrades = (studentId) => {
+    return assignmentGrades.filter(r =>
+      String(r.student?.id || r.student) === String(studentId) &&
+      r.grade !== null && r.grade !== undefined
+    );
+  };
 
-    const totalScore = results.reduce((sum, r) => sum + (parseFloat(r.score) || 0), 0);
-    const totalMax = results.reduce((sum, r) => sum + (parseFloat(r.max_score) || 0), 0);
+  const getStudentTotal = (studentId) => {
+    const examResults_list = getStudentResults(studentId);
+    const assignmentGrades_list = getStudentAssignmentGrades(studentId);
+
+    // Calculate exam total
+    const examTotalScore = examResults_list.reduce((sum, r) => sum + (parseFloat(r.score) || 0), 0);
+    const examTotalMax = examResults_list.reduce((sum, r) => sum + (parseFloat(r.max_score) || 0), 0);
+
+    // Calculate assignment total (assignments out of 100)
+    const assignmentTotalScore = assignmentGrades_list.reduce((sum, r) => sum + (parseFloat(r.grade) || 0), 0);
+    const assignmentTotalMax = assignmentGrades_list.length * 100;
+
+    // Combined total
+    const totalScore = examTotalScore + assignmentTotalScore;
+    const totalMax = examTotalMax + assignmentTotalMax;
 
     if (totalMax === 0) return '0%';
     const percentage = ((totalScore / totalMax) * 100).toFixed(0);
@@ -666,6 +736,10 @@ export default function GradeBookPage() {
     setSelectedStudent(student);
     setSelectedExam(examId);
 
+    // Find the exam to get its max_score
+    const exam = exams.find(e => String(e.id) === String(examId));
+    const examMaxScore = exam?.max_score || 100;
+
     // Check if grade already exists
     const existingResult = examResults.find(
       r => String(r.student) === String(student.id) && String(r.exam) === String(examId)
@@ -678,7 +752,8 @@ export default function GradeBookPage() {
         remarks: existingResult.remarks || '',
       });
     } else {
-      setGradeForm({ score: '', max_score: 100, remarks: '' });
+      // Use the exam's max_score, not default 100
+      setGradeForm({ score: '', max_score: examMaxScore, remarks: '' });
     }
 
     setOpenGradeDialog(true);
@@ -999,9 +1074,9 @@ export default function GradeBookPage() {
                         <TableCell align="center">
                           <Tooltip title={
                             <Typography variant="body2">
-                              <strong>Calculation:</strong><br />
-                              Sum of all scores ÷ Sum of all max scores × 100<br />
-                              <em>Example: (34+50+20) ÷ (100+100+100) = 35%</em>
+                              <strong>Calculation (Exams + Assignments):</strong><br />
+                              (Exam scores + Assignment grades) ÷ (Exam max + Assignment max) × 100<br />
+                              <em>Assignments are graded out of 100</em>
                             </Typography>
                           } arrow>
                             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.5, cursor: 'help' }}>
@@ -1055,6 +1130,7 @@ export default function GradeBookPage() {
                                 </Typography>
                                 <Typography variant="caption" color="text.secondary">
                                   {getStudentResults(student.id).length}/{exams.length} exams
+                                  {assignments.length > 0 && `, ${getStudentAssignmentGrades(student.id).length}/${assignments.length} assignments`}
                                 </Typography>
                               </Box>
                             </TableCell>
@@ -1192,10 +1268,11 @@ export default function GradeBookPage() {
               required
             />
             <TextField
-              label="Maximum Score"
+              label="Maximum Score (from Exam)"
               type="number"
               value={gradeForm.max_score}
-              onChange={(e) => setGradeForm({ ...gradeForm, max_score: e.target.value })}
+              InputProps={{ readOnly: true }}
+              helperText="Auto-filled from exam settings. To change, edit the exam."
               fullWidth
               required
             />

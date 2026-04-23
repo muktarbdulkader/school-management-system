@@ -10,6 +10,18 @@ from schedule.models import Attendance
 
 def get_or_create_report_card_subject(student, teacher_assignment, term):
     """Get or create a ReportCardSubject for the given student, assignment and term"""
+    # Skip if term is not available
+    if not term:
+        # Try to get student's current term as fallback
+        from academics.models import Term
+        term = student.current_term if hasattr(student, 'current_term') else None
+        if not term:
+            # Try to get current active term
+            term = Term.objects.filter(is_current=True).first()
+        if not term:
+            print(f"[ReportCard] Skipping: No term available for student {student.id}")
+            return None
+
     # Get or create the report card
     report_card, _ = ReportCard.objects.get_or_create(
         student=student,
@@ -47,6 +59,8 @@ def update_report_card_subject_from_exam_results(student, teacher_assignment, te
 
         # Get or create report card subject
         report_card_subject = get_or_create_report_card_subject(student, teacher_assignment, term)
+        if not report_card_subject:
+            return None
 
         # Update exam score (store the average percentage)
         report_card_subject.exam_score = float(avg_percentage)
@@ -82,6 +96,8 @@ def update_report_card_subject_from_assignments(student, teacher_assignment, ter
 
         # Get or create report card subject
         report_card_subject = get_or_create_report_card_subject(student, teacher_assignment, term)
+        if not report_card_subject:
+            return None
 
         # Update assignment average (store the raw average, will be normalized in calculation)
         report_card_subject.assignment_avg = float(avg_grade)
@@ -111,6 +127,8 @@ def update_report_card_subject_attendance(student, teacher_assignment, term):
 
         # Get or create report card subject
         report_card_subject = get_or_create_report_card_subject(student, teacher_assignment, term)
+        if not report_card_subject:
+            return None
 
         # Update attendance score
         report_card_subject.attendance_score = attendance_pct
@@ -151,6 +169,10 @@ def on_assignment_grade_saved(sender, instance, created, **kwargs):
     """Auto-update ReportCardSubject when an assignment grade is saved"""
     if instance.student and instance.assignment and instance.assignment.teacher_assignment:
         assignment = instance.assignment
+        # Skip if assignment has no term
+        if not assignment.term:
+            print(f"[AssignmentSignal] Skipping: Assignment {assignment.id} has no term")
+            return
         update_report_card_subject_from_assignments(
             instance.student,
             assignment.teacher_assignment,
@@ -163,6 +185,10 @@ def on_assignment_grade_deleted(sender, instance, **kwargs):
     """Auto-update ReportCardSubject when an assignment grade is deleted"""
     if instance.student and instance.assignment and instance.assignment.teacher_assignment:
         assignment = instance.assignment
+        # Skip if assignment has no term
+        if not assignment.term:
+            print(f"[AssignmentSignal] Skipping: Assignment {assignment.id} has no term")
+            return
         update_report_card_subject_from_assignments(
             instance.student,
             assignment.teacher_assignment,
