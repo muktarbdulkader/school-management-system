@@ -672,6 +672,33 @@ class ClassesViewSet(viewsets.ModelViewSet):
             }
         })
 
+    @action(detail=True, methods=['get'], url_path='subjects')
+    def get_class_subjects(self, request, pk=None):
+        """Get all subjects assigned to this class via TeacherAssignment and ClassSubject"""
+        class_obj = self.get_object()
+
+        # Get subjects from TeacherAssignment (legacy)
+        teacher_assignment_ids = TeacherAssignment.objects.filter(
+            class_fk=class_obj, is_active=True
+        ).values_list('subject', flat=True).distinct()
+
+        # Get subjects from ClassSubject (legacy subject field)
+        class_subject_ids = ClassSubject.objects.filter(
+            class_fk=class_obj, subject__isnull=False
+        ).values_list('subject', flat=True).distinct()
+
+        # Combine all subject IDs
+        all_subject_ids = set(teacher_assignment_ids) | set(class_subject_ids)
+        subjects = Subject.objects.filter(id__in=all_subject_ids)
+
+        serializer = SubjectsSerializer(subjects, many=True)
+        return Response({
+            'success': True,
+            'message': 'OK',
+            'status': 200,
+            'data': serializer.data
+        })
+
 class SectionsViewSet(viewsets.ModelViewSet):
     serializer_class = SectionsSerializer
     permission_classes = [IsAuthenticated]
@@ -1790,7 +1817,7 @@ class ClassSubjectViewSet(viewsets.ModelViewSet):
         class_id = self.request.query_params.get('class_id')
         subject_id = self.request.query_params.get('subject_id')
 
-        queryset = self.queryset.select_related('class_fk', 'subject', 'subject__course_type')
+        queryset = self.queryset.select_related('class_fk', 'subject', 'subject__course_type', 'global_subject')
 
         # Superusers can see all
         if user.is_superuser:
@@ -1799,20 +1826,22 @@ class ClassSubjectViewSet(viewsets.ModelViewSet):
             if class_id:
                 queryset = queryset.filter(class_fk_id=class_id)
             if subject_id:
-                queryset = queryset.filter(subject_id=subject_id)
+                queryset = queryset.filter(Q(subject_id=subject_id) | Q(global_subject_id=subject_id))
             return queryset
 
         # Admins can see assignments for their accessible branches
         if self.is_administrative_user(user):
             from users.models import UserBranchAccess
-            accessible_branches = UserBranchAccess.objects.filter(user=user).values_list('branch_id', flat=True)
-            queryset = queryset.filter(class_fk__branch_id__in=accessible_branches)
+            accessible_branches = list(UserBranchAccess.objects.filter(user=user).values_list('branch_id', flat=True))
+            # Only filter by branches if user has specific branch restrictions
+            if accessible_branches:
+                queryset = queryset.filter(class_fk__branch_id__in=accessible_branches)
             if branch_id:
                 queryset = queryset.filter(class_fk__branch_id=branch_id)
             if class_id:
                 queryset = queryset.filter(class_fk_id=class_id)
             if subject_id:
-                queryset = queryset.filter(subject_id=subject_id)
+                queryset = queryset.filter(Q(subject_id=subject_id) | Q(global_subject_id=subject_id))
             return queryset
 
         # Teachers can see subjects for classes they teach
@@ -1824,7 +1853,7 @@ class ClassSubjectViewSet(viewsets.ModelViewSet):
             if class_id:
                 queryset = queryset.filter(class_fk_id=class_id)
             if subject_id:
-                queryset = queryset.filter(subject_id=subject_id)
+                queryset = queryset.filter(Q(subject_id=subject_id) | Q(global_subject_id=subject_id))
             return queryset
         except:
             pass

@@ -70,11 +70,11 @@ function Classes() {
   const { hasPermission } = usePermissions();
   const isAdmin = hasPermission(PERMISSIONS.EDIT_CLASS);
 
-  const handleClassCardClick = async (classItem) => {
+  const handleClassCardClick = async (classItem, activeTab = 0) => {
     if (isAdmin) {
       // Super Admin: Go to class CRUD management, not sections
       navigate(`/classes/manage/${classItem.id || classItem.class_id}`, {
-        state: { classData: classItem }
+        state: { classData: classItem, activeTab: activeTab }
       });
       return;
     }
@@ -99,7 +99,7 @@ function Classes() {
         console.error('Non-JSON response:', text.substring(0, 200));
         toast.warning('Server returned an error. Opening class detail directly...');
         navigate(`/classes/detail/${classItem.class_id}/${classItem.section_id}/${classItem.id}`, {
-          state: { classData: classItem, subjectId: classItem.id },
+          state: { classData: classItem, subjectId: classItem.id, activeTab: activeTab },
         });
         return;
       }
@@ -112,18 +112,19 @@ function Classes() {
             classData: classItem,
             attendanceData: responseData.data,
             subjectId: classItem.id,
+            activeTab: activeTab,
           },
         });
       } else {
         toast.warning(responseData.message);
         navigate(`/classes/detail/${classItem.class_id}/${classItem.section_id}/${classItem.id}`, {
-          state: { classData: classItem, subjectId: classItem.id },
+          state: { classData: classItem, subjectId: classItem.id, activeTab: activeTab },
         });
       }
     } catch (error) {
       toast.error(error.message);
       navigate(`/classes/detail/${classItem.class_id}/${classItem.section_id}/${classItem.id}`, {
-        state: { classData: classItem, subjectId: classItem.id },
+        state: { classData: classItem, subjectId: classItem.id, activeTab: activeTab },
       });
     }
   };
@@ -232,42 +233,6 @@ function Classes() {
     } catch (error) {
       console.error('Error fetching overview:', error);
       toast.error(error.message || 'Failed to fetch overview data');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleFetchingObjectives = async (classItem) => {
-    setLoading(true);
-    const token = await GetToken();
-    const Api = `${Backend.auth}${Backend.learningObjectivesTeacherObjectives}${classItem.class_id}/${classItem.section_id}`;
-    const header = {
-      Authorization: `Bearer ${token}`,
-      accept: 'application/json',
-      'Content-Type': 'application/json',
-    };
-
-    try {
-      const response = await fetch(Api, { method: 'GET', headers: header });
-      const responseData = await response.json();
-
-      if (responseData.success) {
-        const { class: classInfo, objectives, section } = responseData.data;
-        navigate('/learning-objectives', {
-          state: {
-            classData: classInfo,
-            objectives,
-            section: section,
-            class_id: classInfo.id,
-            section_id: section.id,
-            subjectId: objectives[0]?.objective?.unit_details?.category_details?.subject_details?.id,
-          },
-        });
-      } else {
-        toast.warning(responseData.message);
-      }
-    } catch (error) {
-      toast.error(error.message);
     } finally {
       setLoading(false);
     }
@@ -432,7 +397,6 @@ function Classes() {
                       {...classItem}
                       icon={subjectIcons[classItem.name] || '📘'}
                       handleClassCardClick={handleClassCardClick}
-                      handleFetchingObjectives={handleFetchingObjectives}
                       handleEnrollAll={handleEnrollAll}
                       classItem={classItem}
                       isAdmin={isAdmin}

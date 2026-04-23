@@ -6,7 +6,7 @@ from students.serializers import StudentSerializer
 from teachers.models import Teacher
 from teachers.serializers import TeacherSerializer, TeacherAssignmentSerializer
 from users.models import User
-from users.serializers import UserSerializer
+from users.serializers import UserSerializer, BranchSerializer
 from .models import DAY_OF_WEEK_CHOICES, ClassScheduleSlot, LeaveRequest, SlotType, StudentScheduleOverride, Attendance, Exam, SubjectExamDay, Classroom 
 from academics.models import CourseType, Subject, Class, Section, Term
 from users.models import Branch
@@ -327,21 +327,22 @@ class LeaveRequestSerializer(serializers.ModelSerializer):
         return data
 
 class ExamsSerializer(serializers.ModelSerializer):
-    subject_id = serializers.PrimaryKeyRelatedField(queryset=Subject.objects.all(), source='subject', write_only=True)
+    subject_id = serializers.PrimaryKeyRelatedField(queryset=Subject.objects.all(), source='subject', write_only=True, required=False, allow_null=True)
     subject = SubjectSerializer(read_only=True)
     term_id = serializers.PrimaryKeyRelatedField(queryset=Term.objects.all(), source='term', write_only=True)
     term_details = TermsSerializer(source='term', read_only=True)
-    class_id = serializers.PrimaryKeyRelatedField(queryset=Class.objects.all(), source='class_fk', write_only=True)
+    class_id = serializers.PrimaryKeyRelatedField(queryset=Class.objects.all(), source='class_fk', write_only=True, required=False, allow_null=True)
     class_details = ClassSerializer(source='class_fk', read_only=True)
     section_id = serializers.PrimaryKeyRelatedField(queryset=Section.objects.all(), source='section', write_only=True, required=False, allow_null=True)
     section_details = SectionSerializer(source='section', read_only=True)
-    branch_id = serializers.PrimaryKeyRelatedField(queryset=Branch.objects.all(), source='branch', write_only=True)
+    branch_id = serializers.PrimaryKeyRelatedField(queryset=Branch.objects.all(), source='branch', write_only=True, required=False, allow_null=True)
+    branch = BranchSerializer(read_only=True)
 
     created_by_id = serializers.PrimaryKeyRelatedField(queryset=User.objects.all(), source='created_by', write_only=True, required=False)
 
     class Meta:
         model = Exam
-        fields = ['id', 'name', 'term_id', 'term_details', 'exam_type', 'subject_id', 'subject', 'class_id', 'class_details', 'section_id', 'section_details', 'branch_id', 'start_date', 'end_date', 'start_time', 'end_time', 'max_score', 'passing_score', 'description', 'created_by_id', 'created_at']
+        fields = ['id', 'name', 'term_id', 'term_details', 'exam_type', 'subject_id', 'subject', 'class_id', 'class_details', 'section_id', 'section_details', 'branch_id', 'branch', 'start_date', 'end_date', 'start_time', 'end_time', 'max_score', 'passing_score', 'description', 'created_by_id', 'created_at']
 
 class SubjectExamDaysSerializer(serializers.ModelSerializer):
     subject_id = serializers.PrimaryKeyRelatedField(queryset=Subject.objects.all(), source='subject', write_only=True)

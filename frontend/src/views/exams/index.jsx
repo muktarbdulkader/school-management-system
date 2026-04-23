@@ -55,15 +55,25 @@ import { toast, ToastContainer } from 'react-toastify';
 import GetToken from 'utils/auth-token';
 import Backend from 'services/backend';
 
+// Exam Types - defined outside components for shared access
+const examTypes = [
+  { value: 'unit_test', label: 'Quiz' },
+  { value: 'mid_term', label: 'Mid-term' },
+  { value: 'final', label: 'Final' },
+  { value: 'diagnostic_test', label: 'Diagnostic' },
+  { value: 'other', label: 'Other' }
+];
+
 // Exam Form Component
-const ExamForm = ({ open, onClose, exam, onSave, terms, classes, teacherProfile, user }) => {
+const ExamForm = ({ open, onClose, exam, onSave, terms, classes, branches, isSuperuser, teacherProfile, user, exams }) => {
   const [formData, setFormData] = useState({
     name: '',
-    exam_type: 'Quiz',
+    exam_type: 'unit_test',
     term_id: '',
     subject_id: '',
     class_id: '',
     section_id: '',
+    branch_id: '',
     start_date: '',
     end_date: '',
     start_time: '',
@@ -79,14 +89,12 @@ const ExamForm = ({ open, onClose, exam, onSave, terms, classes, teacherProfile,
   const [sectionsLoading, setSectionsLoading] = useState(false);
   const [subjectsLoading, setSubjectsLoading] = useState(false);
 
-  const examTypes = ['Quiz', 'Mid-term', 'Final', 'Assignment', 'Project', 'Practical', 'Oral'];
-
   useEffect(() => {
     if (exam) {
-      const classId = exam.class_fk?.id || exam.class_id || '';
+      const classId = exam.class_details?.id || exam.class_fk?.id || exam.class_id || '';
       setFormData({
         name: exam.name || '',
-        exam_type: exam.exam_type || 'Quiz',
+        exam_type: exam.exam_type || 'unit_test',
         term_id: exam.term?.id || exam.term_id || '',
         subject_id: exam.subject?.id || exam.subject_id || '',
         class_id: classId,
@@ -108,11 +116,12 @@ const ExamForm = ({ open, onClose, exam, onSave, terms, classes, teacherProfile,
     } else {
       setFormData({
         name: '',
-        exam_type: 'Quiz',
+        exam_type: 'unit_test',
         term_id: '',
         subject_id: '',
         class_id: '',
         section_id: '',
+        branch_id: '',
         start_date: '',
         end_date: '',
         start_time: '',
@@ -127,12 +136,18 @@ const ExamForm = ({ open, onClose, exam, onSave, terms, classes, teacherProfile,
     setErrors({});
   }, [exam, open]);
 
+  // Debug: log classes, isSuperuser, and branches when they change
+  useEffect(() => {
+    console.log('ExamForm - isSuperuser:', isSuperuser, 'branches:', branches.length, 'classes:', classes.length);
+  }, [classes, isSuperuser, branches]);
+
   const validate = () => {
     const newErrors = {};
     if (!formData.name.trim()) newErrors.name = 'Exam name is required';
     if (!formData.term_id) newErrors.term_id = 'Term is required';
     if (!formData.subject_id) newErrors.subject_id = 'Subject is required';
     if (!formData.class_id) newErrors.class_id = 'Class is required';
+    if (isSuperuser && !formData.branch_id) newErrors.branch_id = 'Branch is required';
     if (!formData.start_date) newErrors.start_date = 'Start date is required';
     if (!formData.end_date) newErrors.end_date = 'End date is required';
     if (formData.start_date && formData.end_date && formData.start_date > formData.end_date) {
@@ -142,12 +157,54 @@ const ExamForm = ({ open, onClose, exam, onSave, terms, classes, teacherProfile,
     if (formData.passing_score < 0 || formData.passing_score > formData.max_score) {
       newErrors.passing_score = `Passing score must be between 0 and ${formData.max_score}`;
     }
+
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
 
+  // Helper function to check for duplicate exams
+  const checkDuplicateExam = (existingExams, formData, currentExamId) => {
+    const duplicate = existingExams.find(e => {
+      // Skip current exam when editing
+      if (currentExamId && e.id === currentExamId) return false;
+
+      // Check same subject, class, section
+      const sameSubject = (e.subject?.id || e.subject_id) === formData.subject_id;
+      const sameClass = (e.class_details?.id || e.class_fk?.id || e.class_id) === formData.class_id;
+      const sameSection = (e.section?.id || e.section_id) === formData.section_id ||
+        (!e.section?.id && !e.section_id && !formData.section_id);
+
+      // Check overlapping dates
+      const sameDates = e.start_date === formData.start_date && e.end_date === formData.end_date;
+
+      // Check overlapping times (if times are set)
+      const sameTimes = (!formData.start_time && !e.start_time) ||
+        (formData.start_time === e.start_time && formData.end_time === e.end_time);
+
+      // It's a duplicate if: same subject, class, section, dates, times AND same exam_type
+      // Different exam_type is allowed (e.g., Quiz and Mid-term for same subject/time)
+      if (sameSubject && sameClass && sameSection && sameDates && sameTimes) {
+        if (e.exam_type === formData.exam_type) {
+          return true; // Duplicate: same everything including exam type
+        }
+      }
+      return false;
+    });
+
+    return duplicate;
+  };
+
   const handleSubmit = async () => {
     if (!validate()) return;
+
+    // Check for duplicate exams
+    if (exams && exams.length > 0) {
+      const duplicate = checkDuplicateExam(exams, formData, exam?.id);
+      if (duplicate) {
+        toast.error(`An exam already exists for this subject with the same dates/times and type "${examTypes.find(t => t.value === duplicate.exam_type)?.label || duplicate.exam_type}". Please use a different exam type or change the schedule.`);
+        return;
+      }
+    }
 
     setLoading(true);
     try {
@@ -159,9 +216,9 @@ const ExamForm = ({ open, onClose, exam, onSave, terms, classes, teacherProfile,
 
       const payload = {
         ...formData,
-        branch_id: teacherProfile?.branch_id,
         created_by_id: user?.id,
       };
+      console.log('Exam payload:', payload);
 
       const url = exam
         ? `${Backend.api}${Backend.exams}${exam.id}/`
@@ -176,13 +233,15 @@ const ExamForm = ({ open, onClose, exam, onSave, terms, classes, teacherProfile,
       });
 
       const data = await response.json();
+      console.log('Exam save response:', response.status, data);
 
       if (response.ok && data.success) {
         toast.success(exam ? 'Exam updated successfully!' : 'Exam created successfully!');
         onSave(data.data);
         onClose();
       } else {
-        toast.error(data.message || 'Failed to save exam');
+        console.error('Exam save error:', data);
+        toast.error(data.message || JSON.stringify(data) || 'Failed to save exam');
       }
     } catch (error) {
       console.error('Error saving exam:', error);
@@ -196,10 +255,19 @@ const ExamForm = ({ open, onClose, exam, onSave, terms, classes, teacherProfile,
     setFormData(prev => {
       const newData = { ...prev, [field]: value };
 
-      // When class changes, reset section and subject
+      // When branch changes, filter classes
+      if (field === 'branch_id') {
+        // Classes will be filtered by parent component based on branch
+      }
+
+      // When class changes, reset section and subject, and set branch_id from class
       if (field === 'class_id') {
         newData.section_id = '';
         newData.subject_id = '';
+        const selectedClass = classes.find(c => c.id === value);
+        if (selectedClass) {
+          newData.branch_id = selectedClass.branch_details?.id || selectedClass.branch;
+        }
         fetchSectionsForClass(value);
         fetchSubjectsForClass(value);
       }
@@ -221,12 +289,19 @@ const ExamForm = ({ open, onClose, exam, onSave, terms, classes, teacherProfile,
     setSectionsLoading(true);
     try {
       const token = await GetToken();
-      const response = await fetch(`${Backend.api}${Backend.sections}?class_id=${classId}`, {
+      const url = `${Backend.api}${Backend.sections}?class_id=${classId}`;
+      console.log('Fetching sections from:', url);
+      const response = await fetch(url, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await response.json();
+      console.log('Sections API response:', data);
       if (data.success) {
         setFilteredSections(data.data || []);
+        console.log('Sections loaded:', data.data?.length || 0);
+      } else {
+        console.log('Sections API returned no success:', data);
+        setFilteredSections([]);
       }
     } catch (error) {
       console.error('Error fetching sections:', error);
@@ -248,15 +323,12 @@ const ExamForm = ({ open, onClose, exam, onSave, terms, classes, teacherProfile,
       const headers = { Authorization: `Bearer ${token}` };
       let allSubjects = [];
 
-      // Fetch 1: Class-level subjects (for all users)
+      // Fetch 1: Get subjects from new /classes/{id}/subjects/ endpoint
       try {
-        const response = await fetch(`${Backend.api}${Backend.classSubjects}?class_id=${classId}`, { headers });
+        const response = await fetch(`${Backend.api}${Backend.classes}${classId}/subjects/`, { headers });
         const data = await response.json();
         if (data.success && data.data) {
-          const classSubjects = data.data
-            .map(item => item.subject_details)
-            .filter(s => s && s.id);
-          allSubjects = [...allSubjects, ...classSubjects];
+          allSubjects = [...allSubjects, ...data.data];
         }
       } catch (e) {
         console.log('Class subjects fetch failed:', e);
@@ -318,7 +390,7 @@ const ExamForm = ({ open, onClose, exam, onSave, terms, classes, teacherProfile,
                 label="Exam Type *"
               >
                 {examTypes.map(type => (
-                  <MenuItem key={type} value={type}>{type}</MenuItem>
+                  <MenuItem key={type.value} value={type.value}>{type.label}</MenuItem>
                 ))}
               </Select>
             </FormControl>
@@ -338,6 +410,23 @@ const ExamForm = ({ open, onClose, exam, onSave, terms, classes, teacherProfile,
               {errors.term_id && <Typography color="error" variant="caption">{errors.term_id}</Typography>}
             </FormControl>
           </Grid>
+          {isSuperuser && (
+            <Grid item xs={12} md={6}>
+              <FormControl fullWidth error={!!errors.branch_id}>
+                <InputLabel>Branch *</InputLabel>
+                <Select
+                  value={formData.branch_id}
+                  onChange={(e) => handleChange('branch_id', e.target.value)}
+                  label="Branch *"
+                >
+                  {branches.map(branch => (
+                    <MenuItem key={branch.id} value={branch.id}>{branch.name}</MenuItem>
+                  ))}
+                </Select>
+                {errors.branch_id && <Typography color="error" variant="caption">{errors.branch_id}</Typography>}
+              </FormControl>
+            </Grid>
+          )}
           <Grid item xs={12} md={6}>
             <FormControl fullWidth error={!!errors.class_id}>
               <InputLabel>Class *</InputLabel>
@@ -346,10 +435,19 @@ const ExamForm = ({ open, onClose, exam, onSave, terms, classes, teacherProfile,
                 onChange={(e) => handleChange('class_id', e.target.value)}
                 label="Class *"
               >
-                {classes.map(cls => (
-                  <MenuItem key={cls.id} value={cls.id}>{cls.grade || cls.name}</MenuItem>
-                ))}
+                {classes.length === 0 ? (
+                  <MenuItem value="" disabled>No classes available</MenuItem>
+                ) : (
+                  classes.map(cls => (
+                    <MenuItem key={cls.id} value={cls.id}>{cls.grade || cls.name}</MenuItem>
+                  ))
+                )}
               </Select>
+              {classes.length === 0 && (
+                <Typography color="warning.main" variant="caption">
+                  No classes available
+                </Typography>
+              )}
               {errors.class_id && <Typography color="error" variant="caption">{errors.class_id}</Typography>}
             </FormControl>
           </Grid>
@@ -460,7 +558,7 @@ const ExamForm = ({ open, onClose, exam, onSave, terms, classes, teacherProfile,
               type="time"
               label="Start Time"
               value={formData.start_time}
-              onChange={(e) => handleChange('start_time', e.target.value)}
+              onChange={(e) => handleChange('start_time', e.target.value?.substring(0, 5))}
               InputLabelProps={{ shrink: true }}
             />
           </Grid>
@@ -470,7 +568,7 @@ const ExamForm = ({ open, onClose, exam, onSave, terms, classes, teacherProfile,
               type="time"
               label="End Time"
               value={formData.end_time}
-              onChange={(e) => handleChange('end_time', e.target.value)}
+              onChange={(e) => handleChange('end_time', e.target.value?.substring(0, 5))}
               InputLabelProps={{ shrink: true }}
             />
           </Grid>
@@ -552,8 +650,8 @@ const ViewExamDialog = ({ open, onClose, exam }) => {
             <Grid item xs={6}>
               <Typography variant="body2" color="text.secondary">Class</Typography>
               <Typography variant="body1">
-                {exam.class_fk?.grade || exam.class_fk?.name || 'N/A'}
-                {exam.section?.name && ` - ${exam.section.name}`}
+                {exam.class_details?.grade || exam.class_details?.name || exam.class_fk?.grade || exam.class_fk?.name || 'N/A'}
+                {exam.section_details?.name && ` - ${exam.section_details.name}`}
               </Typography>
             </Grid>
             <Grid item xs={6}>
@@ -643,11 +741,14 @@ export default function ExamManagement() {
     class: '',
     subject: '',
     examType: '',
+    branch: '',
   });
 
   // Reference data
   const [terms, setTerms] = useState([]);
   const [classes, setClasses] = useState([]);
+  const [allClasses, setAllClasses] = useState([]); // Store all classes for filtering
+  const [branches, setBranches] = useState([]);
   const [sections, setSections] = useState([]);
   const [subjects, setSubjects] = useState([]);
   const [teacherProfile, setTeacherProfile] = useState(null);
@@ -661,7 +762,9 @@ export default function ExamManagement() {
   const [deleteLoading, setDeleteLoading] = useState(false);
 
   // Role checks
-  const isSuperuser = user?.is_superuser;
+  const isSuperuser = user?.is_superuser || user?.roles?.some(r =>
+    ['super_admin', 'superadmin'].includes(typeof r === 'string' ? r.toLowerCase() : r.name?.toLowerCase())
+  );
   const isAdmin = user?.roles?.some(r =>
     ['admin', 'super_admin', 'superadmin', 'staff', 'head_admin', 'ceo'].includes(
       typeof r === 'string' ? r.toLowerCase() : r.name?.toLowerCase()
@@ -670,6 +773,10 @@ export default function ExamManagement() {
   const isTeacher = user?.teacher_profiles?.length > 0 || user?.teacher_profile ||
     user?.roles?.some(r => (typeof r === 'string' ? r : r.name)?.toLowerCase() === 'teacher');
 
+  // Debug logging
+  console.log('User role checks:', { isSuperuser, isAdmin, isTeacher, userRoles: user?.roles });
+
+  // Teachers can create exams (backend will validate their assignments)
   const canCreateExam = isSuperuser || isAdmin || isTeacher;
   const canEditExam = isSuperuser || isAdmin || isTeacher;
   const canDeleteExam = isSuperuser || isAdmin || isTeacher;
@@ -681,6 +788,20 @@ export default function ExamManagement() {
   useEffect(() => {
     filterExams();
   }, [exams, searchTerm, filters]);
+
+  // Filter classes by selected branch (for superadmin)
+  useEffect(() => {
+    if (allClasses.length > 0) {
+      if (filters.branch) {
+        const filteredClasses = allClasses.filter(c =>
+          c.branch_details?.id === filters.branch || c.branch === filters.branch
+        );
+        setClasses(filteredClasses);
+      } else {
+        setClasses(allClasses);
+      }
+    }
+  }, [filters.branch, allClasses]);
 
   const fetchInitialData = async () => {
     try {
@@ -694,7 +815,7 @@ export default function ExamManagement() {
       const userIsTeacher = user?.teacher_profiles?.length > 0 || user?.teacher_profile ||
         user?.roles?.some(r => (typeof r === 'string' ? r : r.name)?.toLowerCase() === 'teacher');
 
-      // Fetch teacher profile
+      // Fetch teacher profile (always try, user might be both admin and teacher)
       let teacherDataResult = null;
       try {
         const teacherRes = await fetch(`${Backend.api}${Backend.teacherMe}`, { headers });
@@ -702,21 +823,27 @@ export default function ExamManagement() {
         if (teacherData.success) {
           setTeacherProfile(teacherData.data);
           teacherDataResult = teacherData.data;
+          console.log('Teacher profile found:', teacherData.data);
         }
       } catch (e) {
         console.log('Not a teacher or no teacher profile');
       }
 
-      // Fetch teacher assignments (for teachers)
+      // Fetch teacher assignments (if user has teacher profile or is teacher)
       let teacherAssignmentsData = [];
-      if (userIsTeacher || teacherDataResult) {
+      if (teacherDataResult || userIsTeacher) {
         try {
           const assignmentsRes = await fetch(`${Backend.auth}${Backend.teachersOverviewDashboard}`, { headers });
           const assignmentsData = await assignmentsRes.json();
+          console.log('=== Teacher Assignments API Response ===');
+          console.log('Success:', assignmentsData.success);
+          console.log('Data keys:', assignmentsData.data ? Object.keys(assignmentsData.data) : 'No data');
+          console.log('Full data:', assignmentsData.data);
           if (assignmentsData.success) {
             teacherAssignmentsData = assignmentsData.data?.subjects || [];
             setTeacherAssignments(teacherAssignmentsData);
             console.log('Teacher assignments loaded:', teacherAssignmentsData.length);
+            console.log('Sample assignment:', teacherAssignmentsData[0]);
           }
         } catch (e) {
           console.error('Failed to fetch teacher assignments:', e);
@@ -724,44 +851,45 @@ export default function ExamManagement() {
       }
 
       // Fetch reference data
-      const [termsRes, classesRes, subjectsRes] = await Promise.all([
+      const fetchPromises = [
         fetch(`${Backend.api}${Backend.terms}`, { headers }),
         fetch(`${Backend.api}${Backend.classes}`, { headers }),
         fetch(`${Backend.api}${Backend.subjects}`, { headers }),
-      ]);
+      ];
 
-      const [termsData, classesData, subjectsData] = await Promise.all([
-        termsRes.json(),
-        classesRes.json(),
-        subjectsRes.json(),
-      ]);
+      // Fetch branches for superadmin
+      if (isSuperuser) {
+        fetchPromises.push(fetch(`${Backend.api}${Backend.branches}`, { headers }));
+      }
+
+      const responses = await Promise.all(fetchPromises);
+
+      const parsedData = await Promise.all(responses.map(r => r.json()));
+      const [termsData, classesData, subjectsData] = parsedData;
+      const branchesData = isSuperuser ? parsedData[3] : null;
 
       if (termsData.success) setTerms(termsData.data || []);
 
-      // For teachers, filter classes to only show those they're assigned to
+      // Store all classes and filter for teachers
       if (classesData.success) {
-        const allClasses = classesData.data || [];
-        const isUserTeacher = userIsTeacher || teacherDataResult;
-        if (isUserTeacher && teacherAssignmentsData.length > 0) {
-          // Get unique class IDs from teacher assignments
-          const assignedClassIds = [...new Set(
-            teacherAssignmentsData
-              .map(a => a.class_id || a.class_fk?.id)
-              .filter(id => id)
-          )];
-          // Filter classes to only assigned ones
-          const teacherClasses = allClasses.filter(c => assignedClassIds.includes(c.id));
-          console.log('Filtered classes for teacher:', teacherClasses.length, 'of', allClasses.length);
-          setClasses(teacherClasses);
-        } else if (isUserTeacher && teacherAssignmentsData.length === 0) {
-          console.log('Teacher has no class assignments');
-          setClasses([]); // Teacher with no assignments sees no classes
-        } else {
-          setClasses(allClasses);
-        }
+        const allClassesData = classesData.data || [];
+        console.log('Classes loaded:', allClassesData.length, allClassesData);
+        setAllClasses(allClassesData);
+
+        // For teachers, show all classes (backend will validate on create)
+        // For admins/superusers, show all classes
+        setClasses(allClassesData);
       }
 
       if (subjectsData.success) setSubjects(subjectsData.data || []);
+
+      // Store branches for superadmin
+      if (isSuperuser && branchesData?.success) {
+        console.log('Branches loaded:', branchesData.data?.length || 0);
+        setBranches(branchesData.data || []);
+      } else if (isSuperuser) {
+        console.log('Branches fetch failed or no data:', branchesData);
+      }
 
       // Fetch exams
       await fetchExams(headers);
@@ -803,7 +931,7 @@ export default function ExamManagement() {
       filtered = filtered.filter(exam =>
         exam.name?.toLowerCase().includes(term) ||
         exam.subject?.name?.toLowerCase().includes(term) ||
-        exam.class_fk?.grade?.toLowerCase().includes(term) ||
+        (exam.class_details?.grade || exam.class_fk?.grade || '').toLowerCase().includes(term) ||
         exam.exam_type?.toLowerCase().includes(term)
       );
     }
@@ -841,7 +969,7 @@ export default function ExamManagement() {
 
   const handleEditExam = (exam) => {
     setSelectedExam(exam);
-    fetchSections(exam.class_fk?.id || exam.class_id);
+    fetchSections(exam.class_details?.id || exam.class_fk?.id || exam.class_id);
     setFormOpen(true);
   };
 
@@ -899,20 +1027,18 @@ export default function ExamManagement() {
   };
 
   const clearFilters = () => {
-    setFilters({ term: '', class: '', subject: '', examType: '' });
+    setFilters({ term: '', class: '', subject: '', examType: '', branch: '' });
     setSearchTerm('');
     setSections([]);
   };
 
   const getExamTypeColor = (type) => {
     const colors = {
-      'Quiz': 'default',
-      'Mid-term': 'info',
-      'Final': 'success',
-      'Assignment': 'warning',
-      'Project': 'secondary',
-      'Practical': 'primary',
-      'Oral': 'default',
+      'unit_test': 'default',
+      'mid_term': 'info',
+      'final': 'success',
+      'diagnostic_test': 'warning',
+      'other': 'default',
     };
     return colors[type] || 'default';
   };
@@ -1063,6 +1189,23 @@ export default function ExamManagement() {
                   </Select>
                 </FormControl>
               </Grid>
+              {isSuperuser && (
+                <Grid item xs={12} sm={6} md={2}>
+                  <FormControl fullWidth size="small">
+                    <InputLabel>Branch</InputLabel>
+                    <Select
+                      value={filters.branch}
+                      onChange={(e) => handleFilterChange('branch', e.target.value)}
+                      label="Branch"
+                    >
+                      <MenuItem value="">All Branches</MenuItem>
+                      {branches.map(branch => (
+                        <MenuItem key={branch.id} value={branch.id}>{branch.name}</MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                </Grid>
+              )}
               <Grid item xs={12} sm={6} md={2}>
                 <FormControl fullWidth size="small">
                   <InputLabel>Class</InputLabel>
@@ -1102,8 +1245,8 @@ export default function ExamManagement() {
                     label="Exam Type"
                   >
                     <MenuItem value="">All Types</MenuItem>
-                    {['Quiz', 'Mid-term', 'Final', 'Assignment', 'Project', 'Practical', 'Oral'].map(type => (
-                      <MenuItem key={type} value={type}>{type}</MenuItem>
+                    {examTypes.map(type => (
+                      <MenuItem key={type.value} value={type.value}>{type.label}</MenuItem>
                     ))}
                   </Select>
                 </FormControl>
@@ -1121,6 +1264,7 @@ export default function ExamManagement() {
               <TableRow sx={{ bgcolor: 'grey.50' }}>
                 <TableCell><Typography fontWeight="bold">Exam Name</Typography></TableCell>
                 <TableCell><Typography fontWeight="bold">Type</Typography></TableCell>
+                {isSuperuser && <TableCell><Typography fontWeight="bold">Branch</Typography></TableCell>}
                 <TableCell><Typography fontWeight="bold">Subject</Typography></TableCell>
                 <TableCell><Typography fontWeight="bold">Class</Typography></TableCell>
                 <TableCell><Typography fontWeight="bold">Date</Typography></TableCell>
@@ -1131,7 +1275,7 @@ export default function ExamManagement() {
             <TableBody>
               {filteredExams.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7} align="center" sx={{ py: 8 }}>
+                  <TableCell colSpan={isSuperuser ? 8 : 7} align="center" sx={{ py: 8 }}>
                     <AssignmentIcon sx={{ fontSize: 48, color: 'text.secondary', mb: 2 }} />
                     <Typography variant="h6" color="text.secondary">
                       No exams found
@@ -1154,96 +1298,105 @@ export default function ExamManagement() {
                   </TableCell>
                 </TableRow>
               ) : (
-                filteredExams.map((exam, index) => (
-                  <Fade in={true} key={exam.id} style={{ transitionDelay: `${index * 50}ms` }}>
-                    <TableRow hover>
-                      <TableCell>
-                        <Box>
-                          <Typography fontWeight="medium">{exam.name}</Typography>
-                          {exam.description && (
-                            <Typography variant="caption" color="text.secondary" noWrap sx={{ maxWidth: 200, display: 'block' }}>
-                              {exam.description}
-                            </Typography>
-                          )}
-                        </Box>
-                      </TableCell>
-                      <TableCell>
-                        <Chip
-                          label={exam.exam_type}
-                          size="small"
-                          color={getExamTypeColor(exam.exam_type)}
-                        />
-                      </TableCell>
-                      <TableCell>{exam.subject?.name || 'N/A'}</TableCell>
-                      <TableCell>
-                        {exam.class_fk?.grade || exam.class_fk?.name || 'N/A'}
-                        {exam.section?.name && ` - ${exam.section.name}`}
-                      </TableCell>
-                      <TableCell>
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                          <CalendarIcon fontSize="small" color="action" />
-                          <Typography variant="body2">
-                            {exam.start_date}
-                            {exam.end_date !== exam.start_date && ` to ${exam.end_date}`}
-                          </Typography>
-                        </Box>
-                        {(exam.start_time || exam.end_time) && (
+                filteredExams.map((exam, index) => {
+                  // Debug logging for first exam
+                  if (index === 0) {
+                    console.log('First exam data:', exam);
+                    console.log('class_details:', exam.class_details);
+                    console.log('class_fk:', exam.class_fk);
+                  }
+                  return (
+                    <Fade in={true} key={exam.id} style={{ transitionDelay: `${index * 50}ms` }}>
+                      <TableRow hover>
+                        <TableCell>
+                          <Box>
+                            <Typography fontWeight="medium">{exam.name}</Typography>
+                            {exam.description && (
+                              <Typography variant="caption" color="text.secondary" noWrap sx={{ maxWidth: 200, display: 'block' }}>
+                                {exam.description}
+                              </Typography>
+                            )}
+                          </Box>
+                        </TableCell>
+                        <TableCell>
+                          <Chip
+                            label={examTypes.find(t => t.value === exam.exam_type)?.label || exam.exam_type}
+                            size="small"
+                            color={getExamTypeColor(exam.exam_type)}
+                          />
+                        </TableCell>
+                        {isSuperuser && <TableCell>{exam.branch?.name || 'N/A'}</TableCell>}
+                        <TableCell>{exam.subject?.name || 'N/A'}</TableCell>
+                        <TableCell>
+                          {exam.class_details?.grade || exam.class_details?.name || exam.class_fk?.grade || exam.class_fk?.name || 'N/A'}
+                          {exam.section_details?.name && ` - ${exam.section_details.name}`}
+                        </TableCell>
+                        <TableCell>
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                            <TimeIcon fontSize="small" color="action" />
-                            <Typography variant="caption" color="text.secondary">
-                              {exam.start_time || '--:--'} - {exam.end_time || '--:--'}
+                            <CalendarIcon fontSize="small" color="action" />
+                            <Typography variant="body2">
+                              {exam.start_date}
+                              {exam.end_date !== exam.start_date && ` to ${exam.end_date}`}
                             </Typography>
                           </Box>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <Typography variant="body2">
-                          Max: {exam.max_score}
-                        </Typography>
-                        <Typography variant="caption" color="text.secondary">
-                          Pass: {exam.passing_score}
-                        </Typography>
-                      </TableCell>
-                      <TableCell align="right">
-                        <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 0.5 }}>
-                          <Tooltip title="View Details">
-                            <IconButton
-                              size="small"
-                              onClick={() => handleViewExam(exam)}
-                              color="info"
-                            >
-                              <ViewIcon />
-                            </IconButton>
-                          </Tooltip>
-
-                          {canEditExam && (
-                            <Tooltip title="Edit">
+                          {(exam.start_time || exam.end_time) && (
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                              <TimeIcon fontSize="small" color="action" />
+                              <Typography variant="caption" color="text.secondary">
+                                {exam.start_time || '--:--'} - {exam.end_time || '--:--'}
+                              </Typography>
+                            </Box>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <Typography variant="body2">
+                            Max: {exam.max_score}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            Pass: {exam.passing_score}
+                          </Typography>
+                        </TableCell>
+                        <TableCell align="right">
+                          <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 0.5 }}>
+                            <Tooltip title="View Details">
                               <IconButton
                                 size="small"
-                                onClick={() => handleEditExam(exam)}
-                                color="primary"
+                                onClick={() => handleViewExam(exam)}
+                                color="info"
                               >
-                                <EditIcon />
+                                <ViewIcon />
                               </IconButton>
                             </Tooltip>
-                          )}
 
-                          {canDeleteExam && (
-                            <Tooltip title="Delete">
-                              <IconButton
-                                size="small"
-                                onClick={() => handleDeleteClick(exam)}
-                                color="error"
-                              >
-                                <DeleteIcon />
-                              </IconButton>
-                            </Tooltip>
-                          )}
-                        </Box>
-                      </TableCell>
-                    </TableRow>
-                  </Fade>
-                ))
+                            {canEditExam && (
+                              <Tooltip title="Edit">
+                                <IconButton
+                                  size="small"
+                                  onClick={() => handleEditExam(exam)}
+                                  color="primary"
+                                >
+                                  <EditIcon />
+                                </IconButton>
+                              </Tooltip>
+                            )}
+
+                            {canDeleteExam && (
+                              <Tooltip title="Delete">
+                                <IconButton
+                                  size="small"
+                                  onClick={() => handleDeleteClick(exam)}
+                                  color="error"
+                                >
+                                  <DeleteIcon />
+                                </IconButton>
+                              </Tooltip>
+                            )}
+                          </Box>
+                        </TableCell>
+                      </TableRow>
+                    </Fade>
+                  );
+                })
               )}
             </TableBody>
           </Table>
@@ -1252,14 +1405,18 @@ export default function ExamManagement() {
 
       {/* Dialogs */}
       <ExamForm
+        key={`exam-form-${classes.length}-${formOpen}`}
         open={formOpen}
         onClose={() => setFormOpen(false)}
         exam={selectedExam}
         onSave={handleSaveExam}
         terms={terms}
         classes={classes}
+        branches={branches}
+        isSuperuser={isSuperuser}
         teacherProfile={teacherProfile}
         user={user}
+        exams={exams}
       />
 
       <ViewExamDialog

@@ -16,6 +16,7 @@ from .serializers import (
     TeacherPerformanceEvaluationSerializer, TeacherPerformanceEvaluationCreateSerializer
 )
 from django.utils import timezone
+from datetime import timedelta
 from users.models import User, UserBranchAccess, has_model_permission
 from rest_framework.decorators import action
 
@@ -316,6 +317,13 @@ class TeacherViewSet(viewsets.ModelViewSet):
             subjects_data = []
             total_students = 0
 
+            # Import models for attendance calculation
+            from students.models import Student
+            from schedule.models import Attendance
+            from django.db.models import Avg, Count, Q
+
+            today = timezone.now().date()
+
             for ts in teacher_subjects:
                 # Count students in this class/section taking this subject
                 student_filter = {
@@ -323,7 +331,6 @@ class TeacherViewSet(viewsets.ModelViewSet):
                 }
 
                 # Add student model filters
-                from students.models import Student
                 students_in_class = Student.objects.filter(
                     grade=ts.class_fk
                 )
@@ -339,8 +346,46 @@ class TeacherViewSet(viewsets.ModelViewSet):
 
                 total_students += student_count
 
+                # Calculate attendance rate for this class/section/subject
+                # Get attendance records for the last 7 days
+                from datetime import timedelta
+                week_ago = today - timedelta(days=7)
+
+                attendance_records = Attendance.objects.filter(
+                    student__in=students_in_class,
+                    date__gte=week_ago,
+                    date__lte=today,
+                    schedule_slot__subject=ts.subject
+                )
+
+                # Calculate average attendance rate
+                total_attendance_records = attendance_records.count()
+                present_count = attendance_records.filter(status='present').count()
+                late_count = attendance_records.filter(status='late').count()
+
+                if total_attendance_records > 0:
+                    # Count late as 0.5 present
+                    attendance_rate = round(((present_count + (late_count * 0.5)) / total_attendance_records) * 100, 1)
+                else:
+                    attendance_rate = 0
+
+                # Get last activity date (most recent attendance marked)
+                last_activity_record = attendance_records.order_by('-date').first()
+                last_activity = str(last_activity_record.date) if last_activity_record else None
+
+                # Determine attendance color based on rate
+                if attendance_rate >= 80:
+                    attendance_color = '#22c55e'  # green
+                elif attendance_rate >= 60:
+                    attendance_color = '#3b82f6'  # blue
+                elif attendance_rate >= 40:
+                    attendance_color = '#f59e0b'  # yellow
+                else:
+                    attendance_color = '#ef4444'  # red
+
                 subject_info = {
                     'id': str(ts.subject.id),
+                    'assignment_id': str(ts.id),  # TeacherAssignment ID for grade entry
                     'name': ts.subject.name,
                     'code': ts.subject.code if hasattr(ts.subject, 'code') else '',
                     'class_id': str(ts.class_fk.id),
@@ -349,13 +394,15 @@ class TeacherViewSet(viewsets.ModelViewSet):
                     'class_section': f"{ts.class_fk.grade} - {ts.section.name if ts.section else 'All'}",
                     'section_id': str(ts.section.id) if ts.section else None,
                     'section_name': ts.section.name if ts.section else None,
-                    'student_count': student_count
+                    'student_count': student_count,
+                    'attendance_rate': attendance_rate,
+                    'last_activity': last_activity,
+                    'attendance_color': attendance_color
                 }
                 subjects_data.append(subject_info)
-                print(f"[TeacherDashboard] Subject: {subject_info['name']} - Class: {subject_info['class_name']} - Section: {subject_info['section_name']} - Students: {student_count}")
+                print(f"[TeacherDashboard] Subject: {subject_info['name']} - Class: {subject_info['class_name']} - Section: {subject_info['section_name']} - Students: {student_count} - Attendance: {attendance_rate}%")
 
             # Count pending assignments
-            today = timezone.now().date()
             assignments_due = Assignments.objects.filter(
                 subject_id__in=[ts.subject for ts in teacher_subjects if ts.subject],
                 due_date__gte=today
@@ -567,44 +614,113 @@ class TeacherViewSet(viewsets.ModelViewSet):
 
         total_students = students.count()
 
-        # Get today's attendance
+        # Get attendance for the last 7 days for accurate rate calculation
         today = timezone.now().date()
+        week_ago = today - timedelta(days=7)
         attendance_records = Attendance.objects.filter(
+            student_id__in=students,
+            date__gte=week_ago,
+            date__lte=today
+        )
+
+        # Get today's attendance records for "Present Today" and "Absent Today" cards
+        today_attendance_records = Attendance.objects.filter(
             student_id__in=students,
             date=today
         )
 
-        # Calculate attendance stats
-        present_count = attendance_records.filter(status='present').count()
-        late_count = attendance_records.filter(status='late').count()
-        absent_count = attendance_records.filter(status='absent').count()
-        attendance_rate = (present_count / total_students * 100) if total_students > 0 else 0
+        # Calculate today's attendance stats
+        today_present_count = today_attendance_records.filter(status='Present').count()
+        today_late_count = today_attendance_records.filter(status='Late').count()
+        today_absent_count = today_attendance_records.filter(status='Absent').count()
+        today_permission_count = today_attendance_records.filter(status='Excused').count()
+        today_no_permission_count = today_attendance_records.filter(status='no permission').count()
+        today_not_marked_count = total_students - (today_present_count + today_late_count + today_absent_count + today_permission_count + today_no_permission_count)
 
-        # Build student list with attendance
+        # Calculate attendance stats based on last 7 days for the rate
+        total_records = attendance_records.count()
+        present_count = attendance_records.filter(status='Present').count()
+        late_count = attendance_records.filter(status='Late').count()
+        absent_count = attendance_records.filter(status='Absent').count()
+        # Count late as 0.5 present for rate calculation
+        if total_records > 0:
+            attendance_rate = round(((present_count + (late_count * 0.5)) / total_records) * 100, 1)
+        else:
+            attendance_rate = 0
+
+        # Build student list with attendance and individual attendance percentage
         students_list = []
         for student in students:
-            attendance = attendance_records.filter(student_id=student).first()
+            # Get today's attendance status
+            today_attendance = today_attendance_records.filter(student_id=student).first()
+            attendance_status = today_attendance.status.lower() if today_attendance else 'not_marked'
+
+            # Calculate student's attendance percentage for last 7 days
+            student_records = Attendance.objects.filter(
+                student_id=student,
+                date__gte=week_ago,
+                date__lte=today
+            )
+            student_total = student_records.count()
+            if student_total > 0:
+                student_present = student_records.filter(status='Present').count()
+                student_late = student_records.filter(status='Late').count()
+                attendance_percentage = round(((student_present + (student_late * 0.5)) / student_total) * 100, 1)
+            else:
+                attendance_percentage = 0
+            
             students_list.append({
                 'id': str(student.id),
                 'student_id': student.student_id,
                 'name': student.user.full_name,
                 'email': student.user.email,
-                'attendance_status': attendance.status if attendance else 'not_marked',
-                'attendance_date': str(attendance.date) if attendance else None
+                'attendance_status': attendance_status,
+                'attendance_date': str(today_attendance.date) if today_attendance else None,
+                'attendance_percentage': attendance_percentage
             })
 
         # Get assignments for this subject
         assignments = Assignments.objects.filter(
             subject=subject_obj
-        ).order_by('-due_date')[:5]
+        ).order_by('-due_date')
+
+        print(f"[ClassDashboard] Subject ID: {subject_obj.id}, Assignments found: {assignments.count()}")
+        for a in assignments[:10]:
+            print(f"  - Assignment: {a.title}, Subject: {a.subject_id}, Due: {a.due_date}")
 
         assignments_data = []
-        for assignment in assignments:
+        for assignment in assignments[:20]:
+            # Count student submissions - check if submission_url exists
+            from lessontopics.models import StudentAssignments
+            student_assignments = StudentAssignments.objects.filter(assignment=assignment)
+            total_students = assignment.students.count()  # Use the students ManyToMany count
+            submitted_count = student_assignments.exclude(submission_url__isnull=True).exclude(submission_url='').count()
+
+            # Get student details for this assignment
+            student_list = []
+            for student in assignment.students.all():
+                student_list.append({
+                    'id': str(student.id),
+                    'name': student.user.full_name if student.user else 'Unknown',
+                    'email': student.user.email if student.user else ''
+                })
+
             assignments_data.append({
                 'id': str(assignment.id),
                 'title': assignment.title,
+                'description': assignment.description or '',
                 'due_date': str(assignment.due_date),
-                'status': 'active' if assignment.due_date >= today else 'past_due'
+                'assigned_date': str(assignment.assigned_date) if assignment.assigned_date else str(assignment.created_at.date()),
+                'status': 'active' if assignment.due_date >= today else 'past_due',
+                'type': 'Assignment',
+                'is_group_assignment': assignment.is_group_assignment or False,
+                'max_points': assignment.max_score or 100,
+                'file_url': assignment.file_url or None,
+                'students': student_list,
+                'student_count': len(student_list),
+                'submitted': f"{submitted_count}/{total_students}",
+                'submission_count': submitted_count,
+                'total_students': total_students
             })
 
         # Summary cards data
@@ -623,13 +739,13 @@ class TeacherViewSet(viewsets.ModelViewSet):
             },
             {
                 'title': 'Present Today',
-                'value': str(present_count),
+                'value': str(today_present_count),
                 'change': None,
                 'change_positive': None
             },
             {
                 'title': 'Absent Today',
-                'value': str(absent_count),
+                'value': str(today_absent_count),
                 'change': None,
                 'change_positive': None
             }
@@ -652,9 +768,11 @@ class TeacherViewSet(viewsets.ModelViewSet):
                     'list': students_list,
                     'stats': {
                         'total': total_students,
-                        'present': present_count,
-                        'late': late_count,
-                        'absent': absent_count,
+                        'present': today_present_count,
+                        'late': today_late_count,
+                        'absent': today_absent_count,
+                        'with_permission': today_permission_count,
+                        'not_marked': today_not_marked_count,
                         'attendance_rate': attendance_rate
                     }
                 },

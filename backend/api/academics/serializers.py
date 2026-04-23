@@ -361,13 +361,15 @@ class SubjectsSerializer(serializers.ModelSerializer):
 class ClassSubjectSerializer(serializers.ModelSerializer):
     """Serializer for ClassSubject model (grade-subject relationship)"""
     class_fk = serializers.PrimaryKeyRelatedField(queryset=Class.objects.all(), write_only=True)
-    subject = serializers.PrimaryKeyRelatedField(queryset=Subject.objects.all(), write_only=True)
+    subject = serializers.PrimaryKeyRelatedField(queryset=Subject.objects.all(), write_only=True, required=False, allow_null=True)
+    global_subject = serializers.PrimaryKeyRelatedField(queryset=GlobalSubject.objects.all(), write_only=True, required=False, allow_null=True)
     class_details = ClassesSerializer(source='class_fk', read_only=True)
     subject_details = SubjectsSerializer(source='subject', read_only=True)
+    global_subject_details = GlobalSubjectSerializer(source='global_subject', read_only=True)
 
     class Meta:
         model = ClassSubject
-        fields = ['id', 'class_fk', 'class_details', 'subject', 'subject_details', 'created_at']
+        fields = ['id', 'class_fk', 'class_details', 'subject', 'subject_details', 'global_subject', 'global_subject_details', 'subject_code', 'book_code', 'syllabus', 'is_active', 'created_at']
 
 class ClassElectiveOfferingsSerializer(serializers.ModelSerializer):
     class_fk = serializers.PrimaryKeyRelatedField(queryset=Class.objects.all(), write_only=True)

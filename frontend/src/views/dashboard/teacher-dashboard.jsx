@@ -226,22 +226,21 @@ export default function TeacherDashboardPage() {
     };
 
     try {
-      console.log('Fetching learner groups from:', Api);
+      console.log('=== Teacher Dashboard: Fetching learner groups ===');
+      console.log('User:', user);
+      console.log('Fetching from:', Api);
       const response = await fetch(Api, { method: 'GET', headers: header });
       const responseData = await response.json();
-      console.log('=== FULL RESPONSE ===');
       console.log('Response success:', responseData.success);
       console.log('Response data:', responseData.data);
-      console.log('Response keys:', Object.keys(responseData));
-      if (responseData.data) {
-        console.log('Data keys:', Object.keys(responseData.data));
-      }
+      console.log('Response message:', responseData.message);
 
       if (responseData.success && responseData.data) {
         // The overview_dashboard endpoint returns 'subjects' not 'classes'
         // Each subject has class_id, class_name, etc. - extract unique classes from subjects
         const subjectsData = responseData.data.subjects || [];
-        console.log('Subjects data:', subjectsData.length, subjectsData);
+        console.log('Subjects data count:', subjectsData.length);
+        console.log('Subjects data sample:', subjectsData.slice(0, 3));
 
         // Extract unique classes from subjects (each subject has class info)
         const uniqueClasses = [...new Map(subjectsData
@@ -1056,6 +1055,21 @@ export default function TeacherDashboardPage() {
             gradientFrom="#f59e0b"
             gradientTo="#d97706"
             onClick={() => navigate('/announcements')}
+          />
+        </Grid>
+
+        <Grid item xs={12} sm={6} lg={6} xl={3}>
+          <DashboardCard
+            icon={<Package size={24} />}
+            title="Exams"
+            description="Create and manage exams, assessments, and test schedules"
+            buttonText="Create Exam"
+            buttonHref="#"
+            statusText="Manage assessments"
+            statusColor="#8b5cf6"
+            gradientFrom="#ec4899"
+            gradientTo="#8b5cf6"
+            onClick={() => navigate('/exams')}
           />
         </Grid>
 

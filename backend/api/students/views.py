@@ -2185,7 +2185,7 @@ class StudentHealthRecordsViewSet(viewsets.ModelViewSet):
             }, status=400)
 
         # Check if a record exists for this student and date
-        existing_record = StudentHealthRecords.objects.filter(student=student, date=date).first()
+        existing_record = StudentHealthRecords.objects.filter(student_id=student_id, date=date).first()
         if existing_record:
             serializer = self.get_serializer(existing_record, data=request.data, partial=True)
         else:
@@ -2206,7 +2206,7 @@ class StudentHealthRecordsViewSet(viewsets.ModelViewSet):
             raise PermissionDenied("No permission to create health records.")
 
         # Fetch existing history if it exists
-        existing_history = StudentHealthRecords.objects.filter(student=student).values_list('history', flat=True).first() or ""
+        existing_history = StudentHealthRecords.objects.filter(student_id=student_id).values_list('history', flat=True).first() or ""
         incident = serializer.validated_data.get('incident', '')
         if incident:
             # Append new incident to history if itâ€™s a new entry or update

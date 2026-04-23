@@ -27,13 +27,17 @@ const ClassCard = ({
   class_section,
   schedule,
   student_count,
+  studentCount,
   last_activity,
+  lastActivity,
   attendance_rate,
+  attendanceRate,
   attendanceColor,
+  attendance_color,
   status,
   hasNewAssignment,
-  handleFetchingObjectives,
   handleEnrollAll,
+  handleClassCardClick,
   classItem,
   icon,
   isAdmin,
@@ -42,6 +46,16 @@ const ClassCard = ({
   const [isEnrolling, setIsEnrolling] = useState(false);
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const isTablet = useMediaQuery(theme.breakpoints.between('sm', 'md'));
+
+  // Handle both snake_case (from API) and camelCase (from props)
+  const actualAttendanceRate = attendance_rate ?? attendanceRate ?? 0;
+  const actualAttendanceColor = attendance_color ?? attendanceColor ?? '#9e9e9e';
+  const actualLastActivity = last_activity ?? lastActivity ?? null;
+  const actualStudentCount = student_count ?? studentCount ?? 0;
+
+  // Debug logging
+  console.log('[ClassCard] Props received:', { name, attendance_rate, attendanceRate, attendance_color, attendanceColor, last_activity, lastActivity, student_count, studentCount });
+  console.log('[ClassCard] Actual values:', { actualAttendanceRate, actualAttendanceColor, actualLastActivity, actualStudentCount });
 
   return (
     <Card
@@ -139,7 +153,7 @@ const ClassCard = ({
               sx={{ fontSize: { xs: 14, sm: 16 }, color: 'text.secondary' }}
             />
             <Typography variant="body2" color="text.secondary">
-              {student_count} Students
+              {actualStudentCount} Students
             </Typography>
           </Box>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
@@ -147,7 +161,7 @@ const ClassCard = ({
               sx={{ fontSize: { xs: 14, sm: 16 }, color: 'text.secondary' }}
             />
             <Typography variant="body2" color="text.secondary">
-              Last: {last_activity || 'NAN'}
+              Last: {actualLastActivity ? new Date(actualLastActivity).toLocaleDateString() : 'No activity'}
             </Typography>
           </Box>
         </Box>
@@ -159,18 +173,18 @@ const ClassCard = ({
               Attendance Rate
             </Typography>
             <Typography variant="body2" sx={{ fontWeight: 600 }}>
-              {attendance_rate}%
+              {actualAttendanceRate !== null && actualAttendanceRate !== undefined ? `${Math.round(actualAttendanceRate)}%` : '0%'}
             </Typography>
           </Box>
           <LinearProgress
             variant="determinate"
-            value={typeof attendance_rate === 'number' && !isNaN(attendance_rate) ? attendance_rate : 0}
+            value={typeof actualAttendanceRate === 'number' && !isNaN(actualAttendanceRate) ? Math.round(actualAttendanceRate) : 0}
             sx={{
               height: 6,
               borderRadius: 3,
               bgcolor: '#f5f5f5',
               '& .MuiLinearProgress-bar': {
-                bgcolor: attendanceColor,
+                bgcolor: actualAttendanceColor || '#9e9e9e',
                 borderRadius: 3,
               },
             }}
@@ -205,7 +219,7 @@ const ClassCard = ({
             variant="outlined"
             startIcon={!isMobile && <PeopleIcon />}
             onClick={() => {
-              handleClassCardClick(classItem);
+              handleClassCardClick(classItem, 2); // 2 = Attendance tab
             }}
             size="small"
             sx={{
@@ -221,7 +235,7 @@ const ClassCard = ({
             variant="outlined"
             startIcon={!isMobile && <AssignmentIcon />}
             onClick={() => {
-              handleClassCardClick(classItem);
+              handleClassCardClick(classItem, 3); // 3 = Assignments tab
             }}
             size="small"
             sx={{
@@ -236,7 +250,7 @@ const ClassCard = ({
           <Button
             variant="outlined"
             onClick={() => {
-              handleFetchingObjectives(classItem);
+              handleClassCardClick(classItem, 5); // 5 = Objectives tab
             }}
             startIcon={!isMobile && <ClassIcon />}
             size="small"

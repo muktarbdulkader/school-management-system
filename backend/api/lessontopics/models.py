@@ -320,6 +320,97 @@ class ReportCardSubject(models.Model):
     def __str__(self):
         return f"{self.report_card.student.user.full_name} - {self.subject.name}"
 
+    def calculate_total(self):
+        """Calculate total score from exam, assignment and attendance components.
+        Default weights: Exam 70%, Assignment 20%, Attendance 10%"""
+        from decimal import Decimal
+
+        total = Decimal('0')
+        total_max = Decimal('0')
+
+        # Exam score (70% weight)
+        if self.exam_score is not None:
+            exam_component = (Decimal(str(self.exam_score)) / Decimal(str(self.exam_max_score))) * Decimal('70')
+            total += exam_component
+            total_max += Decimal('70')
+
+        # Assignment average (20% weight)
+        if self.assignment_avg is not None:
+            assignment_component = (Decimal(str(self.assignment_avg)) / Decimal(str(self.assignment_max))) * Decimal('20')
+            total += assignment_component
+            total_max += Decimal('20')
+
+        # Attendance score (10% weight)
+        if self.attendance_score is not None:
+            attendance_component = (Decimal(str(self.attendance_score)) / Decimal(str(self.attendance_max))) * Decimal('10')
+            total += attendance_component
+            total_max += Decimal('10')
+
+        # Normalize to 100 if we have any components
+        if total_max > 0:
+            normalized_percentage = (total / total_max) * 100
+            self.total_score = float(normalized_percentage)
+            self.percentage = normalized_percentage
+            self.total_max = 100
+
+            # Auto-calculate grades based on class level
+            self._auto_calculate_grades()
+        else:
+            self.total_score = None
+            self.percentage = None
+
+        return self.total_score
+
+    def _auto_calculate_grades(self):
+        """Auto-calculate letter/descriptive grades based on percentage and class grade"""
+        if not self.percentage:
+            return
+
+        # Determine class grade level for grading system
+        class_grade = self.report_card.class_fk.grade if self.report_card and self.report_card.class_fk else 9
+        # Extract numeric grade from string like "Grade 9" or "9"
+        import re
+        grade_match = re.search(r'(\d+)', str(class_grade))
+        grade_level = int(grade_match.group(1)) if grade_match else 9
+
+        p = float(self.percentage)
+
+        if grade_level <= 8:
+            # Descriptive grades for grades 1-8
+            if p >= 90:
+                self.descriptive_grade = 'EX'
+            elif p >= 80:
+                self.descriptive_grade = 'VG'
+            elif p >= 70:
+                self.descriptive_grade = 'G'
+            elif p >= 60:
+                self.descriptive_grade = 'S'
+            elif p >= 50:
+                self.descriptive_grade = 'NI'
+            else:
+                self.descriptive_grade = 'U'
+            self.letter_grade = None
+        else:
+            # Letter grades for grades 9-12
+            if p >= 90:
+                self.letter_grade = 'A'
+            elif p >= 80:
+                self.letter_grade = 'B'
+            elif p >= 70:
+                self.letter_grade = 'C'
+            elif p >= 60:
+                self.letter_grade = 'D'
+            elif p >= 50:
+                self.letter_grade = 'E'
+            else:
+                self.letter_grade = 'F'
+            self.descriptive_grade = None
+
+    def save(self, *args, **kwargs):
+        # Calculate totals before saving
+        self.calculate_total()
+        super().save(*args, **kwargs)
+
     def calculate_descriptive_grade(self):
         """Auto-calculate descriptive grade based on percentage (for grades 1-8)"""
         if not self.percentage:

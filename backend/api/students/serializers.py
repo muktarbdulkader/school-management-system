@@ -263,6 +263,21 @@ class StudentHealthRecordsSerializer(serializers.ModelSerializer):
         if 'student_id' not in data or data['student_id'] is None:
             raise serializers.ValidationError({"student_id": "This field is required."})
         return data
+
+    def create(self, validated_data):
+        # Map student_id (Student object) to student field
+        student = validated_data.pop('student_id', None)
+        if student:
+            validated_data['student'] = student
+        return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        # Map student_id (Student object) to student field
+        student = validated_data.pop('student_id', None)
+        if student:
+            validated_data['student'] = student
+        return super().update(instance, validated_data)
+
 class BehaviorIncidentsSerializer(serializers.ModelSerializer):
     student_id = serializers.PrimaryKeyRelatedField(
         queryset=Student.objects.all(),

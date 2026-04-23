@@ -267,26 +267,47 @@ class AttendanceViewSet(viewsets.ModelViewSet):
         user = self.request.user
         student_id = self.request.query_params.get('student_id')
         branch_id = self.request.query_params.get('branch_id')
+        class_id = self.request.query_params.get('class_id')
+        section_id = self.request.query_params.get('section_id')
+        subject_id = self.request.query_params.get('subject_id')
+        start_date = self.request.query_params.get('start_date')
+        end_date = self.request.query_params.get('end_date')
+
+        queryset = self.queryset
+
+        # Apply date range filters if provided
+        if start_date:
+            queryset = queryset.filter(date__gte=start_date)
+        if end_date:
+            queryset = queryset.filter(date__lte=end_date)
+
+        # Apply class/section filters if provided
+        if class_id:
+            queryset = queryset.filter(student__grade_id=class_id)
+        if section_id and section_id != 'null':
+            queryset = queryset.filter(student__section_id=section_id)
+        if subject_id:
+            queryset = queryset.filter(schedule_slot__subject_id=subject_id)
 
         # 1. Superusers see all
         if user.is_superuser:
             if branch_id:
-                return self.queryset.filter(student_id__branch_id=branch_id)
-            return self.queryset.all()
+                return queryset.filter(student__branch_id=branch_id)
+            return queryset.all()
 
         # 2. Administrative User Check (Admin/Staff)
         if self.is_administrative_user(user):
             accessible_branches = UserBranchAccess.objects.filter(user=user).values_list('branch_id', flat=True)
             if branch_id:
                 if branch_id in [str(b) for b in accessible_branches]:
-                    return self.queryset.filter(student_id__branch_id=branch_id)
-                return self.queryset.none()
-            return self.queryset.filter(student_id__branch_id__in=accessible_branches)
+                    return queryset.filter(student__branch_id=branch_id)
+                return queryset.none()
+            return queryset.filter(student__branch_id__in=accessible_branches)
 
         # 3. Parents see their children's attendance
         if student_id:
             if ParentStudent.objects.filter(parent__user=user, student_id=student_id).exists():
-                return self.queryset.filter(student_id=student_id)
+                return queryset.filter(student_id=student_id)
             raise PermissionDenied("You do not have permission to view this student's attendance.")
 
         # 4. Teachers see attendance for their subjects
@@ -298,9 +319,9 @@ class AttendanceViewSet(viewsets.ModelViewSet):
             q_objects = Q()
             for assignment in assignments:
                 q_objects |= Q(student__grade=assignment.class_fk, student__section=assignment.section)
-            return self.queryset.filter(q_objects).distinct()
+            return queryset.filter(q_objects).distinct()
 
-        return self.queryset.none()
+        return queryset.none()
 
     def list(self, request, *args, **kwargs):
         queryset = self.filter_queryset(self.get_queryset())

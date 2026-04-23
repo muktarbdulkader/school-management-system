@@ -18,6 +18,15 @@ import {
   Typography,
   Stack,
   Paper,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  TextField,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
 } from '@mui/material';
 import { toast, ToastContainer } from 'react-toastify';
 import { DotMenu } from 'ui-component/menu/DotMenu';
@@ -33,7 +42,10 @@ import RightSlideIn from 'ui-component/modal/RightSlideIn';
 import {
   Add as AddIcon,
   Edit as EditIcon,
+  Delete as DeleteIcon,
   Description as DescriptionIcon,
+  FilterList as FilterListIcon,
+  Close as CloseIcon,
 } from '@mui/icons-material';
 import GetToken from 'utils/auth-token';
 import Backend from 'services/backend';
@@ -80,6 +92,7 @@ const parseSubmitted = (submittedString) => {
 export default function AssignmentsDashboard({
   assignmentsData = [],
   refreshAssignments,
+  classData,
 }) {
   const theme = useTheme();
   const [loading, setLoading] = useState(false);
@@ -103,6 +116,18 @@ export default function AssignmentsDashboard({
   });
   const [filterApplied, setFilterApplied] = useState(false);
   const [openFilterModal, setOpenFilterModal] = useState(false);
+  const [manageGroupModalOpen, setManageGroupModalOpen] = useState(false);
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const [selectedAssignment, setSelectedAssignment] = useState(null);
+  const [groupMembers, setGroupMembers] = useState([]);
+  const [editFormData, setEditFormData] = useState({
+    title: '',
+    description: '',
+    due_date: '',
+    file_url: '',
+    max_points: 100,
+    is_group_assignment: false,
+  });
 
 
   // Update pagination when assignmentsData changes
@@ -215,7 +240,18 @@ export default function AssignmentsDashboard({
   useEffect(() => {
     handleFetchingTeacherClasses();
     handleFetchingStudents();
+    // Refresh assignments list when component mounts
+    if (refreshAssignments) {
+      refreshAssignments();
+    }
   }, []);
+
+  // Refresh assignments when classData changes (when navigating between classes)
+  useEffect(() => {
+    if (refreshAssignments && classData) {
+      refreshAssignments();
+    }
+  }, [classData?.id, classData?.class_id, classData?.section_id]);
 
   const handleAddAssignmentClick = () => {
     setAdd(true);
@@ -245,11 +281,14 @@ export default function AssignmentsDashboard({
         section: lessonData.section || null,
         is_group_assignment: Boolean(lessonData.is_group_assignment),
         students: lessonData.students || [],
+        file_url: lessonData.file_url || null,
+        max_score: lessonData.max_points || 100,
       };
 
       // Remove null values for optional fields to avoid backend validation issues
       if (!payload.section) delete payload.section;
       if (!payload.class_id) delete payload.class_id;
+      if (!payload.file_url) delete payload.file_url;
 
       console.log('Submitting assignment payload:', payload);
 
@@ -315,8 +354,237 @@ export default function AssignmentsDashboard({
     setOpenFilterModal(false);
   };
 
+  const [viewModalOpen, setViewModalOpen] = useState(false);
+  const [addMemberModalOpen, setAddMemberModalOpen] = useState(false);
+  const [availableStudents, setAvailableStudents] = useState([]);
+  const [selectedStudentsToAdd, setSelectedStudentsToAdd] = useState([]);
+
+  const handleManageGroup = (assignment) => {
+    setSelectedAssignment(assignment);
+    setGroupMembers(assignment.students || []);
+    setManageGroupModalOpen(true);
+  };
+
+  const handleCloseManageGroup = () => {
+    setManageGroupModalOpen(false);
+    setSelectedAssignment(null);
+    setGroupMembers([]);
+  };
+
+  const handleViewAssignment = (assignment) => {
+    setSelectedAssignment(assignment);
+    setViewModalOpen(true);
+  };
+
+  const handleCloseViewModal = () => {
+    setViewModalOpen(false);
+    setSelectedAssignment(null);
+  };
+
+  const handleOpenAddMembers = () => {
+    // Get students from the class who are not already in the group
+    const classStudents = students || [];
+    const currentMemberIds = new Set(groupMembers.map(m => m.id));
+    const available = classStudents.filter(s => !currentMemberIds.has(s.id));
+    setAvailableStudents(available);
+    setSelectedStudentsToAdd([]);
+    setAddMemberModalOpen(true);
+  };
+
+  const handleCloseAddMembers = () => {
+    setAddMemberModalOpen(false);
+    setAvailableStudents([]);
+    setSelectedStudentsToAdd([]);
+  };
+
+  const handleToggleStudentSelection = (studentId) => {
+    setSelectedStudentsToAdd(prev => {
+      if (prev.includes(studentId)) {
+        return prev.filter(id => id !== studentId);
+      }
+      return [...prev, studentId];
+    });
+  };
+
+  const handleAddMembers = async () => {
+    if (!selectedAssignment || selectedStudentsToAdd.length === 0) return;
+
+    try {
+      const token = await GetToken();
+      const Api = `${Backend.assignments}${selectedAssignment.id}/add_students/`;
+      const header = {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      };
+
+      const payload = {
+        student_ids: selectedStudentsToAdd
+      };
+
+      const response = await fetch(Api, {
+        method: 'POST',
+        headers: header,
+        body: JSON.stringify(payload),
+      });
+
+      if (response.ok) {
+        toast.success(`${selectedStudentsToAdd.length} student(s) added to group`);
+        handleCloseAddMembers();
+        handleCloseManageGroup();
+        if (refreshAssignments) {
+          await refreshAssignments();
+        }
+      } else {
+        const errorData = await response.json();
+        toast.error(errorData.message || 'Failed to add members');
+      }
+    } catch (error) {
+      console.error('Error adding members:', error);
+      toast.error('Error adding members');
+    }
+  };
+
+  const handleRemoveMember = async (studentId) => {
+    if (!selectedAssignment) return;
+
+    try {
+      const token = await GetToken();
+      const Api = `${Backend.assignments}${selectedAssignment.id}/remove_student/`;
+      const header = {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      };
+
+      const payload = {
+        student_id: studentId
+      };
+
+      const response = await fetch(Api, {
+        method: 'POST',
+        headers: header,
+        body: JSON.stringify(payload),
+      });
+
+      if (response.ok) {
+        toast.success('Student removed from group');
+        setGroupMembers(prev => prev.filter(m => m.id !== studentId));
+        if (refreshAssignments) {
+          await refreshAssignments();
+        }
+      } else {
+        const errorData = await response.json();
+        toast.error(errorData.message || 'Failed to remove member');
+      }
+    } catch (error) {
+      console.error('Error removing member:', error);
+      toast.error('Error removing member');
+    }
+  };
+
+  const handleEditAssignment = (assignment) => {
+    setSelectedAssignment(assignment);
+    setEditFormData({
+      title: assignment.title || '',
+      description: assignment.description || '',
+      due_date: assignment.due_date || '',
+      file_url: assignment.file_url || '',
+      max_points: assignment.max_points || 100,
+      is_group_assignment: assignment.is_group_assignment || false,
+    });
+    setEditModalOpen(true);
+  };
+
+  const handleCloseEditModal = () => {
+    setEditModalOpen(false);
+    setSelectedAssignment(null);
+  };
+
+  const handleEditFormChange = (e) => {
+    const { name, value } = e.target;
+    setEditFormData(prev => ({
+      ...prev,
+      [name]: value
+    }));
+  };
+
+  const handleUpdateAssignment = async () => {
+    try {
+      const token = await GetToken();
+      const Api = `${Backend.assignments}${selectedAssignment.id}/`;
+      const header = {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      };
+
+      const payload = {
+        title: editFormData.title,
+        description: editFormData.description,
+        due_date: editFormData.due_date,
+        file_url: editFormData.file_url,
+        max_score: editFormData.max_points,
+      };
+
+      const response = await fetch(Api, {
+        method: 'PUT',
+        headers: header,
+        body: JSON.stringify(payload),
+      });
+
+      if (response.ok) {
+        toast.success('Assignment updated successfully');
+        handleCloseEditModal();
+        if (refreshAssignments) {
+          await refreshAssignments();
+        }
+      } else {
+        const errorData = await response.json();
+        toast.error(errorData.message || 'Failed to update assignment');
+      }
+    } catch (error) {
+      console.error('Error updating assignment:', error);
+      toast.error('Error updating assignment');
+    }
+  };
+
+  const handleDeleteAssignment = async (assignment) => {
+    if (!window.confirm(`Are you sure you want to delete "${assignment.title}"?`)) {
+      return;
+    }
+
+    try {
+      const token = await GetToken();
+      const Api = `${Backend.assignments}${assignment.id}/`;
+      const header = {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      };
+
+      const response = await fetch(Api, {
+        method: 'DELETE',
+        headers: header,
+      });
+
+      if (response.ok) {
+        toast.success('Assignment deleted successfully');
+        if (refreshAssignments) {
+          await refreshAssignments();
+        }
+      } else {
+        const errorData = await response.json();
+        toast.error(errorData.message || 'Failed to delete assignment');
+      }
+    } catch (error) {
+      console.error('Error deleting assignment:', error);
+      toast.error('Error deleting assignment');
+    }
+  };
+
+  // Debug logging
+  console.log('[AssignmentsDashboard] assignmentsData:', assignmentsData);
+  console.log('[AssignmentsDashboard] classData:', classData);
+
   const filteredAssignments = assignmentsData.filter((assignment) =>
-    assignment.title.toLowerCase().includes(search.toLowerCase()),
+    assignment.title?.toLowerCase().includes(search.toLowerCase()),
   );
 
   const paginatedAssignments = filteredAssignments.slice(
@@ -337,11 +605,23 @@ export default function AssignmentsDashboard({
               <Typography sx={{ fontWeight: '500', fontSize: '20px' }}>
                 Assignments ({assignmentsData.length})
               </Typography>
-              <AddButton
-                title="New Assignment"
-                startIcon={<AddIcon />}
-                onPress={handleAddAssignmentClick}
-              />
+              <Box display="flex" gap={1}>
+                {refreshAssignments && (
+                  <Button
+                    variant="outlined"
+                    size="small"
+                    onClick={refreshAssignments}
+                    disabled={loading}
+                  >
+                    Refresh
+                  </Button>
+                )}
+                <AddButton
+                  title="New Assignment"
+                  startIcon={<AddIcon />}
+                  onPress={handleAddAssignmentClick}
+                />
+              </Box>
             </Box>
           </Grid>
           <Grid container>
@@ -369,8 +649,8 @@ export default function AssignmentsDashboard({
               ) : paginatedAssignments.length === 0 ? (
                 <Fallbacks
                   severity="evaluation"
-                  title="Assignments Not Found"
-                  description="The list of assignments will be listed here."
+                  title="No Assignments Yet"
+                  description={classData ? `No assignments found for ${classData.name}. Click "New Assignment" to create one.` : "No assignments found. Click \"New Assignment\" to create one."}
                   sx={{ paddingTop: 6 }}
                 />
               ) : (
@@ -392,6 +672,7 @@ export default function AssignmentsDashboard({
                         <TableCell>Assignment</TableCell>
                         <TableCell>Due Date</TableCell>
                         <TableCell>Type</TableCell>
+                        <TableCell>Resources</TableCell>
                         <TableCell>Submission Status</TableCell>
                         <TableCell>Actions</TableCell>
                       </TableRow>
@@ -435,8 +716,24 @@ export default function AssignmentsDashboard({
                                 variant="body2"
                                 color="text.secondary"
                               >
+                                {assignment.class_name || classData?.name || assignment.class_fk?.name || 'N/A'}
+                              </Typography>
+                            </TableCell>
+                            <TableCell>
+                              <Typography
+                                variant="body2"
+                                color="text.secondary"
+                              >
                                 {assignment.due_date}
                               </Typography>
+                            </TableCell>
+                            <TableCell>
+                              <Chip
+                                label={assignment.is_group_assignment ? 'Group' : 'Individual'}
+                                color={assignment.is_group_assignment ? 'info' : 'default'}
+                                size="small"
+                                sx={{ fontWeight: 500 }}
+                              />
                             </TableCell>
                             <TableCell>
                               <Chip
@@ -445,6 +742,24 @@ export default function AssignmentsDashboard({
                                 size="small"
                                 sx={{ fontWeight: 500 }}
                               />
+                            </TableCell>
+                            <TableCell>
+                              {assignment.file_url ? (
+                                <Button
+                                  variant="text"
+                                  size="small"
+                                  href={assignment.file_url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  sx={{ textTransform: 'none', minWidth: 'auto' }}
+                                >
+                                  📎 File
+                                </Button>
+                              ) : (
+                                <Typography variant="body2" color="text.secondary">
+                                  -
+                                </Typography>
+                              )}
                             </TableCell>
                             <TableCell>
                               <Box sx={{ minWidth: 200 }}>
@@ -483,10 +798,26 @@ export default function AssignmentsDashboard({
                                 spacing={1}
                                 alignItems="center"
                               >
+                                {assignment.is_group_assignment && (
+                                  <Button
+                                    variant="outlined"
+                                    size="small"
+                                    color="info"
+                                    onClick={() => handleManageGroup(assignment)}
+                                    sx={{
+                                      textTransform: 'none',
+                                      minWidth: 'auto',
+                                      px: 1.5,
+                                    }}
+                                  >
+                                    Manage Group
+                                  </Button>
+                                )}
                                 {percentage > 0 && (
                                   <Button
                                     variant="contained"
                                     size="small"
+                                    onClick={() => toast.info(`Grade assignment: ${assignment.title} - Feature coming soon`)}
                                     sx={{
                                       backgroundColor: '#4caf50',
                                       '&:hover': { backgroundColor: '#45a049' },
@@ -498,10 +829,13 @@ export default function AssignmentsDashboard({
                                     Grade
                                   </Button>
                                 )}
-                                <IconButton>
+                                <IconButton onClick={() => handleEditAssignment(assignment)}>
                                   <EditIcon fontSize="small" />
                                 </IconButton>
-                                <DotMenu />
+                                <DotMenu
+                                  onDelete={() => handleDeleteAssignment(assignment)}
+                                  onView={() => toast.info(`View details for: ${assignment.title}`)}
+                                />
                               </Stack>
                             </TableCell>
                           </TableRow>
@@ -534,7 +868,338 @@ export default function AssignmentsDashboard({
         sections={sections}
         students={students}
         teacherSubjects={teacherSubjects}
+        classData={classData}
       />
+
+      {/* Manage Group Modal */}
+      <Dialog
+        open={manageGroupModalOpen}
+        onClose={handleCloseManageGroup}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Typography variant="h6">
+              Manage Group - {selectedAssignment?.title}
+            </Typography>
+            <IconButton onClick={handleCloseManageGroup}>
+              <CloseIcon />
+            </IconButton>
+          </Box>
+        </DialogTitle>
+        <DialogContent>
+          <Box sx={{ mt: 2 }}>
+            <Typography variant="subtitle2" sx={{ mb: 2 }}>
+              Group Members ({groupMembers.length} students)
+            </Typography>
+            {groupMembers.length === 0 ? (
+              <Typography color="text.secondary">
+                No students assigned to this group yet.
+              </Typography>
+            ) : (
+              <TableContainer component={Paper} variant="outlined">
+                <Table size="small">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>Student Name</TableCell>
+                      <TableCell>Status</TableCell>
+                      <TableCell>Actions</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {groupMembers.map((member, index) => (
+                      <TableRow key={index}>
+                        <TableCell>{member.full_name || member.name || 'Unknown'}</TableCell>
+                        <TableCell>
+                          <Chip size="small" label="Assigned" color="info" />
+                        </TableCell>
+                        <TableCell>
+                          <Button
+                            size="small"
+                            color="error"
+                            onClick={() => handleRemoveMember(member.id)}
+                          >
+                            Remove
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            )}
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseManageGroup}>Close</Button>
+          <Button variant="contained" onClick={handleOpenAddMembers}>
+            Add Members
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Edit Assignment Modal */}
+      <Dialog
+        open={editModalOpen}
+        onClose={handleCloseEditModal}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Typography variant="h6">Edit Assignment</Typography>
+            <IconButton onClick={handleCloseEditModal}>
+              <CloseIcon />
+            </IconButton>
+          </Box>
+        </DialogTitle>
+        <DialogContent>
+          <Box sx={{ mt: 2 }}>
+            <Grid container spacing={2}>
+              <Grid item xs={12}>
+                <TextField
+                  fullWidth
+                  label="Title"
+                  name="title"
+                  value={editFormData.title}
+                  onChange={handleEditFormChange}
+                  required
+                />
+              </Grid>
+              <Grid item xs={12}>
+                <TextField
+                  fullWidth
+                  label="Description"
+                  name="description"
+                  multiline
+                  rows={3}
+                  value={editFormData.description}
+                  onChange={handleEditFormChange}
+                />
+              </Grid>
+              <Grid item xs={12} md={6}>
+                <TextField
+                  fullWidth
+                  label="Due Date"
+                  name="due_date"
+                  type="date"
+                  value={editFormData.due_date}
+                  onChange={handleEditFormChange}
+                  InputLabelProps={{ shrink: true }}
+                  required
+                />
+              </Grid>
+              <Grid item xs={12} md={6}>
+                <TextField
+                  fullWidth
+                  label="Max Points"
+                  name="max_points"
+                  type="number"
+                  value={editFormData.max_points}
+                  onChange={handleEditFormChange}
+                  required
+                />
+              </Grid>
+              <Grid item xs={12}>
+                <TextField
+                  fullWidth
+                  label="File URL"
+                  name="file_url"
+                  value={editFormData.file_url}
+                  onChange={handleEditFormChange}
+                  placeholder="https://example.com/document.pdf"
+                  helperText="Optional link to external resource"
+                />
+              </Grid>
+            </Grid>
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseEditModal}>Cancel</Button>
+          <Button variant="contained" onClick={handleUpdateAssignment}>
+            Save Changes
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* View Details Modal */}
+      <Dialog
+        open={viewModalOpen}
+        onClose={handleCloseViewModal}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Typography variant="h6">Assignment Details</Typography>
+            <IconButton onClick={handleCloseViewModal}>
+              <CloseIcon />
+            </IconButton>
+          </Box>
+        </DialogTitle>
+        <DialogContent>
+          <Box sx={{ mt: 2 }}>
+            {selectedAssignment && (
+              <Grid container spacing={2}>
+                <Grid item xs={12}>
+                  <Typography variant="h5" gutterBottom>
+                    {selectedAssignment.title}
+                  </Typography>
+                </Grid>
+                <Grid item xs={12} md={6}>
+                  <Typography variant="body2" color="text.secondary">Due Date</Typography>
+                  <Typography variant="body1">{selectedAssignment.due_date}</Typography>
+                </Grid>
+                <Grid item xs={12} md={6}>
+                  <Typography variant="body2" color="text.secondary">Assigned Date</Typography>
+                  <Typography variant="body1">{selectedAssignment.assigned_date}</Typography>
+                </Grid>
+                <Grid item xs={12} md={6}>
+                  <Typography variant="body2" color="text.secondary">Category</Typography>
+                  <Chip
+                    label={selectedAssignment.is_group_assignment ? 'Group' : 'Individual'}
+                    color={selectedAssignment.is_group_assignment ? 'info' : 'default'}
+                    size="small"
+                  />
+                </Grid>
+                <Grid item xs={12} md={6}>
+                  <Typography variant="body2" color="text.secondary">Max Points</Typography>
+                  <Typography variant="body1">{selectedAssignment.max_points}</Typography>
+                </Grid>
+                <Grid item xs={12}>
+                  <Typography variant="body2" color="text.secondary">Description</Typography>
+                  <Typography variant="body1">{selectedAssignment.description || 'No description'}</Typography>
+                </Grid>
+                {selectedAssignment.file_url && (
+                  <Grid item xs={12}>
+                    <Typography variant="body2" color="text.secondary">File URL</Typography>
+                    <Button
+                      variant="text"
+                      href={selectedAssignment.file_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      📎 Open File
+                    </Button>
+                  </Grid>
+                )}
+                <Grid item xs={12}>
+                  <Typography variant="body2" color="text.secondary">
+                    Students ({selectedAssignment.student_count || 0})
+                  </Typography>
+                  <Box sx={{ mt: 1 }}>
+                    {selectedAssignment.students && selectedAssignment.students.length > 0 ? (
+                      selectedAssignment.students.map((student, idx) => (
+                        <Chip
+                          key={idx}
+                          label={student.name || student.full_name || 'Unknown'}
+                          size="small"
+                          sx={{ mr: 1, mb: 1 }}
+                        />
+                      ))
+                    ) : (
+                      <Typography variant="body2" color="text.secondary">
+                        No students assigned
+                      </Typography>
+                    )}
+                  </Box>
+                </Grid>
+              </Grid>
+            )}
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseViewModal}>Close</Button>
+          {selectedAssignment?.is_group_assignment && (
+            <Button
+              variant="contained"
+              onClick={() => {
+                handleCloseViewModal();
+                handleManageGroup(selectedAssignment);
+              }}
+            >
+              Manage Group
+            </Button>
+          )}
+        </DialogActions>
+      </Dialog>
+
+      {/* Add Members Modal */}
+      <Dialog
+        open={addMemberModalOpen}
+        onClose={handleCloseAddMembers}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Typography variant="h6">Add Members to Group</Typography>
+            <IconButton onClick={handleCloseAddMembers}>
+              <CloseIcon />
+            </IconButton>
+          </Box>
+        </DialogTitle>
+        <DialogContent>
+          <Box sx={{ mt: 2 }}>
+            <Typography variant="body2" sx={{ mb: 2 }}>
+              Select students to add to <strong>{selectedAssignment?.title}</strong>
+            </Typography>
+            {availableStudents.length === 0 ? (
+              <Typography color="text.secondary">
+                No available students to add. All students in this class are already in the group.
+              </Typography>
+            ) : (
+              <TableContainer component={Paper} variant="outlined">
+                <Table size="small">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell padding="checkbox">Select</TableCell>
+                      <TableCell>Student Name</TableCell>
+                      <TableCell>Email</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {availableStudents.map((student) => (
+                      <TableRow
+                        key={student.id}
+                        selected={selectedStudentsToAdd.includes(student.id)}
+                        onClick={() => handleToggleStudentSelection(student.id)}
+                        sx={{ cursor: 'pointer' }}
+                      >
+                        <TableCell padding="checkbox">
+                          <input
+                            type="checkbox"
+                            checked={selectedStudentsToAdd.includes(student.id)}
+                            onChange={() => handleToggleStudentSelection(student.id)}
+                          />
+                        </TableCell>
+                        <TableCell>{student.full_name || student.name || 'Unknown'}</TableCell>
+                        <TableCell>{student.email || student.user?.email || '-'}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            )}
+            {selectedStudentsToAdd.length > 0 && (
+              <Typography variant="body2" sx={{ mt: 2 }}>
+                <strong>{selectedStudentsToAdd.length}</strong> student(s) selected
+              </Typography>
+            )}
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseAddMembers}>Cancel</Button>
+          <Button
+            variant="contained"
+            onClick={handleAddMembers}
+            disabled={selectedStudentsToAdd.length === 0}
+          >
+            Add {selectedStudentsToAdd.length > 0 ? `(${selectedStudentsToAdd.length})` : ''}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }

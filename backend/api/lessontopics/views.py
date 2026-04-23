@@ -11,6 +11,7 @@ from schedule.models import Exam
 from students.models import ParentStudent, Student
 from teachers.models import Teacher
 from users.models import UserRole, has_model_permission
+from schedule.views import is_teacher
 from .serializers import (
     AssignmentsSerializer, ExamResultsSerializer, LearningObjectivesSerializer, 
     LessonActivitiesSerializer, LessonPlanEvaluationsSerializer, LessonPlanObjectivesSerializer, 
@@ -1507,8 +1508,15 @@ class AssignmentsViewSet(viewsets.ModelViewSet):
             if serializer.is_valid():
                 instance = serializer.save(assigned_by=user)
                 
+                # Populate denormalized fields from teacher_assignment
+                if instance.teacher_assignment:
+                    instance.subject = instance.teacher_assignment.subject
+                    instance.class_fk = instance.teacher_assignment.class_fk
+                    instance.section = instance.teacher_assignment.section
+                    instance.save()
+                
                 # Automatically add students if class or section is provided
-                if instance.teacher_assignment.class_fk or instance.teacher_assignment.section:
+                if instance.teacher_assignment and (instance.teacher_assignment.class_fk or instance.teacher_assignment.section):
                     from students.models import Student
                     student_query = Q()
                     if instance.teacher_assignment.section:
@@ -1790,16 +1798,29 @@ class ExamResultsViewSet(viewsets.ModelViewSet):
 
     def create(self, request, *args, **kwargs):
         user = request.user
+        print(f"[ExamResults] Create request from user: {user.email} (id: {user.id})")
+        
         branch_id = request.data.get('branch_id')
-        if branch_id and not has_model_permission(user, 'examresults', 'add', branch_id):
-            raise PermissionDenied("No permission to create exam results.")
-
-        is_admin = self.is_administrative_user(user)
-        if not is_admin and not is_teacher(user):
-            raise PermissionDenied("Only teachers and administrators can create exam results.")
-
         teacher_assignment_id = request.data.get('teacher_assignment_id')
         exam_id = request.data.get('exam_id')
+        student_id = request.data.get('student_id')
+        
+        print(f"[ExamResults] Request data: branch_id={branch_id}, teacher_assignment_id={teacher_assignment_id}, exam_id={exam_id}, student_id={student_id}")
+
+        is_admin = self.is_administrative_user(user)
+        is_teacher_user = is_teacher(user)
+        print(f"[ExamResults] is_admin={is_admin}, is_teacher={is_teacher_user}")
+        
+        if not is_admin and not is_teacher_user:
+            print(f"[ExamResults] Permission denied: user is neither admin nor teacher")
+            raise PermissionDenied("Only teachers and administrators can create exam results.")
+        
+        # For non-admin users, check model permission only if not a teacher
+        # Teachers are authorized by their TeacherAssignment, not by role permission
+        if not is_admin and not is_teacher_user:
+            if branch_id and not has_model_permission(user, 'examresults', 'add', branch_id):
+                print(f"[ExamResults] Permission denied: no model permission for branch {branch_id}")
+                raise PermissionDenied("No permission to create exam results.")
 
         if not is_admin and teacher_assignment_id:
             from schedule.models import Exam
@@ -1807,6 +1828,8 @@ class ExamResultsViewSet(viewsets.ModelViewSet):
             if not teacher:
                 print(f"[ExamResults] No teacher profile for user {user.email}")
                 raise PermissionDenied("Teacher profile not found.")
+            print(f"[ExamResults] Teacher found: {teacher.id} - {teacher.user.full_name}")
+            
             # Verify the teacher assignment belongs to this teacher
             assignment = TeacherAssignment.objects.filter(
                 id=teacher_assignment_id,
@@ -1818,8 +1841,12 @@ class ExamResultsViewSet(viewsets.ModelViewSet):
                 if any_assignment:
                     print(f"[ExamResults] Assignment {teacher_assignment_id} exists but belongs to teacher {any_assignment.teacher_id}, not {teacher.id}")
                 else:
-                    print(f"[ExamResults] Assignment {teacher_assignment_id} not found")
+                    print(f"[ExamResults] Assignment {teacher_assignment_id} not found in database")
+                    # List all assignments for this teacher to help debug
+                    all_teacher_assignments = TeacherAssignment.objects.filter(teacher=teacher)
+                    print(f"[ExamResults] All assignments for teacher {teacher.id}: {list(all_teacher_assignments.values('id', 'subject__name', 'class_fk__grade'))}")
                 raise PermissionDenied("You are not authorized to create results for this assignment.")
+            print(f"[ExamResults] Assignment verified: {assignment.id} for subject {assignment.subject.name}")
 
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -1837,14 +1864,20 @@ class ExamResultsViewSet(viewsets.ModelViewSet):
     def update(self, request, *args, **kwargs):
         user = request.user
         branch_id = request.data.get('branch_id')
-        if branch_id and not has_model_permission(user, 'examresults', 'change', branch_id):
-            raise PermissionDenied("No permission to update exam results.")
+        
+        is_admin = self.is_administrative_user(user)
+        is_teacher_user = is_teacher(user)
+        
+        # Only check model permission for non-admin non-teacher users
+        if not is_admin and not is_teacher_user:
+            if branch_id and not has_model_permission(user, 'examresults', 'change', branch_id):
+                raise PermissionDenied("No permission to update exam results.")
+            raise PermissionDenied("Only teachers and administrators can update exam results.")
 
         instance = self.get_object()
-        is_admin = self.is_administrative_user(user)
         
         if not is_admin:
-            if not is_teacher(user) or not TeacherAssignment.objects.filter(
+            if not is_teacher_user or not TeacherAssignment.objects.filter(
                 teacher=Teacher.objects.get(user=user),
                 subject=instance.subject,
                 class_fk=instance.exam.class_fk
@@ -1888,6 +1921,165 @@ class ExamResultsViewSet(viewsets.ModelViewSet):
 
     def perform_destroy(self, instance):
         instance.delete()
+
+    @action(detail=False, methods=['post'], url_path='bulk_create')
+    def bulk_create(self, request):
+        """
+        Bulk create/update exam results for multiple students.
+        Request body: {
+            "exam_id": "<uuid>",
+            "teacher_assignment_id": "<uuid>",
+            "branch_id": "<uuid>",
+            "results": [
+                {"student_id": "<uuid>", "score": 85, "max_score": 100, "remarks": ""},
+                ...
+            ]
+        }
+        """
+        user = request.user
+        print(f"[ExamResults Bulk] Request from user: {user.email}")
+        
+        branch_id = request.data.get('branch_id')
+        exam_id = request.data.get('exam_id')
+        teacher_assignment_id = request.data.get('teacher_assignment_id')
+        results_data = request.data.get('results', [])
+        
+        print(f"[ExamResults Bulk] Data: exam_id={exam_id}, teacher_assignment_id={teacher_assignment_id}, results_count={len(results_data)}")
+        
+        is_admin = self.is_administrative_user(user)
+        is_teacher_user = is_teacher(user)
+        print(f"[ExamResults Bulk] is_admin={is_admin}, is_teacher={is_teacher_user}")
+        
+        if not is_admin and not is_teacher_user:
+            print(f"[ExamResults Bulk] Permission denied: not admin or teacher")
+            raise PermissionDenied("Only teachers and administrators can create exam results.")
+        
+        # For non-admin non-teacher users, check model permission
+        # Teachers are authorized by their TeacherAssignment
+        if not is_admin and not is_teacher_user:
+            if branch_id and not has_model_permission(user, 'examresults', 'add', branch_id):
+                print(f"[ExamResults Bulk] Permission denied: branch {branch_id}")
+                raise PermissionDenied("No permission to create exam results.")
+        
+        if not exam_id or not teacher_assignment_id:
+            return Response({
+                'success': False,
+                'message': 'exam_id and teacher_assignment_id are required',
+                'status': 400,
+                'data': []
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        if not results_data:
+            return Response({
+                'success': False,
+                'message': 'No results provided',
+                'status': 400,
+                'data': []
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Verify teacher assignment for non-admins
+        if not is_admin:
+            teacher = Teacher.objects.filter(user=user).first()
+            if not teacher:
+                print(f"[ExamResults Bulk] No teacher profile for {user.email}")
+                raise PermissionDenied("Teacher profile not found.")
+            print(f"[ExamResults Bulk] Teacher: {teacher.id} - {teacher.user.full_name}")
+            
+            assignment = TeacherAssignment.objects.filter(
+                id=teacher_assignment_id,
+                teacher=teacher
+            ).first()
+            if not assignment:
+                any_assignment = TeacherAssignment.objects.filter(id=teacher_assignment_id).first()
+                if any_assignment:
+                    print(f"[ExamResults Bulk] Assignment {teacher_assignment_id} belongs to different teacher {any_assignment.teacher_id}")
+                else:
+                    print(f"[ExamResults Bulk] Assignment {teacher_assignment_id} not found")
+                    all_assignments = TeacherAssignment.objects.filter(teacher=teacher)
+                    print(f"[ExamResults Bulk] Teacher {teacher.id} assignments: {list(all_assignments.values('id', 'subject__name'))}")
+                raise PermissionDenied("You are not authorized to create results for this assignment.")
+            print(f"[ExamResults Bulk] Assignment verified: {assignment.id}")
+        
+        created_count = 0
+        updated_count = 0
+        errors = []
+        
+        with transaction.atomic():
+            for idx, result_item in enumerate(results_data):
+                student_id = result_item.get('student_id')
+                score = result_item.get('score')
+                max_score = result_item.get('max_score', 100)
+                remarks = result_item.get('remarks', '')
+                
+                # Skip if no score provided (empty entry)
+                if score is None or score == '':
+                    continue
+                
+                try:
+                    score = float(score)
+                    max_score = float(max_score)
+                except (ValueError, TypeError):
+                    errors.append({
+                        'index': idx,
+                        'student_id': student_id,
+                        'error': 'Invalid score or max_score value'
+                    })
+                    continue
+                
+                # Validate score range
+                if score < 0:
+                    errors.append({
+                        'index': idx,
+                        'student_id': student_id,
+                        'error': 'Score cannot be negative'
+                    })
+                    continue
+                
+                if score > max_score:
+                    errors.append({
+                        'index': idx,
+                        'student_id': student_id,
+                        'error': f'Score ({score}) cannot exceed max score ({max_score})'
+                    })
+                    continue
+                
+                # Check if result already exists
+                existing = ExamResults.objects.filter(
+                    exam_id=exam_id,
+                    student_id=student_id,
+                    teacher_assignment_id=teacher_assignment_id
+                ).first()
+                
+                if existing:
+                    # Update existing
+                    existing.score = score
+                    existing.max_score = max_score
+                    existing.remarks = remarks
+                    existing.save()
+                    updated_count += 1
+                else:
+                    # Create new
+                    ExamResults.objects.create(
+                        exam_id=exam_id,
+                        student_id=student_id,
+                        teacher_assignment_id=teacher_assignment_id,
+                        score=score,
+                        max_score=max_score,
+                        remarks=remarks,
+                        recorded_by=user
+                    )
+                    created_count += 1
+        
+        return Response({
+            'success': True,
+            'message': f'Bulk grades processed: {created_count} created, {updated_count} updated',
+            'status': 200,
+            'data': {
+                'created_count': created_count,
+                'updated_count': updated_count,
+                'errors': errors
+            }
+        })
 
 def is_teacher(user):
     """Check if user has teacher role"""
@@ -2020,11 +2212,199 @@ class ReportCardSubjectViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         user = self.request.user
         branch_id = self.request.query_params.get('branch_id')
-        
+
         if branch_id and not has_model_permission(user, 'reportcardsubject', 'view', branch_id):
             raise PermissionDenied("No permission to view report card subjects.")
 
-        return self.queryset
+        queryset = self.queryset
+
+        # Filter by teacher for teachers
+        if is_teacher(user):
+            teacher = Teacher.objects.filter(user=user).first()
+            if teacher:
+                queryset = queryset.filter(teacher_assignment__teacher=teacher)
+
+        return queryset
+
+    @action(detail=True, methods=['post'], url_path='update-grades')
+    def update_grades(self, request, pk=None):
+        """
+        Update individual grade components (exam, assignment, attendance).
+        System automatically calculates total.
+        Request body: {
+            "exam_score": 85,
+            "assignment_avg": 78,
+            "attendance_score": 90,
+            "teacher_comment": "Good progress"
+        }
+        """
+        instance = self.get_object()
+        user = request.user
+
+        # Check permission - only admin or assigned teacher
+        is_admin = user.is_superuser or UserRole.objects.filter(
+            user=user, role__name__in=['admin', 'super_admin', 'head_admin']
+        ).exists()
+
+        if not is_admin:
+            teacher = Teacher.objects.filter(user=user).first()
+            if not teacher or instance.teacher_assignment.teacher != teacher:
+                raise PermissionDenied("Only the assigned teacher or admin can update grades.")
+
+        # Update fields if provided
+        exam_score = request.data.get('exam_score')
+        assignment_avg = request.data.get('assignment_avg')
+        attendance_score = request.data.get('attendance_score')
+        teacher_comment = request.data.get('teacher_comment')
+
+        if exam_score is not None:
+            instance.exam_score = float(exam_score)
+        if assignment_avg is not None:
+            instance.assignment_avg = float(assignment_avg)
+        if attendance_score is not None:
+            instance.attendance_score = float(attendance_score)
+        if teacher_comment is not None:
+            instance.teacher_comment = teacher_comment
+
+        # Save will trigger calculate_total() automatically
+        instance.save()
+
+        return Response({
+            'success': True,
+            'message': 'Grades updated successfully. Total calculated automatically.',
+            'status': 200,
+            'data': {
+                'exam_score': instance.exam_score,
+                'assignment_avg': instance.assignment_avg,
+                'attendance_score': instance.attendance_score,
+                'total_score': instance.total_score,
+                'percentage': str(instance.percentage) if instance.percentage else None,
+                'descriptive_grade': instance.descriptive_grade,
+                'letter_grade': instance.letter_grade,
+                'teacher_comment': instance.teacher_comment
+            }
+        })
+
+    @action(detail=False, methods=['post'], url_path='bulk-update-grades')
+    def bulk_update_grades(self, request):
+        """
+        Bulk update grades for multiple students.
+        System automatically calculates total for each.
+        Request body: {
+            "term_id": "<uuid>",
+            "teacher_assignment_id": "<uuid>",
+            "grades": [
+                {
+                    "student_id": "<uuid>",
+                    "exam_score": 85,
+                    "assignment_avg": 78,
+                    "attendance_score": 90
+                },
+                ...
+            ]
+        }
+        """
+        user = request.user
+        term_id = request.data.get('term_id')
+        teacher_assignment_id = request.data.get('teacher_assignment_id')
+        grades_data = request.data.get('grades', [])
+
+        if not term_id or not teacher_assignment_id:
+            return Response({
+                'success': False,
+                'message': 'term_id and teacher_assignment_id are required',
+                'status': 400
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        # Check permission
+        is_admin = user.is_superuser
+        if not is_admin:
+            teacher = Teacher.objects.filter(user=user).first()
+            if not teacher:
+                raise PermissionDenied("Teacher profile not found.")
+            assignment = TeacherAssignment.objects.filter(
+                id=teacher_assignment_id,
+                teacher=teacher
+            ).first()
+            if not assignment:
+                raise PermissionDenied("You are not authorized to update grades for this assignment.")
+
+        from academics.models import Term
+        term = Term.objects.filter(id=term_id).first()
+        if not term:
+            return Response({
+                'success': False,
+                'message': 'Term not found',
+                'status': 404
+            }, status=status.HTTP_404_NOT_FOUND)
+
+        teacher_assignment = TeacherAssignment.objects.filter(id=teacher_assignment_id).first()
+        if not teacher_assignment:
+            return Response({
+                'success': False,
+                'message': 'Teacher assignment not found',
+                'status': 404
+            }, status=status.HTTP_404_NOT_FOUND)
+
+        updated_count = 0
+        errors = []
+
+        with transaction.atomic():
+            for grade_item in grades_data:
+                student_id = grade_item.get('student_id')
+                if not student_id:
+                    continue
+
+                try:
+                    student = Student.objects.get(id=student_id)
+
+                    # Get or create report card
+                    report_card, _ = ReportCard.objects.get_or_create(
+                        student=student,
+                        term=term,
+                        defaults={
+                            'class_fk': student.class_fk,
+                            'section': student.section,
+                        }
+                    )
+
+                    # Get or create report card subject
+                    report_card_subject, _ = ReportCardSubject.objects.get_or_create(
+                        report_card=report_card,
+                        teacher_assignment=teacher_assignment,
+                        defaults={
+                            'subject': teacher_assignment.subject,
+                        }
+                    )
+
+                    # Update grades
+                    if 'exam_score' in grade_item:
+                        report_card_subject.exam_score = float(grade_item['exam_score'])
+                    if 'assignment_avg' in grade_item:
+                        report_card_subject.assignment_avg = float(grade_item['assignment_avg'])
+                    if 'attendance_score' in grade_item:
+                        report_card_subject.attendance_score = float(grade_item['attendance_score'])
+                    if 'teacher_comment' in grade_item:
+                        report_card_subject.teacher_comment = grade_item['teacher_comment']
+
+                    # Save will trigger calculate_total()
+                    report_card_subject.save()
+                    updated_count += 1
+
+                except Student.DoesNotExist:
+                    errors.append({'student_id': student_id, 'error': 'Student not found'})
+                except Exception as e:
+                    errors.append({'student_id': student_id, 'error': str(e)})
+
+        return Response({
+            'success': True,
+            'message': f'Grades updated for {updated_count} students. Totals calculated automatically.',
+            'status': 200,
+            'data': {
+                'updated_count': updated_count,
+                'errors': errors
+            }
+        })
 
 
 class CurriculumMappingViewSet(viewsets.ModelViewSet):

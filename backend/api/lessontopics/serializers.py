@@ -763,7 +763,8 @@ class StudentAssignmentsSerializer(serializers.ModelSerializer):
 # ==================== Exam Results ====================
 class ExamResultsSerializer(serializers.ModelSerializer):
     student_id = serializers.PrimaryKeyRelatedField(
-        queryset=Student.objects.all(), 
+        queryset=Student.objects.all(),
+        source='student',
         write_only=True,
         required=True
     )

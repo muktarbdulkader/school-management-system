@@ -44,7 +44,7 @@ export default function RatingStudents() {
   const theme = useTheme();
   const [searchQuery, setSearchQuery] = useState('');
   const [eligibleUsers, setEligibleUsers] = useState([]);
-  const [loading, setLoading] = useState([]);
+  const [loading, setLoading] = useState(false);
   const [ratingModalOpen, setRatingModalOpen] = useState(false);
   const [selectedStaff, setSelectedStaff] = useState(null);
   const [isAddingRate, setIsAddingRate] = useState(false);
@@ -55,7 +55,9 @@ export default function RatingStudents() {
 
   const findStudentById = (students, studentId) => {
     return students.find((s) => s.student_id === studentId) || null;
-  };  const [recentFeedback, setRecentFeedback] = useState({
+  };
+
+  const [recentFeedback, setRecentFeedback] = useState({
     your_recent_feedback: {
       total_ratings_submitted: 0,
       last_feedback_day: null,
@@ -180,15 +182,15 @@ export default function RatingStudents() {
       const lastFeedbackDay =
         feedbackList.length > 0
           ? feedbackList
-              .map((s) => s.last_feedback_day)
-              .sort((a, b) => new Date(b) - new Date(a))[0]
+            .map((s) => s.last_feedback_day)
+            .sort((a, b) => new Date(b) - new Date(a))[0]
           : null;
       const averageRating =
         feedbackList.length > 0
           ? (
-              feedbackList.reduce((acc, s) => acc + s.average_rating, 0) /
-              feedbackList.length
-            ).toFixed(2)
+            feedbackList.reduce((acc, s) => acc + s.average_rating, 0) /
+            feedbackList.length
+          ).toFixed(2)
           : 'N/A';
 
       setRecentFeedback({
@@ -335,8 +337,8 @@ export default function RatingStudents() {
               <Typography variant="body1" fontWeight={500}>
                 {recentFeedback?.your_recent_feedback?.last_feedback_day
                   ? new Date(
-                      recentFeedback.your_recent_feedback.last_feedback_day,
-                    ).toLocaleDateString()
+                    recentFeedback.your_recent_feedback.last_feedback_day,
+                  ).toLocaleDateString()
                   : 'No feedback yet'}
               </Typography>
             </Grid>
@@ -423,10 +425,10 @@ export default function RatingStudents() {
                       {/* Rating */}
                       <TableCell>
                         {recentFeedback.feedback_list &&
-                        findStudentById(
-                          recentFeedback.feedback_list,
-                          student.student_id,
-                        ) ? (
+                          findStudentById(
+                            recentFeedback.feedback_list,
+                            student.student_id,
+                          ) ? (
                           <Box display="flex" alignItems="center">
                             <Rating
                               value={
@@ -457,14 +459,14 @@ export default function RatingStudents() {
                       <TableCell>
                         <Typography variant="body2" color="text.secondary">
                           {recentFeedback.feedback_list &&
-                          findStudentById(
-                            recentFeedback.feedback_list,
-                            student.student_id,
-                          )
+                            findStudentById(
+                              recentFeedback.feedback_list,
+                              student.student_id,
+                            )
                             ? findStudentById(
-                                recentFeedback.feedback_list,
-                                student.student_id,
-                              ).last_feedback_day
+                              recentFeedback.feedback_list,
+                              student.student_id,
+                            ).last_feedback_day
                             : '-'}
                         </Typography>
                       </TableCell>

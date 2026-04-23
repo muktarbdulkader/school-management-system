@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import PropTypes from 'prop-types';
 import {
   TextField,
@@ -26,19 +26,33 @@ const AddAssignments = ({
   sections,
   students,
   teacherSubjects = [],
+  classData,
 }) => {
   const [assignmentDetails, setAssignmentDetails] = useState({
     title: '',
     description: '',
-    subject_id: '',
+    subject_id: classData?.id || '',
     assigned_date: new Date().toISOString().split('T')[0],
     due_date: '',
-    class_id: '',
-    section: '',
+    class_id: classData?.class_id || '',
+    section: classData?.section_id || '',
     students: [],
     is_group_assignment: false,
     max_points: 100,
+    file_url: '',
   });
+
+  // Update form when classData changes (when opened from specific class)
+  useEffect(() => {
+    if (classData && add) {
+      setAssignmentDetails(prev => ({
+        ...prev,
+        subject_id: classData.id || prev.subject_id,
+        class_id: classData.class_id || prev.class_id,
+        section: classData.section_id || prev.section,
+      }));
+    }
+  }, [classData, add]);
 
   // Filter subjects available for the selected class
   const availableSubjects = assignmentDetails.class_id && teacherSubjects.length > 0
@@ -174,14 +188,15 @@ const AddAssignments = ({
       setAssignmentDetails({
         title: '',
         description: '',
-        subject_id: '',
+        subject_id: classData?.id || '',
         assigned_date: new Date().toISOString().split('T')[0],
         due_date: '',
-        class_id: '',
-        section: '',
+        class_id: classData?.class_id || '',
+        section: classData?.section_id || '',
         students: [],
         is_group_assignment: false,
         max_points: 100,
+        file_url: '',
       });
     });
   };
@@ -243,6 +258,19 @@ const AddAssignments = ({
             value={assignmentDetails.description}
             onChange={handleChange}
             margin="normal"
+          />
+        </Grid>
+
+        <Grid item xs={12}>
+          <TextField
+            fullWidth
+            label="File URL (Optional)"
+            name="file_url"
+            placeholder="https://example.com/document.pdf"
+            value={assignmentDetails.file_url}
+            onChange={handleChange}
+            margin="normal"
+            helperText="Enter a link to any external resource (Google Drive, Dropbox, etc.)"
           />
         </Grid>
 
@@ -414,11 +442,13 @@ AddAssignments.propTypes = {
   sections: PropTypes.array.isRequired,
   students: PropTypes.array.isRequired,
   teacherSubjects: PropTypes.array,
+  classData: PropTypes.object,
 };
 
 AddAssignments.defaultProps = {
   add: false,
-  teacherSubjects: []
+  teacherSubjects: [],
+  classData: null,
 };
 
 export default AddAssignments;

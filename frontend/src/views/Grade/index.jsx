@@ -36,7 +36,10 @@ import {
   Search as SearchIcon,
   Assignment as AssignmentIcon,
   Edit as EditIcon,
+  Check as CheckIcon,
   Close as CloseIcon,
+  TableChart as TableChartIcon,
+  Save as SaveIcon,
 } from '@mui/icons-material';
 import GetToken from 'utils/auth-token';
 import Backend from 'services/backend';
@@ -68,8 +71,12 @@ export default function GradeBookPage() {
   // Dialog states
   const [openExamDialog, setOpenExamDialog] = useState(false);
   const [openGradeDialog, setOpenGradeDialog] = useState(false);
+  const [openBulkDialog, setOpenBulkDialog] = useState(false);
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [selectedExam, setSelectedExam] = useState(null);
+  const [selectedBulkExam, setSelectedBulkExam] = useState(null);
+  const [bulkGrades, setBulkGrades] = useState([]);
+  const [bulkMaxScore, setBulkMaxScore] = useState(100);
 
   // Form states
   const [examForm, setExamForm] = useState({
@@ -88,6 +95,7 @@ export default function GradeBookPage() {
     max_score: 100,
     remarks: '',
   });
+  const [bulkSaving, setBulkSaving] = useState(false);
 
   const [teacherProfile, setTeacherProfile] = useState(null);
   const [teacherAssignments, setTeacherAssignments] = useState([]);
@@ -239,6 +247,8 @@ export default function GradeBookPage() {
         setClasses(uniqueClasses);
         setSubjects(uniqueSubjects);
         // Store full assignments data for later use
+        console.log('[Grade] Storing teacher assignments:', teacherSubjects);
+        console.log('[Grade] First assignment sample:', teacherSubjects[0]);
         setTeacherAssignments(teacherSubjects);
 
         // Set defaults from state or first available
@@ -378,6 +388,8 @@ export default function GradeBookPage() {
         console.error('Failed to fetch exam results:', e);
       }
       setExamResults(resultsList);
+      console.log('[Grade] Students:', studentsList.map(s => ({ id: s.id, name: s.full_name })));
+      console.log('[Grade] Exam Results:', resultsList.map(r => ({ student_id: r.student_id, exam_id: r.exam_id, score: r.score })));
 
       // Calculate statistics
       calculateStats(studentsList, resultsList, examsList);
@@ -418,22 +430,23 @@ export default function GradeBookPage() {
   };
 
   const getStudentResults = (studentId) => {
-    return examResults.filter(r => r.student_id === studentId);
+    return examResults.filter(r => String(r.student_id) === String(studentId));
   };
 
   const getStudentTotal = (studentId) => {
     const results = getStudentResults(studentId);
     if (results.length === 0) return '0%';
 
-    const totalScore = results.reduce((sum, r) => sum + r.score, 0);
-    const totalMax = results.reduce((sum, r) => sum + r.max_score, 0);
+    const totalScore = results.reduce((sum, r) => sum + (parseFloat(r.score) || 0), 0);
+    const totalMax = results.reduce((sum, r) => sum + (parseFloat(r.max_score) || 0), 0);
 
     if (totalMax === 0) return '0%';
-    return `${((totalScore / totalMax) * 100).toFixed(0)}%`;
+    const percentage = ((totalScore / totalMax) * 100).toFixed(0);
+    return `${percentage}%`;
   };
 
   const getExamScore = (studentId, examId) => {
-    const result = examResults.find(r => r.student_id === studentId && r.exam_id === examId);
+    const result = examResults.find(r => String(r.student_id) === String(studentId) && String(r.exam_id) === String(examId));
     if (!result) {
       return (
         <IconButton
@@ -450,10 +463,10 @@ export default function GradeBookPage() {
         <Typography variant="body2">{result.score}/{result.max_score}</Typography>
         <IconButton
           size="small"
-          color="primary"
+          color="success"
           onClick={() => handleOpenGradeDialog(students.find(s => s.id === studentId), examId)}
         >
-          <EditIcon fontSize="small" />
+          <CheckIcon fontSize="small" />
         </IconButton>
       </Box>
     );
@@ -564,6 +577,7 @@ export default function GradeBookPage() {
       };
 
       // Find teacher_assignment_id for this class/section/subject
+      // Use assignment_id (TeacherAssignment.id) not id (Subject.id)
       const assignment = teacherAssignments.find(a =>
         a.class_id === grade &&
         (a.section_id === section || (!a.section_id && !section)) &&
@@ -577,9 +591,18 @@ export default function GradeBookPage() {
         return;
       }
 
-      // Use assignment_id if available, otherwise fall back to id
-      const teacherAssignmentId = assignment.assignment_id || assignment.id;
-      console.log('[Grade] Found assignment:', assignment, 'Using ID:', teacherAssignmentId);
+      console.log('[Grade] Found assignment object:', assignment);
+      console.log('[Grade] assignment.id (Subject ID):', assignment.id);
+      console.log('[Grade] assignment.assignment_id (TeacherAssignment ID):', assignment.assignment_id);
+
+      // Use assignment_id (the TeacherAssignment record ID)
+      const teacherAssignmentId = assignment.assignment_id;
+      if (!teacherAssignmentId) {
+        console.error('[Grade] assignment_id missing from assignment:', assignment);
+        toast.error('Assignment ID not found. Please refresh the page or contact admin.');
+        return;
+      }
+      console.log('[Grade] Using teacherAssignmentId:', teacherAssignmentId);
 
       const payload = {
         student_id: selectedStudent.id,
@@ -636,6 +659,128 @@ export default function GradeBookPage() {
     setOpenGradeDialog(true);
   };
 
+  // Bulk Grade Entry Handlers
+  const handleOpenBulkDialog = (exam) => {
+    if (!term || !subject || !grade) {
+      toast.error('Please select term, class, and subject first');
+      return;
+    }
+    setSelectedBulkExam(exam);
+    setBulkMaxScore(exam.max_score || 100);
+
+    // Initialize bulk grades array with existing data
+    const initialBulkGrades = students.map(student => {
+      const existingResult = examResults.find(
+        r => r.student_id === student.id && r.exam_id === exam.id
+      );
+      return {
+        student_id: student.id,
+        student_name: student.name || student.user_details?.full_name || 'Unknown',
+        score: existingResult ? existingResult.score : '',
+        remarks: existingResult ? (existingResult.remarks || '') : '',
+      };
+    });
+
+    setBulkGrades(initialBulkGrades);
+    setOpenBulkDialog(true);
+  };
+
+  const handleBulkScoreChange = (index, value) => {
+    const newBulkGrades = [...bulkGrades];
+    newBulkGrades[index] = { ...newBulkGrades[index], score: value };
+    setBulkGrades(newBulkGrades);
+  };
+
+  const handleBulkRemarksChange = (index, value) => {
+    const newBulkGrades = [...bulkGrades];
+    newBulkGrades[index] = { ...newBulkGrades[index], remarks: value };
+    setBulkGrades(newBulkGrades);
+  };
+
+  const handleBulkEnterGrades = async () => {
+    try {
+      setBulkSaving(true);
+      const token = await GetToken();
+      const header = {
+        Authorization: `Bearer ${token}`,
+        accept: 'application/json',
+        'Content-Type': 'application/json',
+      };
+
+      // Find teacher_assignment_id
+      // Use assignment_id (TeacherAssignment.id) not id (Subject.id)
+      const assignment = teacherAssignments.find(a =>
+        a.class_id === grade &&
+        (a.section_id === section || (!a.section_id && !section)) &&
+        a.id === subject
+      );
+
+      if (!assignment) {
+        toast.error('Teacher assignment not found for this class/section/subject');
+        setBulkSaving(false);
+        return;
+      }
+
+      const teacherAssignmentId = assignment.assignment_id;
+      if (!teacherAssignmentId) {
+        console.error('[Grade] assignment_id missing from assignment:', assignment);
+        toast.error('Assignment ID not found. Please refresh the page.');
+        setBulkSaving(false);
+        return;
+      }
+
+      // Filter out empty scores and prepare results
+      const resultsData = bulkGrades
+        .filter(item => item.score !== '' && item.score !== null)
+        .map(item => ({
+          student_id: item.student_id,
+          score: parseFloat(item.score),
+          max_score: parseFloat(bulkMaxScore),
+          remarks: item.remarks,
+        }));
+
+      if (resultsData.length === 0) {
+        toast.warning('No grades to save. Please enter at least one score.');
+        setBulkSaving(false);
+        return;
+      }
+
+      const payload = {
+        exam_id: selectedBulkExam.id,
+        teacher_assignment_id: teacherAssignmentId,
+        branch_id: teacherProfile?.branch_id || null,
+        results: resultsData,
+      };
+
+      const response = await fetch(`${Backend.api}${Backend.examResults}bulk_create/`, {
+        method: 'POST',
+        headers: header,
+        body: JSON.stringify(payload),
+      });
+
+      const data = await response.json();
+      if (data.success) {
+        toast.success(`Grades saved: ${data.data.created_count} created, ${data.data.updated_count} updated`);
+        if (data.data.errors && data.data.errors.length > 0) {
+          data.data.errors.forEach(err => {
+            toast.error(`Error for student ${err.student_id}: ${err.error}`);
+          });
+        }
+        setOpenBulkDialog(false);
+        setSelectedBulkExam(null);
+        setBulkGrades([]);
+        fetchStudentsAndGrades();
+      } else {
+        toast.error(data.message || 'Failed to save bulk grades');
+      }
+    } catch (error) {
+      console.error('Error saving bulk grades:', error);
+      toast.error('Failed to save grades: ' + error.message);
+    } finally {
+      setBulkSaving(false);
+    }
+  };
+
   return (
     <Container maxWidth="xl" sx={{ py: 3 }}>
       <Box sx={{ mb: 4 }}>
@@ -678,18 +823,29 @@ export default function GradeBookPage() {
             >
               Grade Entry
             </Button>
+            <Button
+              variant="outlined"
+              color="secondary"
+              startIcon={<TableChartIcon />}
+              onClick={() => {
+                if (!term || !subject || !grade) {
+                  toast.error('Please select term, class, and subject first');
+                  return;
+                }
+                if (exams.length === 0) {
+                  toast.error('No exams available. Please create an assessment first.');
+                  return;
+                }
+                // Open bulk entry for the first exam (or show exam selector)
+                handleOpenBulkDialog(exams[0]);
+              }}
+            >
+              Bulk Entry
+            </Button>
           </Box>
         </Box>
 
         <Box sx={{ display: 'flex', gap: 2, mb: 3, flexWrap: 'wrap', alignItems: 'center' }}>
-          <FormControl size="small" sx={{ minWidth: 120 }}>
-            <InputLabel>Term</InputLabel>
-            <Select value={term} onChange={(e) => setTerm(e.target.value)} label="Term" disabled={terms.length === 0}>
-              {terms.map(t => (
-                <MenuItem key={t.id} value={t.id}>{t.name}</MenuItem>
-              ))}
-            </Select>
-          </FormControl>
           <FormControl size="small" sx={{ minWidth: 120 }}>
             <InputLabel>Grade</InputLabel>
             <Select value={grade} onChange={(e) => setGrade(e.target.value)} label="Grade" disabled={classes.length === 0}>
@@ -714,16 +870,14 @@ export default function GradeBookPage() {
               ))}
             </Select>
           </FormControl>
-
-          {/* Debug info */}
-          <Box sx={{ ml: 2, p: 1, bgcolor: '#f5f5f5', borderRadius: 1, fontSize: '0.75rem' }}>
-            <Typography variant="caption" display="block">
-              Terms: {terms.length} | Classes: {classes.length} | Sections: {sections.length} | Subjects: {subjects.length}
-            </Typography>
-            <Typography variant="caption" display="block" color={term && grade && section && subject ? 'success.main' : 'error.main'}>
-              Selected: {term ? '✓' : '✗'} Term, {grade ? '✓' : '✗'} Grade, {section ? '✓' : '✗'} Section, {subject ? '✓' : '✗'} Subject
-            </Typography>
-          </Box>
+          <FormControl size="small" sx={{ minWidth: 120 }}>
+            <InputLabel>Term</InputLabel>
+            <Select value={term} onChange={(e) => setTerm(e.target.value)} label="Term" disabled={terms.length === 0}>
+              {terms.map(t => (
+                <MenuItem key={t.id} value={t.id}>{t.name}</MenuItem>
+              ))}
+            </Select>
+          </FormControl>
         </Box>
       </Box>
 
@@ -1017,7 +1171,127 @@ export default function GradeBookPage() {
         </DialogActions>
       </Dialog>
 
+      {/* Bulk Grade Entry Dialog */}
+      <Dialog open={openBulkDialog} onClose={() => !bulkSaving && setOpenBulkDialog(false)} maxWidth="md" fullWidth>
+        <DialogTitle>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Box>
+              <Typography variant="h6">Bulk Grade Entry</Typography>
+              <Typography variant="caption" color="text.secondary">
+                {selectedBulkExam?.name} • Max Score: {bulkMaxScore}
+              </Typography>
+            </Box>
+            <IconButton onClick={() => !bulkSaving && setOpenBulkDialog(false)} disabled={bulkSaving}>
+              <CloseIcon />
+            </IconButton>
+          </Box>
+        </DialogTitle>
+        <DialogContent>
+          <Box sx={{ mt: 2 }}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2, gap: 2 }}>
+              <FormControl size="small" sx={{ minWidth: 200 }}>
+                <InputLabel>Select Assessment</InputLabel>
+                <Select
+                  value={selectedBulkExam?.id || ''}
+                  onChange={(e) => {
+                    const exam = exams.find(ex => ex.id === e.target.value);
+                    if (exam) handleOpenBulkDialog(exam);
+                  }}
+                  label="Select Assessment"
+                >
+                  {exams.map(exam => (
+                    <MenuItem key={exam.id} value={exam.id}>
+                      {exam.name} ({exam.exam_type})
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+              <TextField
+                label="Max Score"
+                type="number"
+                size="small"
+                value={bulkMaxScore}
+                onChange={(e) => setBulkMaxScore(parseFloat(e.target.value) || 100)}
+                sx={{ width: 120 }}
+                inputProps={{ min: 1 }}
+              />
+            </Box>
+            <Typography variant="subtitle2" sx={{ mb: 1 }}>
+              Enter scores for all students. Leave blank to skip.
+            </Typography>
+
+            <TableContainer component={Paper} variant="outlined" sx={{ maxHeight: 400 }}>
+              <Table size="small" stickyHeader>
+                <TableHead>
+                  <TableRow>
+                    <TableCell sx={{ fontWeight: 'bold', bgcolor: 'background.paper' }}>Student Name</TableCell>
+                    <TableCell sx={{ fontWeight: 'bold', bgcolor: 'background.paper', width: 120 }}>Score</TableCell>
+                    <TableCell sx={{ fontWeight: 'bold', bgcolor: 'background.paper' }}>Remarks (Optional)</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {bulkGrades.map((item, index) => (
+                    <TableRow key={item.student_id} hover>
+                      <TableCell>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <Avatar sx={{ width: 28, height: 28, fontSize: '0.875rem' }}>
+                            {item.student_name.charAt(0)}
+                          </Avatar>
+                          <Typography variant="body2">{item.student_name}</Typography>
+                        </Box>
+                      </TableCell>
+                      <TableCell>
+                        <TextField
+                          type="number"
+                          size="small"
+                          value={item.score}
+                          onChange={(e) => handleBulkScoreChange(index, e.target.value)}
+                          placeholder={`/${bulkMaxScore}`}
+                          inputProps={{ min: 0, max: bulkMaxScore }}
+                          sx={{ width: 100 }}
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <TextField
+                          size="small"
+                          value={item.remarks}
+                          onChange={(e) => handleBulkRemarksChange(index, e.target.value)}
+                          placeholder="Optional remarks"
+                          fullWidth
+                        />
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+
+            {bulkGrades.length === 0 && (
+              <Box sx={{ textAlign: 'center', py: 4 }}>
+                <Typography variant="body2" color="text.secondary">
+                  No students found. Please select a class with students.
+                </Typography>
+              </Box>
+            )}
+          </Box>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, py: 2 }}>
+          <Button onClick={() => setOpenBulkDialog(false)} disabled={bulkSaving}>
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            color="primary"
+            onClick={handleBulkEnterGrades}
+            disabled={bulkSaving || bulkGrades.length === 0}
+            startIcon={bulkSaving ? <CircularProgress size={20} color="inherit" /> : <SaveIcon />}
+          >
+            {bulkSaving ? 'Saving...' : `Save ${bulkGrades.filter(g => g.score !== '').length} Grades`}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
       <ToastContainer />
-    </Container>
+    </Container >
   );
 }
