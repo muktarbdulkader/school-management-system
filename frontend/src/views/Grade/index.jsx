@@ -957,10 +957,17 @@ export default function GradeBookPage() {
                       <TableRow>
                         <TableCell>Student Name</TableCell>
                         {exams.map(exam => (
-                          <TableCell key={exam.id} align="center">
+                          <TableCell key={exam.id} align="center" sx={{ minWidth: 120 }}>
                             <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                              <Typography variant="subtitle2">{exam.name}</Typography>
-                              <Typography variant="caption" color="text.secondary">{exam.exam_type}</Typography>
+                              <Typography variant="subtitle2" fontWeight="bold" noWrap sx={{ maxWidth: 150 }}>
+                                {exam.name}
+                              </Typography>
+                              <Chip
+                                label={exam.exam_type?.replace('_', ' ')}
+                                size="small"
+                                variant="outlined"
+                                sx={{ fontSize: '0.7rem', mt: 0.5 }}
+                              />
                             </Box>
                           </TableCell>
                         ))}

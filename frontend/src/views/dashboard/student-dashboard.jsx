@@ -109,6 +109,7 @@ const StudentDashboard = () => {
   const [exams, setExams] = useState([]);
   const [examResults, setExamResults] = useState([]);
   const [assignmentGrades, setAssignmentGrades] = useState([]);
+  const [reportCard, setReportCard] = useState(null);
 
   const fetchStudentData = async () => {
     setLoading(true);

@@ -335,6 +335,19 @@ class ClassesViewSet(viewsets.ModelViewSet):
             # If no branch restrictions, return all classes
             return queryset
 
+        # Teachers see classes they are assigned to
+        from teachers.models import Teacher, TeacherAssignment
+        from schedule.views import is_teacher
+        if is_teacher(user):
+            teacher = Teacher.objects.filter(user=user).first()
+            if teacher:
+                # Get unique class IDs from teacher assignments
+                assigned_class_ids = TeacherAssignment.objects.filter(
+                    teacher=teacher
+                ).values_list('class_fk_id', flat=True).distinct()
+                if assigned_class_ids:
+                    return self.queryset.filter(id__in=assigned_class_ids)
+
         return self.queryset.none()
 
     def list(self, request, *args, **kwargs):

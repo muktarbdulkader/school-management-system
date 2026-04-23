@@ -183,6 +183,7 @@ class ParentDashboardView(APIView):
                     'announcements': self._get_announcements(student),
                     'exams': self._get_exams(student),
                     'exam_results': self._get_exam_results(student),
+                    'report_card': self._get_report_card(student),
                     'progress': self._get_progress(student),
                     'behavior_ratings': self._get_behavior_ratings_summary(student),
                 }
@@ -395,6 +396,67 @@ class ParentDashboardView(APIView):
             }
             for exam in exams
         ]
+
+    def _get_report_card(self, student):
+        """Get current term report card for student with subject grades"""
+        from lessontopics.models import ReportCard, ReportCardSubject
+        from academics.models import Term
+
+        # Get current term
+        current_term = Term.objects.filter(is_current=True).first()
+        if not current_term and student.current_term:
+            current_term = student.current_term
+
+        if not current_term:
+            return None
+
+        # Get report card for current term
+        report_card = ReportCard.objects.filter(
+            student=student,
+            term=current_term
+        ).prefetch_related('subjects').first()
+
+        if not report_card:
+            return None
+
+        # Build subjects data with component breakdown
+        subjects_data = []
+        for subject in report_card.subjects.all():
+            subjects_data.append({
+                'id': str(subject.id),
+                'subject': subject.subject.name if subject.subject else 'N/A',
+                'subject_details': {
+                    'name': subject.subject.name if subject.subject else 'N/A',
+                    'code': subject.subject.code if subject.subject else None,
+                },
+                'exam_score': float(subject.exam_score) if subject.exam_score else None,
+                'exam_max_score': float(subject.exam_max_score) if subject.exam_max_score else 100,
+                'assignment_avg': float(subject.assignment_avg) if subject.assignment_avg else None,
+                'assignment_max': float(subject.assignment_max) if subject.assignment_max else 100,
+                'attendance_score': float(subject.attendance_score) if subject.attendance_score else None,
+                'attendance_max': float(subject.attendance_max) if subject.attendance_max else 100,
+                'total_score': float(subject.total_score) if subject.total_score else None,
+                'total_max': float(subject.total_max) if subject.total_max else 100,
+                'percentage': float(subject.percentage) if subject.percentage else None,
+                'descriptive_grade': subject.descriptive_grade,
+                'letter_grade': subject.letter_grade,
+                'teacher_comment': subject.teacher_comment,
+            })
+
+        return {
+            'id': str(report_card.id),
+            'term': {
+                'id': str(report_card.term.id) if report_card.term else None,
+                'name': report_card.term.name if report_card.term else 'N/A',
+            },
+            'overall_percentage': float(report_card.overall_percentage) if report_card.overall_percentage else None,
+            'rank_in_class': report_card.rank_in_class,
+            'total_students': report_card.total_students,
+            'teacher_remarks': report_card.teacher_remarks,
+            'principal_remarks': report_card.principal_remarks,
+            'is_published': report_card.is_published,
+            'subjects': subjects_data,
+        }
 
     def _get_exam_results(self, student):
         """Get exam results for student"""
