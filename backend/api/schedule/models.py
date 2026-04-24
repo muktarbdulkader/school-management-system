@@ -9,7 +9,20 @@ EXAM_TYPE_CHOICES = (
     ('mid_term', 'Mid Term'),
     ('unit_test', 'Unit Test'),
     ('diagnostic_test', 'Diagnostic Test'),
+    ('quiz', 'Quiz'),
+    ('homework', 'Homework'),
+    ('project', 'Project'),
     ('other', 'Other'),
+)
+
+# Weight profiles for automatic grading configuration
+WEIGHT_PROFILE_CHOICES = (
+    ('k12_standard', 'K-12 Standard (60/20/10/10)'),
+    ('exam_heavy', 'Exam Heavy (80/10/5/5)'),
+    ('project_based', 'Project Based (40/20/30/10)'),
+    ('continuous', 'Continuous Assessment (30/50/10/10)'),
+    ('exam_only', 'Exam Only (100/0/0/0)'),
+    ('custom', 'Custom (Manual)'),
 )
 
 DAY_OF_WEEK_CHOICES = (
@@ -231,6 +244,17 @@ class Exam(models.Model):
     end_time = models.TimeField(null=True, blank=True)
     max_score = models.FloatField(default=100)
     passing_score = models.FloatField(default=40)
+
+    # Weight profile for automatic grading configuration
+    weight_profile = models.CharField(max_length=20, choices=WEIGHT_PROFILE_CHOICES, default='k12_standard',
+                                     help_text='Auto-applies weights when exam results are entered')
+
+    # Custom weights (used when weight_profile is 'custom')
+    custom_exam_weight = models.FloatField(default=60, help_text='Custom weight for exam')
+    custom_ca_weight = models.FloatField(default=20, help_text='Custom weight for continuous assessment')
+    custom_assignment_weight = models.FloatField(default=10, help_text='Custom weight for assignments')
+    custom_attendance_weight = models.FloatField(default=10, help_text='Custom weight for attendance')
+
     description = models.TextField(blank=True)
     created_by = models.ForeignKey('users.User', on_delete=models.SET_NULL, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -242,6 +266,23 @@ class Exam(models.Model):
     def __str__(self):
         term_name = self.term.name if self.term else "Unknown"
         return f"{self.name} - {term_name} ({self.exam_type})"
+
+    def get_weights(self):
+        """Get the weights based on the weight_profile"""
+        profiles = {
+            'k12_standard': {'exam': 60, 'ca': 20, 'assignment': 10, 'attendance': 10},
+            'exam_heavy': {'exam': 80, 'ca': 10, 'assignment': 5, 'attendance': 5},
+            'project_based': {'exam': 40, 'ca': 20, 'assignment': 30, 'attendance': 10},
+            'continuous': {'exam': 30, 'ca': 50, 'assignment': 10, 'attendance': 10},
+            'exam_only': {'exam': 100, 'ca': 0, 'assignment': 0, 'attendance': 0},
+            'custom': {
+                'exam': self.custom_exam_weight,
+                'ca': self.custom_ca_weight,
+                'assignment': self.custom_assignment_weight,
+                'attendance': self.custom_attendance_weight
+            },
+        }
+        return profiles.get(self.weight_profile, profiles['k12_standard'])
 
 class SubjectExamDay(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)

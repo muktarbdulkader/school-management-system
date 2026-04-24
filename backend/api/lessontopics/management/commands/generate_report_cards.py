@@ -243,3 +243,40 @@ class Command(BaseCommand):
             rc.rank_in_class = index
             rc.total_students = total_students
             rc.save()
+
+
+# Standalone function for use in views
+def calculate_ranks_for_class(class_id, section_id, term_id):
+    """Calculate and save student ranks for a class/section/term - can be called from views"""
+    from lessontopics.models import ReportCard, StudentRank
+
+    report_cards = ReportCard.objects.filter(
+        class_fk_id=class_id,
+        section_id=section_id,
+        term_id=term_id
+    ).order_by('-overall_percentage')
+
+    total_students = report_cards.count()
+
+    for index, rc in enumerate(report_cards, start=1):
+        # Update ReportCard
+        rc.rank_in_class = index
+        rc.total_students = total_students
+        rc.save()
+
+        # Create or update StudentRank
+        rank, _ = StudentRank.objects.update_or_create(
+            student=rc.student,
+            class_fk_id=class_id,
+            section_id=section_id,
+            term_id=term_id,
+            defaults={
+                'total_score': rc.overall_percentage or 0,
+                'total_max': 100,
+                'percentage': rc.overall_percentage or 0,
+                'position': index,
+                'total_students': total_students,
+                'out_of': f"{index}{'st' if index==1 else 'nd' if index==2 else 'rd' if index==3 else 'th'} out of {total_students}",
+                'remark': 'Excellent' if rc.overall_percentage >= 80 else 'Very Good' if rc.overall_percentage >= 70 else 'Good' if rc.overall_percentage >= 60 else 'Satisfactory' if rc.overall_percentage >= 50 else 'Needs Improvement'
+            }
+        )

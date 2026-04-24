@@ -13,18 +13,20 @@ from teachers.models import Teacher
 from users.models import UserRole, has_model_permission
 from schedule.views import is_teacher
 from .serializers import (
-    AssignmentsSerializer, ExamResultsSerializer, LearningObjectivesSerializer, 
-    LessonActivitiesSerializer, LessonPlanEvaluationsSerializer, LessonPlanObjectivesSerializer, 
-    LessonPlansSerializer, ObjectiveCategoriesSerializer, ObjectiveSubunitsSerializer, 
+    AssignmentsSerializer, ExamResultsSerializer, LearningObjectivesSerializer,
+    LessonActivitiesSerializer, LessonPlanEvaluationsSerializer, LessonPlanObjectivesSerializer,
+    LessonPlansSerializer, ObjectiveCategoriesSerializer, ObjectiveSubunitsSerializer,
     ObjectiveUnitsSerializer, StudentAssignmentsSerializer,
     ReportCardSerializer, ReportCardSubjectSerializer, CurriculumMappingSerializer,
-    ClassUnitProgressSerializer, ClassSubunitProgressSerializer
+    ClassUnitProgressSerializer, ClassSubunitProgressSerializer,
+    ContinuousAssessmentSerializer, SkillsAssessmentSerializer, TeacherCommentSerializer, StudentRankSerializer
 )
 from .models import (
-    Assignments, ExamResults, LearningObjectives, LessonActivities, 
-    LessonPlanEvaluations, LessonPlanObjectives, LessonPlans, 
+    Assignments, ExamResults, LearningObjectives, LessonActivities,
+    LessonPlanEvaluations, LessonPlanObjectives, LessonPlans,
     ObjectiveCategories, ObjectiveSubunits, ObjectiveUnits, StudentAssignments,
-    ReportCard, ReportCardSubject, CurriculumMapping, ClassUnitProgress, ClassSubunitProgress
+    ReportCard, ReportCardSubject, CurriculumMapping, ClassUnitProgress, ClassSubunitProgress,
+    ContinuousAssessment, SkillsAssessment, TeacherComment, StudentRank
 )
 import logging
 logger = logging.getLogger(__name__)
@@ -2278,6 +2280,56 @@ class ReportCardSubjectViewSet(viewsets.ModelViewSet):
     queryset = ReportCardSubject.objects.all().select_related('report_card', 'teacher_assignment', 'subject')
     serializer_class = ReportCardSubjectSerializer
     permission_classes = [IsAuthenticated]
+
+    @action(detail=True, methods=['get'], url_path='score_breakdown')
+    def score_breakdown(self, request, pk=None):
+        """Get detailed score breakdown showing how total was calculated"""
+        instance = self.get_object()
+        breakdown = instance.get_score_breakdown()
+        return Response({
+            'success': True,
+            'message': 'Score breakdown retrieved',
+            'data': breakdown
+        })
+
+    @action(detail=True, methods=['post'], url_path='update_weights')
+    def update_weights(self, request, pk=None):
+        """Update teacher-defined custom weights for this subject"""
+        instance = self.get_object()
+
+        # Get weights from request
+        exam_weight = request.data.get('exam_weight', 60)
+        ca_weight = request.data.get('ca_weight', 20)
+        assignment_weight = request.data.get('assignment_weight', 10)
+        attendance_weight = request.data.get('attendance_weight', 10)
+
+        # Validate weights (must be positive numbers)
+        try:
+            instance.exam_weight = float(exam_weight)
+            instance.ca_weight = float(ca_weight)
+            instance.assignment_weight = float(assignment_weight)
+            instance.attendance_weight = float(attendance_weight)
+        except (ValueError, TypeError):
+            return Response({
+                'success': False,
+                'message': 'Invalid weight values. Must be positive numbers.',
+                'status': 400
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        # Save and recalculate
+        instance.save()
+
+        return Response({
+            'success': True,
+            'message': 'Weights updated successfully',
+            'data': {
+                'exam_weight': instance.exam_weight,
+                'ca_weight': instance.ca_weight,
+                'assignment_weight': instance.assignment_weight,
+                'attendance_weight': instance.attendance_weight,
+                'total_score': instance.total_score,
+            }
+        })
 
     def get_queryset(self):
         user = self.request.user

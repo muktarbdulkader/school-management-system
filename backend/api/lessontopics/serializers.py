@@ -22,10 +22,11 @@ from teachers.serializers import TeacherSerializer
 from users.models import User
 from users.serializers import UserSerializer
 from .models import (
-    Assignments, ExamResults, LearningObjectives, LessonActivities, 
-    LessonPlanEvaluations, LessonPlanObjectives, LessonPlans, 
+    Assignments, ExamResults, LearningObjectives, LessonActivities,
+    LessonPlanEvaluations, LessonPlanObjectives, LessonPlans,
     ObjectiveCategories, ObjectiveSubunits, ObjectiveUnits, StudentAssignments,
-    ReportCard, ReportCardSubject, CurriculumMapping, ClassUnitProgress, ClassSubunitProgress
+    ReportCard, ReportCardSubject, CurriculumMapping, ClassUnitProgress, ClassSubunitProgress,
+    ContinuousAssessment, SkillsAssessment, TeacherComment, StudentRank
 )
 
 # ==================== Objective Categories ====================
@@ -861,14 +862,44 @@ class ReportCardSubjectSerializer(serializers.ModelSerializer):
     subject_details = SubjectSerializer(source='subject', read_only=True)
     descriptive_grade_display = serializers.CharField(source='get_descriptive_grade_display', read_only=True)
     letter_grade_display = serializers.CharField(source='get_letter_grade_display', read_only=True)
+    score_breakdown = serializers.SerializerMethodField()
+    exam_types = serializers.SerializerMethodField()
+
+    def get_score_breakdown(self, obj):
+        return obj.get_score_breakdown()
+
+    def get_exam_types(self, obj):
+        """Get list of exam types that contributed to this subject's score"""
+        from .models import ExamResults
+        exam_results = ExamResults.objects.filter(
+            student=obj.report_card.student,
+            teacher_assignment=obj.teacher_assignment,
+            exam__term=obj.report_card.term
+        ).select_related('exam')
+
+        types = []
+        for result in exam_results:
+            if result.exam and result.exam.exam_type:
+                types.append({
+                    'type': result.exam.exam_type,
+                    'name': result.exam.name,
+                    'score': float(result.percentage) if result.percentage else 0,
+                    'raw_score': float(result.score) if result.score else 0,
+                    'max_score': result.max_score
+                })
+        return types
 
     class Meta:
         model = ReportCardSubject
         fields = ['id', 'teacher_assignment', 'teacher_assignment_details', 'subject', 'subject_details',
-                  'exam_score', 'exam_max_score', 'assignment_avg', 'assignment_max',
+                  'exam_score', 'exam_max_score', 'ca_score', 'ca_max',
+                  'assignment_avg', 'assignment_max',
                   'attendance_score', 'attendance_max', 'total_score', 'total_max',
                   'percentage', 'descriptive_grade', 'descriptive_grade_display',
-                  'letter_grade', 'letter_grade_display', 'teacher_comment']
+                  'letter_grade', 'letter_grade_display', 'teacher_comment', 'score_breakdown',
+                  'exam_types',  # Shows what exam types were entered
+                  # Teacher-defined custom weights (flexible grading)
+                  'exam_weight', 'ca_weight', 'assignment_weight', 'attendance_weight']
 
 
 class ReportCardSerializer(serializers.ModelSerializer):
@@ -926,3 +957,97 @@ class ClassSubunitProgressSerializer(serializers.ModelSerializer):
         fields = ['id', 'class_fk', 'class_details', 'section', 'section_details',
                   'subject', 'subject_details', 'subunit', 'subunit_details',
                   'is_completed', 'updated_at']
+
+
+# ==================== K-12 Continuous Assessment ====================
+class ContinuousAssessmentSerializer(serializers.ModelSerializer):
+    student_details = StudentSerializer(source='student', read_only=True)
+    teacher_assignment_details = TeacherAssignmentSerializer(source='teacher_assignment', read_only=True)
+    term_details = TermsSerializer(source='term', read_only=True)
+    recorded_by_details = UserSerializer(source='recorded_by', read_only=True)
+    ca_type_display = serializers.CharField(source='get_ca_type_display', read_only=True)
+
+    class Meta:
+        model = ContinuousAssessment
+        fields = ['id', 'student', 'student_details', 'teacher_assignment', 'teacher_assignment_details',
+                  'term', 'term_details', 'ca_type', 'ca_type_display', 'title', 'description',
+                  'score', 'max_score', 'weight', 'date_given', 'date_submitted',
+                  'recorded_by', 'recorded_by_details', 'recorded_at']
+
+    def create(self, validated_data):
+        # Handle foreign keys from request data
+        student_id = self.initial_data.get('student_id')
+        teacher_assignment_id = self.initial_data.get('teacher_assignment_id')
+        term_id = self.initial_data.get('term_id')
+
+        if student_id:
+            from students.models import Student
+            validated_data['student'] = Student.objects.get(id=student_id)
+        if teacher_assignment_id:
+            from teachers.models import TeacherAssignment
+            validated_data['teacher_assignment'] = TeacherAssignment.objects.get(id=teacher_assignment_id)
+        if term_id:
+            from academics.models import Term
+            validated_data['term'] = Term.objects.get(id=term_id)
+
+        return super().create(validated_data)
+
+
+class SkillsAssessmentSerializer(serializers.ModelSerializer):
+    student_details = StudentSerializer(source='student', read_only=True)
+    teacher_assignment_details = TeacherAssignmentSerializer(source='teacher_assignment', read_only=True)
+    term_details = TermsSerializer(source='term', read_only=True)
+    assessed_by_details = UserSerializer(source='assessed_by', read_only=True)
+    skill_display = serializers.CharField(source='get_skill_display', read_only=True)
+    rating_display = serializers.CharField(source='get_rating_display', read_only=True)
+
+    class Meta:
+        model = SkillsAssessment
+        fields = ['id', 'student', 'student_details', 'teacher_assignment', 'teacher_assignment_details',
+                  'term', 'term_details', 'skill', 'skill_display', 'rating', 'rating_display',
+                  'comment', 'assessed_by', 'assessed_by_details', 'assessed_at']
+
+    def create(self, validated_data):
+        # Handle foreign keys from request data
+        student_id = self.initial_data.get('student_id')
+        teacher_assignment_id = self.initial_data.get('teacher_assignment_id')
+        term_id = self.initial_data.get('term_id')
+
+        if student_id:
+            from students.models import Student
+            validated_data['student'] = Student.objects.get(id=student_id)
+        if teacher_assignment_id:
+            from teachers.models import TeacherAssignment
+            validated_data['teacher_assignment'] = TeacherAssignment.objects.get(id=teacher_assignment_id)
+        if term_id:
+            from academics.models import Term
+            validated_data['term'] = Term.objects.get(id=term_id)
+
+        return super().create(validated_data)
+
+
+class TeacherCommentSerializer(serializers.ModelSerializer):
+    student_details = StudentSerializer(source='student', read_only=True)
+    teacher_assignment_details = TeacherAssignmentSerializer(source='teacher_assignment', read_only=True)
+    term_details = TermsSerializer(source='term', read_only=True)
+    recorded_by_details = UserSerializer(source='recorded_by', read_only=True)
+
+    class Meta:
+        model = TeacherComment
+        fields = ['id', 'student', 'student_details', 'teacher_assignment', 'teacher_assignment_details',
+                  'term', 'term_details', 'comment', 'recommendation',
+                  'recorded_by', 'recorded_by_details', 'recorded_at']
+
+
+class StudentRankSerializer(serializers.ModelSerializer):
+    student_details = StudentSerializer(source='student', read_only=True)
+    class_details = ClassSerializer(source='class_fk', read_only=True)
+    section_details = SectionSerializer(source='section', read_only=True)
+    term_details = TermsSerializer(source='term', read_only=True)
+
+    class Meta:
+        model = StudentRank
+        fields = ['id', 'student', 'student_details', 'class_fk', 'class_details',
+                  'section', 'section_details', 'term', 'term_details',
+                  'total_score', 'total_max', 'percentage', 'position', 'total_students',
+                  'out_of', 'remark', 'calculated_at']

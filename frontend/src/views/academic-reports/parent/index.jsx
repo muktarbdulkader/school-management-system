@@ -111,7 +111,7 @@ const ParentAcademicOverview = () => {
     try {
       const token = await GetToken();
       const res = await fetch(
-        `${Backend.api}/report_cards/?term_id=${selectedTerm}&student_id=${studentId}`,
+        `${Backend.api}report_cards/?term_id=${selectedTerm}&student_id=${studentId}`,
         {
           headers: { Authorization: `Bearer ${token}` },
         }

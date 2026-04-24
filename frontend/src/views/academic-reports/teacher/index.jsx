@@ -28,6 +28,11 @@ import {
   DialogActions,
   TextField,
   LinearProgress,
+  Tooltip,
+  Divider,
+  List,
+  ListItem,
+  ListItemText,
 } from '@mui/material';
 import {
   School as SchoolIcon,
@@ -106,7 +111,7 @@ const TeacherReportCards = () => {
       queryParams.append('class_id', selectedClass);
       if (selectedSection) queryParams.append('section_id', selectedSection);
 
-      const res = await fetch(`${Backend.api}/report_cards/?${queryParams}`, {
+      const res = await fetch(`${Backend.api}report_cards/?${queryParams}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
@@ -124,7 +129,7 @@ const TeacherReportCards = () => {
     setGenerating(true);
     try {
       const token = await GetToken();
-      const res = await fetch(`${Backend.api}/report_cards/generate/`, {
+      const res = await fetch(`${Backend.api}report_cards/generate/`, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${token}`,
@@ -287,7 +292,14 @@ const TeacherReportCards = () => {
                       color={report.rank <= 3 ? 'success' : 'default'}
                     />
                   </TableCell>
-                  <TableCell>{report.student_name}</TableCell>
+                  <TableCell>
+                    <Typography variant="body2" fontWeight={500}>
+                      {report.student_details?.user?.full_name || report.student_details?.user?.username || report.student_name || 'Unknown'}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      ID: {report.student_details?.student_id || report.student_id || 'N/A'}
+                    </Typography>
+                  </TableCell>
                   <TableCell>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                       <LinearProgress
@@ -341,23 +353,28 @@ const TeacherReportCards = () => {
 
       {/* Generate Dialog */}
       <Dialog open={generateDialogOpen} onClose={() => setGenerateDialogOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>Generate Report Cards</DialogTitle>
+        <DialogTitle>📝 Generate Report Cards</DialogTitle>
         <DialogContent>
           <Typography variant="body2" sx={{ mb: 2 }}>
             This will generate report cards for all students in the selected class and term.
-            The calculation includes:
+            The K-12 grade calculation includes:
           </Typography>
-          <ul>
-            <li>Exam scores (60% weight)</li>
-            <li>Assignment scores (30% weight)</li>
-            <li>Attendance (10% weight)</li>
-          </ul>
-          <Alert severity="warning" sx={{ mt: 2 }}>
+          <Box component="ul" sx={{ pl: 2, mb: 2 }}>
+            <li><strong>Exam Scores (60%)</strong> - Midterm & Final exams</li>
+            <li><strong>Continuous Assessment (20%)</strong> - Daily quizzes, homework, participation</li>
+            <li><strong>Assignments (10%)</strong> - Major projects & assignments</li>
+            <li><strong>Attendance (10%)</strong> - Class attendance record</li>
+          </Box>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
+            Note: If any component is missing, weights are redistributed proportionally.
+            Example: If only exams are entered, they count for 100% of the grade.
+          </Typography>
+          <Alert severity="info" sx={{ mt: 2 }}>
             This process may take a few minutes for large classes.
           </Alert>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setGenerateDialogOpen(false)}>Cancel</Button>
+          <Button onClick={() => setGenerateDialogOpen(false)} variant="outlined">Cancel</Button>
           <Button
             variant="contained"
             onClick={handleGenerateReportCards}
@@ -370,66 +387,256 @@ const TeacherReportCards = () => {
       </Dialog>
 
       {/* View Report Dialog */}
-      <Dialog open={viewReportDialogOpen} onClose={() => setViewReportDialogOpen(false)} maxWidth="md" fullWidth>
-        <DialogTitle>Student Report Card</DialogTitle>
+      <Dialog open={viewReportDialogOpen} onClose={() => setViewReportDialogOpen(false)} maxWidth="lg" fullWidth>
+        <DialogTitle sx={{ pb: 1 }}>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Typography variant="h6">📋 Student Report Card</Typography>
+            <Chip
+              label={`Rank: ${selectedReport?.rank_in_class || selectedReport?.rank || 'N/A'} of ${selectedReport?.total_students || 'N/A'}`}
+              color="primary"
+              size="small"
+            />
+          </Box>
+        </DialogTitle>
         <DialogContent>
           {selectedReport && (
             <Box>
-              <Typography variant="h6" gutterBottom>
-                {selectedReport.student_name}
-              </Typography>
-              <Typography variant="body2" color="text.secondary" gutterBottom>
-                Overall: {selectedReport.overall_percentage?.toFixed(1)}% | Grade: {selectedReport.overall_grade} | Rank: {selectedReport.rank}
-              </Typography>
+              {/* Student Info Header */}
+              <Card variant="outlined" sx={{ mb: 3, p: 2, backgroundColor: '#f8f9fa' }}>
+                <Grid container spacing={2}>
+                  <Grid item xs={12} md={4}>
+                    <Typography variant="subtitle2" color="text.secondary">Student Name</Typography>
+                    <Typography variant="h6">{selectedReport.student_details?.user?.full_name || selectedReport.student_name}</Typography>
+                  </Grid>
+                  <Grid item xs={6} md={2}>
+                    <Typography variant="subtitle2" color="text.secondary">Class</Typography>
+                    <Typography variant="body1">{selectedReport.class_details?.grade || selectedReport.class_name}</Typography>
+                  </Grid>
+                  <Grid item xs={6} md={2}>
+                    <Typography variant="subtitle2" color="text.secondary">Term</Typography>
+                    <Typography variant="body1">{selectedReport.term_details?.name || selectedReport.term_name}</Typography>
+                  </Grid>
+                  <Grid item xs={6} md={2}>
+                    <Typography variant="subtitle2" color="text.secondary">Overall %</Typography>
+                    <Typography variant="h6" color={selectedReport.overall_percentage >= 80 ? 'success.main' : selectedReport.overall_percentage >= 60 ? 'warning.main' : 'error.main'}>
+                      {selectedReport.overall_percentage?.toFixed(1) || '0.0'}%
+                    </Typography>
+                  </Grid>
+                  <Grid item xs={6} md={2}>
+                    <Typography variant="subtitle2" color="text.secondary">Grade</Typography>
+                    <Chip
+                      label={selectedReport.overall_grade || 'N/A'}
+                      size="small"
+                      sx={{
+                        backgroundColor: getGradeColor(selectedReport.overall_grade),
+                        color: 'white',
+                        fontWeight: 'bold',
+                      }}
+                    />
+                  </Grid>
+                </Grid>
+              </Card>
 
-              <TableContainer component={Paper} sx={{ mt: 2 }}>
+              {/* Subjects Table - Only shows columns with entered data */}
+              <TableContainer component={Paper} variant="outlined">
                 <Table size="small">
                   <TableHead>
-                    <TableRow>
-                      <TableCell>Subject</TableCell>
-                      <TableCell>Exam Score</TableCell>
-                      <TableCell>Assignment</TableCell>
-                      <TableCell>Attendance</TableCell>
-                      <TableCell>Total</TableCell>
-                      <TableCell>Grade</TableCell>
+                    <TableRow sx={{ backgroundColor: '#1976d2' }}>
+                      <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Subject</TableCell>
+                      {/* Only show Exam column if any subject has exam data */}
+                      {selectedReport.subjects?.some(s => s.exam_score !== null && s.exam_score !== undefined) && (
+                        <TableCell align="center" sx={{ color: 'white', fontWeight: 'bold' }}>Exam<br /><Typography variant="caption" sx={{ color: 'white' }}>(60%)</Typography></TableCell>
+                      )}
+                      {/* Only show CA column if any subject has CA data */}
+                      {selectedReport.subjects?.some(s => s.ca_score !== null && s.ca_score !== undefined) && (
+                        <TableCell align="center" sx={{ color: 'white', fontWeight: 'bold' }}>C.A.<br /><Typography variant="caption" sx={{ color: 'white' }}>(20%)</Typography></TableCell>
+                      )}
+                      {/* Only show Assignment column if any subject has assignment data */}
+                      {selectedReport.subjects?.some(s => s.assignment_avg !== null && s.assignment_avg !== undefined) && (
+                        <TableCell align="center" sx={{ color: 'white', fontWeight: 'bold' }}>Assignment<br /><Typography variant="caption" sx={{ color: 'white' }}>(10%)</Typography></TableCell>
+                      )}
+                      {/* Only show Attendance column if any subject has attendance data */}
+                      {selectedReport.subjects?.some(s => s.attendance_score !== null && s.attendance_score !== undefined) && (
+                        <TableCell align="center" sx={{ color: 'white', fontWeight: 'bold' }}>Attendance<br /><Typography variant="caption" sx={{ color: 'white' }}>(10%)</Typography></TableCell>
+                      )}
+                      <TableCell align="center" sx={{ color: 'white', fontWeight: 'bold' }}>Total Score</TableCell>
+                      <TableCell align="center" sx={{ color: 'white', fontWeight: 'bold' }}>Grade</TableCell>
+                      <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Remarks</TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
-                    {selectedReport.subjects?.map((subject) => (
-                      <TableRow key={subject.subject_name}>
-                        <TableCell>{subject.subject_name}</TableCell>
-                        <TableCell>{subject.exam_score?.toFixed(1)}%</TableCell>
-                        <TableCell>{subject.assignment_score?.toFixed(1)}%</TableCell>
-                        <TableCell>{subject.attendance_score?.toFixed(1)}%</TableCell>
-                        <TableCell>
-                          <strong>{subject.total?.toFixed(1)}%</strong>
+                    {selectedReport.subjects?.map((subject, index) => (
+                      <TableRow key={index} sx={{ '&:nth-of-type(even)': { backgroundColor: '#f8f9fa' } }}>
+                        <TableCell sx={{ fontWeight: 500 }}>
+                          {subject.subject_details?.name || subject.subject?.name || 'Unknown Subject'}
+                        </TableCell>
+                        {/* Exam - Only shows if teacher entered any exam */}
+                        {selectedReport.subjects?.some(s => s.exam_score !== null && s.exam_score !== undefined) && (
+                          <TableCell align="center">
+                            {subject.exam_score !== null && subject.exam_score !== undefined ? (
+                              <Tooltip title={subject.exam_types?.length > 0
+                                ? `Exams entered: ${subject.exam_types.map(e => `${e.type}: ${e.score.toFixed(1)}%`).join(', ')}`
+                                : 'Teacher entered exam score'}>
+                                <Box>
+                                  <Typography variant="body2" sx={{ color: 'success.main', fontWeight: 500 }}>
+                                    {subject.exam_score.toFixed(1)}%
+                                  </Typography>
+                                  {subject.exam_types?.length > 0 && (
+                                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, mt: 0.5 }}>
+                                      {subject.exam_types.map((e, idx) => (
+                                        <Typography key={idx} variant="caption" sx={{ color: 'text.secondary', fontSize: '0.7rem' }}>
+                                          {e.type}: {e.raw_score?.toFixed(0) || e.score?.toFixed(0)}/{e.max_score?.toFixed(0) || 100}
+                                        </Typography>
+                                      ))}
+                                    </Box>
+                                  )}
+                                </Box>
+                              </Tooltip>
+                            ) : (
+                              <Typography variant="caption" color="text.disabled">-</Typography>
+                            )}
+                          </TableCell>
+                        )}
+                        {/* CA - Only shows if teacher entered continuous assessment */}
+                        {selectedReport.subjects?.some(s => s.ca_score !== null && s.ca_score !== undefined) && (
+                          <TableCell align="center">
+                            {subject.ca_score !== null && subject.ca_score !== undefined ? (
+                              <Tooltip title="Teacher entered CA (quizzes, homework)">
+                                <Typography variant="body2" sx={{ color: 'info.main', fontWeight: 500 }}>
+                                  {subject.ca_score.toFixed(1)}%
+                                </Typography>
+                              </Tooltip>
+                            ) : (
+                              <Typography variant="caption" color="text.disabled">-</Typography>
+                            )}
+                          </TableCell>
+                        )}
+                        {/* Assignment - Only shows if teacher entered */}
+                        {selectedReport.subjects?.some(s => s.assignment_avg !== null && s.assignment_avg !== undefined) && (
+                          <TableCell align="center">
+                            {subject.assignment_avg !== null && subject.assignment_avg !== undefined ? (
+                              <Tooltip title="Teacher entered assignment score">
+                                <Typography variant="body2" sx={{ color: 'success.main', fontWeight: 500 }}>
+                                  {subject.assignment_avg.toFixed(1)}%
+                                </Typography>
+                              </Tooltip>
+                            ) : (
+                              <Typography variant="caption" color="text.disabled">-</Typography>
+                            )}
+                          </TableCell>
+                        )}
+                        {/* Attendance - Only shows if teacher entered */}
+                        {selectedReport.subjects?.some(s => s.attendance_score !== null && s.attendance_score !== undefined) && (
+                          <TableCell align="center">
+                            {subject.attendance_score !== null && subject.attendance_score !== undefined ? (
+                              <Tooltip title="Teacher marked attendance">
+                                <Typography variant="body2" sx={{ color: 'success.main', fontWeight: 500 }}>
+                                  {subject.attendance_score.toFixed(1)}%
+                                </Typography>
+                              </Tooltip>
+                            ) : (
+                              <Typography variant="caption" color="text.disabled">-</Typography>
+                            )}
+                          </TableCell>
+                        )}
+                        <TableCell align="center">
+                          {subject.total_score !== null && subject.total_score !== undefined ? (
+                            <Typography variant="body1" fontWeight="bold" sx={{ color: subject.total_score >= 80 ? 'success.main' : subject.total_score >= 60 ? 'warning.main' : 'error.main' }}>
+                              {subject.total_score.toFixed(1)}%
+                            </Typography>
+                          ) : (
+                            <Typography variant="caption" color="text.disabled">N/A</Typography>
+                          )}
+                        </TableCell>
+                        <TableCell align="center">
+                          {subject.letter_grade ? (
+                            <Chip
+                              label={subject.letter_grade}
+                              size="small"
+                              sx={{
+                                backgroundColor: getGradeColor(subject.letter_grade),
+                                color: 'white',
+                                fontWeight: 'bold',
+                                minWidth: 40,
+                              }}
+                            />
+                          ) : (
+                            <Typography variant="caption" color="text.disabled">-</Typography>
+                          )}
                         </TableCell>
                         <TableCell>
-                          <Chip
-                            label={subject.grade}
-                            size="small"
-                            sx={{
-                              backgroundColor: getGradeColor(subject.grade),
-                              color: 'white',
-                            }}
-                          />
+                          <Typography variant="caption" color="text.secondary">
+                            {subject.teacher_comment || subject.descriptive_grade_display || '-'}
+                          </Typography>
                         </TableCell>
                       </TableRow>
                     ))}
+                    {!selectedReport.subjects?.length && (
+                      <TableRow>
+                        <TableCell colSpan={8} align="center" sx={{ py: 4 }}>
+                          <Typography variant="body2" color="text.secondary">
+                            No subjects found. Please generate report cards first.
+                          </Typography>
+                        </TableCell>
+                      </TableRow>
+                    )}
                   </TableBody>
                 </Table>
               </TableContainer>
+
+              {/* Per-Subject Calculation Summary */}
+              {selectedReport.subjects?.length > 0 && (
+                <Card variant="outlined" sx={{ mt: 2, p: 2, backgroundColor: '#f5f5f5' }}>
+                  <Typography variant="subtitle2" gutterBottom>
+                    📋 Subject Calculation Details (Actual Weights Used)
+                  </Typography>
+                  {selectedReport.subjects.map((subject, idx) => {
+                    const hasExam = subject.exam_score !== null && subject.exam_score !== undefined;
+                    const hasCA = subject.ca_score !== null && subject.ca_score !== undefined;
+                    const hasAssign = subject.assignment_avg !== null && subject.assignment_avg !== undefined;
+                    const hasAttend = subject.attendance_score !== null && subject.attendance_score !== undefined;
+
+                    // Calculate actual weights
+                    let totalWeight = 0;
+                    if (hasExam) totalWeight += 60;
+                    if (hasCA) totalWeight += 20;
+                    if (hasAssign) totalWeight += 10;
+                    if (hasAttend) totalWeight += 10;
+
+                    const examWeight = hasExam ? Math.round((60 / totalWeight) * 100) : 0;
+                    const caWeight = hasCA ? Math.round((20 / totalWeight) * 100) : 0;
+                    const assignWeight = hasAssign ? Math.round((10 / totalWeight) * 100) : 0;
+                    const attendWeight = hasAttend ? Math.round((10 / totalWeight) * 100) : 0;
+
+                    return (
+                      <Box key={idx} sx={{ mb: 1, p: 1, backgroundColor: 'white', borderRadius: 1 }}>
+                        <Typography variant="body2" fontWeight={500}>
+                          {subject.subject_details?.name || subject.subject?.name}:
+                        </Typography>
+                        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 0.5 }}>
+                          {hasExam && <Chip size="small" variant="outlined" label={`Exam: ${examWeight}%`} sx={{ height: 20, fontSize: '0.7rem' }} />}
+                          {hasCA && <Chip size="small" variant="outlined" label={`CA: ${caWeight}%`} sx={{ height: 20, fontSize: '0.7rem', color: 'info.main' }} />}
+                          {hasAssign && <Chip size="small" variant="outlined" label={`Assign: ${assignWeight}%`} sx={{ height: 20, fontSize: '0.7rem' }} />}
+                          {hasAttend && <Chip size="small" variant="outlined" label={`Attend: ${attendWeight}%`} sx={{ height: 20, fontSize: '0.7rem' }} />}
+                          <Chip size="small" color="primary" label={`Total: ${subject.total_score?.toFixed(1) || 0}%`} sx={{ height: 20, fontSize: '0.7rem', fontWeight: 'bold' }} />
+                        </Box>
+                      </Box>
+                    );
+                  })}
+                </Card>
+              )}
+
             </Box>
           )}
         </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setViewReportDialogOpen(false)}>Close</Button>
-          <Button variant="contained" startIcon={<PrintIcon />}>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setViewReportDialogOpen(false)} variant="outlined">Close</Button>
+          <Button variant="contained" startIcon={<PrintIcon />} color="primary">
             Print Report
           </Button>
         </DialogActions>
       </Dialog>
-    </Container>
+    </Container >
   );
 };
 

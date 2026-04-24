@@ -62,15 +62,30 @@ const StudentAcademicReport = () => {
   const fetchStudentInfo = async () => {
     try {
       const token = await GetToken();
+      console.log('[StudentReport] Fetching student info with token...');
       const res = await fetch(`${Backend.api}/students/me/`, {
         headers: { Authorization: `Bearer ${token}` },
       });
+      console.log('[StudentReport] Student info response status:', res.status);
       const data = await res.json();
+      console.log('[StudentReport] Student info data:', data);
       if (data.success) {
         setStudentInfo(data.data);
+      } else {
+        // Fallback to user data from Redux
+        console.log('[StudentReport] Using Redux user data as fallback');
+        setStudentInfo({
+          name: user?.first_name || user?.username || 'Student',
+          ...user
+        });
       }
     } catch (e) {
-      console.error('Failed to fetch student info:', e);
+      console.error('[StudentReport] Failed to fetch student info:', e);
+      // Fallback to user data from Redux
+      setStudentInfo({
+        name: user?.first_name || user?.username || 'Student',
+        ...user
+      });
     }
   };
 
@@ -78,19 +93,25 @@ const StudentAcademicReport = () => {
     setTermsLoading(true);
     try {
       const token = await GetToken();
-      const res = await fetch(`${Backend.api}${Backend.terms}`, {
+      const url = `${Backend.api}${Backend.terms}`;
+      console.log('[StudentReport] Fetching terms from:', url);
+      const res = await fetch(url, {
         headers: { Authorization: `Bearer ${token}` },
       });
+      console.log('[StudentReport] Terms response status:', res.status);
       const data = await res.json();
+      console.log('[StudentReport] Terms data:', data);
       if (data.success) {
         setTerms(data.data || []);
         const currentTerm = data.data?.find(t => t.is_current);
         if (currentTerm) {
           setSelectedTerm(currentTerm.id);
         }
+      } else {
+        console.error('[StudentReport] Terms API returned error:', data.message);
       }
     } catch (e) {
-      console.error('Failed to fetch terms:', e);
+      console.error('[StudentReport] Failed to fetch terms:', e);
     } finally {
       setTermsLoading(false);
     }
@@ -108,7 +129,7 @@ const StudentAcademicReport = () => {
     try {
       const token = await GetToken();
       const res = await fetch(
-        `${Backend.api}/report_cards/?term_id=${selectedTerm}&student_me=true`,
+        `${Backend.api}report_cards/?term_id=${selectedTerm}&student_me=true`,
         {
           headers: { Authorization: `Bearer ${token}` },
         }
@@ -176,7 +197,7 @@ const StudentAcademicReport = () => {
             My Academic Report
           </Typography>
           <Typography variant="body2" color="text.secondary">
-            {studentInfo ? `${studentInfo.name} | Grade ${studentInfo.grade_details?.grade} ${studentInfo.section_details?.name}` : 'Loading...'}
+            {studentInfo?.name ? `${studentInfo.name} | Grade ${studentInfo.grade_details?.grade || ''} ${studentInfo.section_details?.name || ''}` : (termsLoading ? 'Loading...' : 'Student')}
           </Typography>
         </Box>
       </Box>
@@ -271,15 +292,24 @@ const StudentAcademicReport = () => {
                 <AssignmentIcon /> Subject Performance Breakdown
               </Typography>
 
+              <Alert severity="info" sx={{ mb: 2 }}>
+                {/* <Typography variant="body2">
+                  <strong>How your grade is calculated:</strong> Your teachers can customize weights for each component.
+                  The system only includes components they have entered (Exam, CA, Assignment, Attendance).
+                  If a component shows "-", your teacher hasn't entered it yet, and the remaining components are weighted proportionally.
+                </Typography> */}
+              </Alert>
+
               <TableContainer component={Paper} variant="outlined" sx={{ mt: 2 }}>
                 <Table>
                   <TableHead>
                     <TableRow sx={{ backgroundColor: '#f5f5f5' }}>
                       <TableCell><strong>Subject</strong></TableCell>
-                      <TableCell align="center"><strong>Exams (70%)</strong></TableCell>
-                      <TableCell align="center"><strong>Assignments (20%)</strong></TableCell>
+                      <TableCell align="center"><strong>Exam (60%)</strong></TableCell>
+                      <TableCell align="center"><strong>C.A. (20%)</strong></TableCell>
+                      <TableCell align="center"><strong>Assignment (10%)</strong></TableCell>
                       <TableCell align="center"><strong>Attendance (10%)</strong></TableCell>
-                      <TableCell align="center"><strong>Total Score</strong></TableCell>
+                      <TableCell align="center"><strong>Total</strong></TableCell>
                       <TableCell align="center"><strong>Grade</strong></TableCell>
                     </TableRow>
                   </TableHead>
@@ -303,29 +333,68 @@ const StudentAcademicReport = () => {
                             </Box>
                           </Box>
                         </TableCell>
+                        {/* Exam Score */}
                         <TableCell align="center">
-                          <Tooltip title={`Exam Score: ${subject.exam_score?.toFixed(1) || 0}% (out of ${subject.exam_max_score || 100})`}>
+                          <Tooltip title={subject.exam_types?.length > 0
+                            ? `Exams: ${subject.exam_types.map(e => `${e.type}: ${e.score.toFixed(1)}%`).join(', ')}`
+                            : `Exam Score: ${subject.exam_score?.toFixed(1) || 0}% (out of ${subject.exam_max_score || 100})`}>
+                            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.5 }}>
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, justifyContent: 'center' }}>
+                                <LinearProgress
+                                  variant="determinate"
+                                  value={Math.min(subject.exam_score || 0, 100)}
+                                  sx={{
+                                    width: 60,
+                                    height: 8,
+                                    borderRadius: 1,
+                                    bgcolor: 'grey.200',
+                                    '& .MuiLinearProgress-bar': {
+                                      bgcolor: getComponentBarColor(subject.exam_score || 0),
+                                      borderRadius: 1,
+                                    }
+                                  }}
+                                />
+                                <Typography variant="body2" fontWeight="medium" sx={{ minWidth: 45 }}>
+                                  {subject.exam_score?.toFixed(1) || 0}%
+                                </Typography>
+                              </Box>
+                              {subject.exam_types?.length > 0 && (
+                                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, mt: 0.5 }}>
+                                  {subject.exam_types.map((e, idx) => (
+                                    <Typography key={idx} variant="caption" sx={{ color: 'text.secondary', fontSize: '0.7rem' }}>
+                                      {e.type}: {e.raw_score?.toFixed(0) || e.score?.toFixed(0)}/{e.max_score?.toFixed(0) || 100}
+                                    </Typography>
+                                  ))}
+                                </Box>
+                              )}
+                            </Box>
+                          </Tooltip>
+                        </TableCell>
+                        {/* CA Score */}
+                        <TableCell align="center">
+                          <Tooltip title={`Continuous Assessment: ${subject.ca_score?.toFixed(1) || 0}% (out of ${subject.ca_max || 100})`}>
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, justifyContent: 'center' }}>
                               <LinearProgress
                                 variant="determinate"
-                                value={Math.min(subject.exam_score || 0, 100)}
+                                value={Math.min(subject.ca_score || 0, 100)}
                                 sx={{
                                   width: 60,
                                   height: 8,
                                   borderRadius: 1,
                                   bgcolor: 'grey.200',
                                   '& .MuiLinearProgress-bar': {
-                                    bgcolor: getComponentBarColor(subject.exam_score || 0),
+                                    bgcolor: getComponentBarColor(subject.ca_score || 0),
                                     borderRadius: 1,
                                   }
                                 }}
                               />
-                              <Typography variant="body2" fontWeight="medium" sx={{ minWidth: 45 }}>
-                                {subject.exam_score?.toFixed(1) || 0}%
+                              <Typography variant="body2" fontWeight="medium" sx={{ minWidth: 45, color: subject.ca_score ? 'info.main' : 'text.disabled' }}>
+                                {subject.ca_score?.toFixed(1) || '-'}%
                               </Typography>
                             </Box>
                           </Tooltip>
                         </TableCell>
+                        {/* Assignment */}
                         <TableCell align="center">
                           <Tooltip title={`Assignment Average: ${subject.assignment_avg?.toFixed(1) || 0}% (out of ${subject.assignment_max || 100})`}>
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, justifyContent: 'center' }}>

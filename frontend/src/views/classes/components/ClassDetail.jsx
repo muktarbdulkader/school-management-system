@@ -68,6 +68,8 @@ const ClassDetail = () => {
     exam_type: 'unit_test',
     start_date: '',
     end_date: '',
+    start_time: '',
+    end_time: '',
     description: '',
     max_score: 100
   });
@@ -236,6 +238,8 @@ const ClassDetail = () => {
       exam_type: 'midterm',
       start_date: '',
       end_date: '',
+      start_time: '',
+      end_time: '',
       description: '',
       max_score: 100
     });
@@ -256,6 +260,39 @@ const ClassDetail = () => {
         return;
       }
 
+      // Validate time fields
+      if (!assessmentForm.start_time || !assessmentForm.end_time) {
+        toast.error('Please provide start and end times');
+        return;
+      }
+
+      // Validate start time is before end time
+      if (assessmentForm.start_time >= assessmentForm.end_time) {
+        toast.error('End time must be after start time');
+        return;
+      }
+
+      // Check for time conflicts with existing exams on the same date
+      const conflictingExam = assessmentsData.find(e => {
+        // Check same date
+        if (e.start_date !== assessmentForm.start_date) return false;
+        // Check time overlap: new_start < existing_end AND new_end > existing_start
+        const existingStart = e.start_time;
+        const existingEnd = e.end_time;
+        if (!existingStart || !existingEnd) return false;
+        return assessmentForm.start_time < existingEnd && assessmentForm.end_time > existingStart;
+      });
+
+      if (conflictingExam) {
+        toast.error(
+          `Time conflict: An assessment "${conflictingExam.name}" already exists ` +
+          `from ${conflictingExam.start_time} to ${conflictingExam.end_time}. ` +
+          `Please choose a different time.`,
+          { autoClose: 6000 }
+        );
+        return;
+      }
+
       const token = await GetToken();
       const Api = `${Backend.auth}${Backend.exams}`;
       const header = {
@@ -273,6 +310,8 @@ const ClassDetail = () => {
         section_id: classData.section_id !== 'null' ? classData.section_id : null,
         start_date: assessmentForm.start_date,
         end_date: assessmentForm.end_date,
+        start_time: assessmentForm.start_time,
+        end_time: assessmentForm.end_time,
         description: assessmentForm.description,
         branch_id: classData.branch_id || null
       };
@@ -690,7 +729,7 @@ const ClassDetail = () => {
                   <TextField
                     fullWidth
                     type="date"
-                    label="Start Date"
+                    label="Start Date *"
                     name="start_date"
                     value={assessmentForm.start_date}
                     onChange={handleAssessmentFormChange}
@@ -702,9 +741,36 @@ const ClassDetail = () => {
                   <TextField
                     fullWidth
                     type="date"
-                    label="End Date"
+                    label="End Date *"
                     name="end_date"
                     value={assessmentForm.end_date}
+                    onChange={handleAssessmentFormChange}
+                    InputLabelProps={{ shrink: true }}
+                    required
+                  />
+                </Grid>
+              </Grid>
+
+              <Grid container spacing={2} sx={{ mb: 2 }}>
+                <Grid item xs={6}>
+                  <TextField
+                    fullWidth
+                    type="time"
+                    label="Start Time *"
+                    name="start_time"
+                    value={assessmentForm.start_time}
+                    onChange={handleAssessmentFormChange}
+                    InputLabelProps={{ shrink: true }}
+                    required
+                  />
+                </Grid>
+                <Grid item xs={6}>
+                  <TextField
+                    fullWidth
+                    type="time"
+                    label="End Time *"
+                    name="end_time"
+                    value={assessmentForm.end_time}
                     onChange={handleAssessmentFormChange}
                     InputLabelProps={{ shrink: true }}
                     required

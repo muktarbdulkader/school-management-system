@@ -4,7 +4,7 @@ from django.dispatch import receiver
 from django.db.models import Avg
 from decimal import Decimal
 
-from .models import ExamResults, StudentAssignments, ReportCard, ReportCardSubject
+from .models import ExamResults, StudentAssignments, ReportCard, ReportCardSubject, ContinuousAssessment
 from schedule.models import Attendance
 
 
@@ -45,7 +45,8 @@ def get_or_create_report_card_subject(student, teacher_assignment, term):
 
 
 def update_report_card_subject_from_exam_results(student, teacher_assignment, term):
-    """Update ReportCardSubject exam scores from all exam results for this term"""
+    """Update ReportCardSubject exam scores from all exam results for this term
+    Also auto-applies weight profile from the exam if not already set."""
     # Get all exam results for this student, assignment and term
     exam_results = ExamResults.objects.filter(
         student=student,
@@ -65,6 +66,21 @@ def update_report_card_subject_from_exam_results(student, teacher_assignment, te
         # Update exam score (store the average percentage)
         report_card_subject.exam_score = float(avg_percentage)
         report_card_subject.exam_max_score = 100
+
+        # Auto-apply weight profile from the first exam if weights not yet customized
+        first_exam = exam_results.first().exam
+        if first_exam and not hasattr(report_card_subject, '_weights_customized'):
+            weights = first_exam.get_weights()
+            # Only apply if weights haven't been manually set (default values)
+            if (report_card_subject.exam_weight == 60 and
+                report_card_subject.ca_weight == 20 and
+                report_card_subject.assignment_weight == 10 and
+                report_card_subject.attendance_weight == 10):
+                report_card_subject.exam_weight = weights['exam']
+                report_card_subject.ca_weight = weights['ca']
+                report_card_subject.assignment_weight = weights['assignment']
+                report_card_subject.attendance_weight = weights['attendance']
+                print(f"[Auto-Weights] Applied {first_exam.weight_profile} weights for {student}: {weights}")
 
         # Save will trigger calculate_total()
         report_card_subject.save()
@@ -200,13 +216,19 @@ def on_assignment_grade_deleted(sender, instance, **kwargs):
 def on_attendance_saved(sender, instance, created, **kwargs):
     """Auto-update ReportCardSubject when attendance is recorded"""
     if instance.student and instance.teacher_assignment:
-        # Get current term from student's enrollment
-        student = instance.student
-        if student.current_term:
+        # Get term from attendance date
+        from academics.models import Term
+        attendance_date = instance.date
+        term = Term.objects.filter(
+            start_date__lte=attendance_date,
+            end_date__gte=attendance_date
+        ).first()
+
+        if term:
             update_report_card_subject_attendance(
-                student,
+                instance.student,
                 instance.teacher_assignment,
-                student.current_term
+                term
             )
 
 
@@ -214,10 +236,75 @@ def on_attendance_saved(sender, instance, created, **kwargs):
 def on_attendance_deleted(sender, instance, **kwargs):
     """Auto-update ReportCardSubject when attendance is deleted"""
     if instance.student and instance.teacher_assignment:
-        student = instance.student
-        if student.current_term:
+        # Get term from attendance date
+        from academics.models import Term
+        attendance_date = instance.date
+        term = Term.objects.filter(
+            start_date__lte=attendance_date,
+            end_date__gte=attendance_date
+        ).first()
+
+        if term:
             update_report_card_subject_attendance(
-                student,
+                instance.student,
                 instance.teacher_assignment,
-                student.current_term
+                term
             )
+
+
+# ==================== Continuous Assessment (CA) Signals ====================
+
+def update_report_card_subject_ca(student, teacher_assignment, term):
+    """Update ReportCardSubject CA score from all Continuous Assessments"""
+    # Get all CA entries for this student, assignment and term
+    ca_entries = ContinuousAssessment.objects.filter(
+        student=student,
+        teacher_assignment=teacher_assignment,
+        term=term
+    )
+
+    if not ca_entries.exists():
+        return
+
+    # Calculate weighted average of all CA entries
+    total_weighted_score = Decimal('0')
+    total_weight = Decimal('0')
+
+    for ca in ca_entries:
+        weight = Decimal(str(ca.weight)) if ca.weight else Decimal('1')
+        percentage = (Decimal(str(ca.score)) / Decimal(str(ca.max_score))) * 100
+        total_weighted_score += percentage * weight
+        total_weight += weight
+
+    if total_weight > 0:
+        weighted_avg = float(total_weighted_score / total_weight)
+
+        # Get or create report card subject
+        report_card_subject = get_or_create_report_card_subject(student, teacher_assignment, term)
+        if report_card_subject:
+            report_card_subject.ca_score = weighted_avg
+            report_card_subject.ca_max = 100
+            report_card_subject.save()
+            print(f"[CASignal] Updated CA score for {student}: {weighted_avg:.2f}% from {ca_entries.count()} assessments")
+
+
+@receiver(post_save, sender=ContinuousAssessment)
+def on_ca_saved(sender, instance, created, **kwargs):
+    """Auto-update ReportCardSubject when a Continuous Assessment is saved"""
+    if instance.student and instance.teacher_assignment and instance.term:
+        update_report_card_subject_ca(
+            instance.student,
+            instance.teacher_assignment,
+            instance.term
+        )
+
+
+@receiver(post_delete, sender=ContinuousAssessment)
+def on_ca_deleted(sender, instance, **kwargs):
+    """Auto-update ReportCardSubject when a Continuous Assessment is deleted"""
+    if instance.student and instance.teacher_assignment and instance.term:
+        update_report_card_subject_ca(
+            instance.student,
+            instance.teacher_assignment,
+            instance.term
+        )

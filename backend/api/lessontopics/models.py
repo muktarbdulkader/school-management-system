@@ -293,12 +293,22 @@ class ReportCardSubject(models.Model):
     
     # Assessment scores
     exam_score = models.FloatField(null=True, blank=True)
-    exam_max_score = models.FloatField(default=100)
+    exam_max_score = models.FloatField(default=5)
     assignment_avg = models.FloatField(null=True, blank=True)
-    assignment_max = models.FloatField(default=100)
+    assignment_max = models.FloatField(default=10)
     attendance_score = models.FloatField(null=True, blank=True)
-    attendance_max = models.FloatField(default=100)
-    
+    attendance_max = models.FloatField(default=10)
+
+    # K-12 Continuous Assessment (CA) - weighted average of quizzes, homework, participation
+    ca_score = models.FloatField(null=True, blank=True, help_text="Weighted average of all CA items")
+    ca_max = models.FloatField(default=100)
+
+    # Teacher-defined custom weights (flexible grading)
+    exam_weight = models.FloatField(default=60, help_text="Custom weight for exam (default 60%)")
+    ca_weight = models.FloatField(default=20, help_text="Custom weight for continuous assessment (default 20%)")
+    assignment_weight = models.FloatField(default=10, help_text="Custom weight for assignments (default 10%)")
+    attendance_weight = models.FloatField(default=10, help_text="Custom weight for attendance (default 10%)")
+
     # Calculated fields
     total_score = models.FloatField(null=True, blank=True)
     total_max = models.FloatField(default=100)
@@ -321,45 +331,163 @@ class ReportCardSubject(models.Model):
         return f"{self.report_card.student.user.full_name} - {self.subject.name}"
 
     def calculate_total(self):
-        """Calculate total score from exam, assignment and attendance components.
-        Default weights: Exam 70%, Assignment 20%, Attendance 10%"""
+        """Calculate total score with teacher-defined flexible weights.
+
+        Uses custom weights defined by teacher (exam_weight, ca_weight, etc.)
+        Only components with actual data are included in calculation.
+        Weights are redistributed proportionally for missing components.
+
+        Example: If teacher only enters exam (weight 80%) and attendance (weight 5%):
+        - Available weights: 80 + 5 = 85
+        - Exam actual weight: 80/85 = 94.1%
+        - Attendance actual weight: 5/85 = 5.9%
+        """
         from decimal import Decimal
 
         total = Decimal('0')
-        total_max = Decimal('0')
+        total_available_weight = Decimal('0')
 
-        # Exam score (70% weight)
-        if self.exam_score is not None:
-            exam_component = (Decimal(str(self.exam_score)) / Decimal(str(self.exam_max_score))) * Decimal('70')
-            total += exam_component
-            total_max += Decimal('70')
+        # Use teacher-defined weights (or defaults if not set)
+        EXAM_WEIGHT = Decimal(str(self.exam_weight or 60))
+        CA_WEIGHT = Decimal(str(self.ca_weight or 20))
+        ASSIGNMENT_WEIGHT = Decimal(str(self.assignment_weight or 10))
+        ATTENDANCE_WEIGHT = Decimal(str(self.attendance_weight or 10))
 
-        # Assignment average (20% weight)
-        if self.assignment_avg is not None:
-            assignment_component = (Decimal(str(self.assignment_avg)) / Decimal(str(self.assignment_max))) * Decimal('20')
-            total += assignment_component
-            total_max += Decimal('20')
+        # Check which components have data and add their weighted scores
+        has_exam = self.exam_score is not None and self.exam_max_score > 0
+        has_ca = self.ca_score is not None and self.ca_max > 0
+        has_assignment = self.assignment_avg is not None and self.assignment_max > 0
+        has_attendance = self.attendance_score is not None and self.attendance_max > 0
 
-        # Attendance score (10% weight)
-        if self.attendance_score is not None:
-            attendance_component = (Decimal(str(self.attendance_score)) / Decimal(str(self.attendance_max))) * Decimal('10')
-            total += attendance_component
-            total_max += Decimal('10')
+        # Only include components that have data
+        if has_exam:
+            exam_pct = Decimal(str(self.exam_score)) / Decimal(str(self.exam_max_score)) * 100
+            total += exam_pct * EXAM_WEIGHT
+            total_available_weight += EXAM_WEIGHT
 
-        # Normalize to 100 if we have any components
-        if total_max > 0:
-            normalized_percentage = (total / total_max) * 100
+        if has_ca:
+            ca_pct = Decimal(str(self.ca_score)) / Decimal(str(self.ca_max)) * 100
+            total += ca_pct * CA_WEIGHT
+            total_available_weight += CA_WEIGHT
+
+        if has_assignment:
+            assignment_pct = Decimal(str(self.assignment_avg)) / Decimal(str(self.assignment_max)) * 100
+            total += assignment_pct * ASSIGNMENT_WEIGHT
+            total_available_weight += ASSIGNMENT_WEIGHT
+
+        if has_attendance:
+            attendance_pct = Decimal(str(self.attendance_score)) / Decimal(str(self.attendance_max)) * 100
+            total += attendance_pct * ATTENDANCE_WEIGHT
+            total_available_weight += ATTENDANCE_WEIGHT
+
+        # Normalize: divide by total available weight to get percentage
+        if total_available_weight > 0:
+            normalized_percentage = total / total_available_weight
             self.total_score = float(normalized_percentage)
             self.percentage = normalized_percentage
             self.total_max = 100
-
-            # Auto-calculate grades based on class level
             self._auto_calculate_grades()
         else:
             self.total_score = None
             self.percentage = None
 
         return self.total_score
+
+    def get_score_breakdown(self):
+        """Get a detailed breakdown of how the total score was calculated.
+        Returns dict with components, their teacher-defined weights, and contributions."""
+        breakdown = {
+            'components': [],
+            'total_score': self.total_score,
+            'percentage': float(self.percentage) if self.percentage else None,
+            'teacher_weights': {
+                'exam': self.exam_weight or 60,
+                'ca': self.ca_weight or 20,
+                'assignment': self.assignment_weight or 10,
+                'attendance': self.attendance_weight or 10,
+            }
+        }
+
+        # Use teacher-defined weights (or defaults)
+        EXAM_W = self.exam_weight or 60
+        CA_W = self.ca_weight or 20
+        ASSIGN_W = self.assignment_weight or 10
+        ATTEND_W = self.attendance_weight or 10
+
+        total_available = 0
+
+        # Check which components exist
+        has_exam = self.exam_score is not None and self.exam_max_score > 0
+        has_ca = self.ca_score is not None and self.ca_max > 0
+        has_assignment = self.assignment_avg is not None and self.assignment_max > 0
+        has_attendance = self.attendance_score is not None and self.attendance_max > 0
+
+        if has_exam: total_available += EXAM_W
+        if has_ca: total_available += CA_W
+        if has_assignment: total_available += ASSIGN_W
+        if has_attendance: total_available += ATTEND_W
+
+        if total_available == 0:
+            return breakdown
+
+        # Calculate actual weights after redistribution based on teacher's weights
+        if has_exam:
+            exam_pct = (self.exam_score / self.exam_max_score) * 100
+            actual_weight = (EXAM_W / total_available) * 100
+            contribution = exam_pct * (EXAM_W / total_available)
+            breakdown['components'].append({
+                'name': 'Exam (Mid+Final)',
+                'score': self.exam_score,
+                'max': self.exam_max_score,
+                'percentage': round(exam_pct, 2),
+                'teacher_weight': f'{EXAM_W}%',
+                'actual_weight': f'{round(actual_weight, 1)}%',
+                'contribution': round(contribution, 2)
+            })
+
+        if has_ca:
+            ca_pct = (self.ca_score / self.ca_max) * 100
+            actual_weight = (CA_W / total_available) * 100
+            contribution = ca_pct * (CA_W / total_available)
+            breakdown['components'].append({
+                'name': 'Continuous Assessment',
+                'score': self.ca_score,
+                'max': self.ca_max,
+                'percentage': round(ca_pct, 2),
+                'teacher_weight': f'{CA_W}%',
+                'actual_weight': f'{round(actual_weight, 1)}%',
+                'contribution': round(contribution, 2)
+            })
+
+        if has_assignment:
+            assign_pct = (self.assignment_avg / self.assignment_max) * 100
+            actual_weight = (ASSIGN_W / total_available) * 100
+            contribution = assign_pct * (ASSIGN_W / total_available)
+            breakdown['components'].append({
+                'name': 'Assignments',
+                'score': self.assignment_avg,
+                'max': self.assignment_max,
+                'percentage': round(assign_pct, 2),
+                'teacher_weight': f'{ASSIGN_W}%',
+                'actual_weight': f'{round(actual_weight, 1)}%',
+                'contribution': round(contribution, 2)
+            })
+
+        if has_attendance:
+            att_pct = (self.attendance_score / self.attendance_max) * 100
+            actual_weight = (ATTEND_W / total_available) * 100
+            contribution = att_pct * (ATTEND_W / total_available)
+            breakdown['components'].append({
+                'name': 'Attendance',
+                'score': self.attendance_score,
+                'max': self.attendance_max,
+                'percentage': round(att_pct, 2),
+                'teacher_weight': f'{ATTEND_W}%',
+                'actual_weight': f'{round(actual_weight, 1)}%',
+                'contribution': round(contribution, 2)
+            })
+
+        return breakdown
 
     def _auto_calculate_grades(self):
         """Auto-calculate letter/descriptive grades based on percentage and class grade"""
@@ -446,3 +574,133 @@ class ReportCardSubject(models.Model):
             return 'E'
         else:
             return 'F'
+# For K-12: Daily quizzes, homework, class participation, classwork
+
+class ContinuousAssessment(models.Model):
+    """Continuous Assessment marks for K-12 (quizzes, homework, participation)"""
+    CA_TYPE_CHOICES = (
+        ('quiz', 'Daily Quiz'),
+        ('homework', 'Homework'),
+        ('participation', 'Class Participation'),
+        ('classwork', 'Classwork'),
+        ('project', 'Mini Project'),
+        ('assignment', 'Assignment'),
+    )
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    student = models.ForeignKey('students.Student', on_delete=models.CASCADE)
+    teacher_assignment = models.ForeignKey('teachers.TeacherAssignment', on_delete=models.CASCADE)
+    term = models.ForeignKey('academics.Term', on_delete=models.CASCADE)
+
+    ca_type = models.CharField(max_length=20, choices=CA_TYPE_CHOICES)
+    title = models.CharField(max_length=100)  # e.g., "Week 3 Quiz", "Chapter 5 Homework"
+    description = models.TextField(blank=True)
+
+    score = models.FloatField()
+    max_score = models.FloatField(default=100)
+    weight = models.FloatField(default=1.0)  # Weight in CA calculation
+
+    date_given = models.DateField()
+    date_submitted = models.DateField(null=True, blank=True)
+
+    recorded_by = models.ForeignKey('users.User', on_delete=models.SET_NULL, null=True)
+    recorded_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'continuous_assessments'
+
+    def __str__(self):
+        return f"{self.student.user.full_name} - {self.get_ca_type_display()}: {self.title} ({self.score}/{self.max_score})"
+
+
+class SkillsAssessment(models.Model):
+    """Skills and competency assessment for K-12 (communication, teamwork, etc.)"""
+    SKILL_CHOICES = (
+        ('communication', 'Communication Skills'),
+        ('teamwork', 'Teamwork & Collaboration'),
+        ('critical_thinking', 'Critical Thinking'),
+        ('creativity', 'Creativity & Innovation'),
+        ('leadership', 'Leadership'),
+        ('discipline', 'Discipline & Punctuality'),
+        ('participation', 'Active Participation'),
+        ('homework_completion', 'Homework Completion'),
+        ('respect', 'Respect for Others'),
+        ('self_confidence', 'Self-Confidence'),
+    )
+
+    RATING_CHOICES = (
+        ('EX', 'Excellent'),
+        ('VG', 'Very Good'),
+        ('G', 'Good'),
+        ('S', 'Satisfactory'),
+        ('NI', 'Needs Improvement'),
+        ('U', 'Unsatisfactory'),
+    )
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    student = models.ForeignKey('students.Student', on_delete=models.CASCADE)
+    teacher_assignment = models.ForeignKey('teachers.TeacherAssignment', on_delete=models.CASCADE)
+    term = models.ForeignKey('academics.Term', on_delete=models.CASCADE)
+
+    skill = models.CharField(max_length=30, choices=SKILL_CHOICES)
+    rating = models.CharField(max_length=2, choices=RATING_CHOICES)
+    comment = models.TextField(blank=True)
+
+    assessed_by = models.ForeignKey('users.User', on_delete=models.SET_NULL, null=True)
+    assessed_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'skills_assessments'
+        unique_together = ['student', 'teacher_assignment', 'term', 'skill']
+
+    def __str__(self):
+        return f"{self.student.user.full_name} - {self.get_skill_display()}: {self.rating}"
+
+
+class TeacherComment(models.Model):
+    """Teacher comments for student report cards"""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    student = models.ForeignKey('students.Student', on_delete=models.CASCADE)
+    teacher_assignment = models.ForeignKey('teachers.TeacherAssignment', on_delete=models.CASCADE)
+    term = models.ForeignKey('academics.Term', on_delete=models.CASCADE)
+
+    comment = models.TextField()
+    recommendation = models.TextField(blank=True)  # e.g., "Needs remedial classes"
+
+    recorded_by = models.ForeignKey('users.User', on_delete=models.SET_NULL, null=True)
+    recorded_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'teacher_comments'
+        unique_together = ['student', 'teacher_assignment', 'term']
+
+    def __str__(self):
+        return f"Comment for {self.student.user.full_name} - {self.comment[:50]}"
+
+
+class StudentRank(models.Model):
+    """Student class ranking based on overall performance"""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    student = models.ForeignKey('students.Student', on_delete=models.CASCADE)
+    class_fk = models.ForeignKey('academics.Class', on_delete=models.CASCADE)
+    section = models.ForeignKey('academics.Section', on_delete=models.CASCADE, null=True, blank=True)
+    term = models.ForeignKey('academics.Term', on_delete=models.CASCADE)
+
+    total_score = models.FloatField()
+    total_max = models.FloatField()
+    percentage = models.FloatField()
+    position = models.PositiveIntegerField()  # 1st, 2nd, 3rd...
+    total_students = models.PositiveIntegerField()
+
+    out_of = models.CharField(max_length=20)  # e.g., "1st out of 45"
+    remark = models.CharField(max_length=100, blank=True)  # e.g., "Excellent performance"
+
+    calculated_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'student_ranks'
+        unique_together = ['student', 'class_fk', 'section', 'term']
+        ordering = ['class_fk', 'section', 'term', 'position']
+
+    def __str__(self):
+        return f"{self.student.user.full_name} - {self.out_of} ({self.percentage:.1f}%)"

@@ -150,15 +150,19 @@ const ExamForm = ({ open, onClose, exam, onSave, terms, classes, branches, isSup
     if (formData.start_date && formData.end_date && formData.start_date > formData.end_date) {
       newErrors.end_date = 'End date must be after start date';
     }
+    // Time validation
+    if (formData.start_time && formData.end_time && formData.start_time >= formData.end_time) {
+      newErrors.end_time = 'End time must be after start time';
+    }
     if (formData.max_score <= 0) newErrors.max_score = 'Max score must be greater than 0';
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
 
-  // Helper function to check for duplicate exams
-  const checkDuplicateExam = (existingExams, formData, currentExamId) => {
-    const duplicate = existingExams.find(e => {
+  // Helper function to check for time conflicts with existing exams
+  const checkTimeConflict = (existingExams, formData, currentExamId) => {
+    const conflict = existingExams.find(e => {
       // Skip current exam when editing
       if (currentExamId && e.id === currentExamId) return false;
 
@@ -168,34 +172,44 @@ const ExamForm = ({ open, onClose, exam, onSave, terms, classes, branches, isSup
       const sameSection = (e.section?.id || e.section_id) === formData.section_id ||
         (!e.section?.id && !e.section_id && !formData.section_id);
 
-      // Check overlapping dates
-      const sameDates = e.start_date === formData.start_date && e.end_date === formData.end_date;
+      // Only check conflicts on the same date
+      if (!sameSubject || !sameClass || !sameSection) return false;
+      if (e.start_date !== formData.start_date) return false;
 
-      // Check overlapping times (if times are set)
-      const sameTimes = (!formData.start_time && !e.start_time) ||
-        (formData.start_time === e.start_time && formData.end_time === e.end_time);
-
-      // It's a duplicate if: same subject, class, section, dates, times AND same exam_type
-      // Different exam_type is allowed (e.g., Quiz and Mid-term for same subject/time)
-      if (sameSubject && sameClass && sameSection && sameDates && sameTimes) {
-        if (e.exam_type === formData.exam_type) {
-          return true; // Duplicate: same everything including exam type
-        }
+      // Check time overlap: new_start < existing_end AND new_end > existing_start
+      // If either exam doesn't have time set, skip time conflict check
+      if (!formData.start_time || !formData.end_time || !e.start_time || !e.end_time) {
+        return false;
       }
-      return false;
+
+      // Time overlap detection
+      const newStart = formData.start_time;
+      const newEnd = formData.end_time;
+      const existingStart = e.start_time;
+      const existingEnd = e.end_time;
+
+      // Overlap occurs when: new exam starts before existing ends AND new exam ends after existing starts
+      const hasOverlap = newStart < existingEnd && newEnd > existingStart;
+
+      return hasOverlap;
     });
 
-    return duplicate;
+    return conflict;
   };
 
   const handleSubmit = async () => {
     if (!validate()) return;
 
-    // Check for duplicate exams
+    // Check for time conflicts with existing exams
     if (exams && exams.length > 0) {
-      const duplicate = checkDuplicateExam(exams, formData, exam?.id);
-      if (duplicate) {
-        toast.error(`An exam already exists for this subject with the same dates/times and type "${examTypes.find(t => t.value === duplicate.exam_type)?.label || duplicate.exam_type}". Please use a different exam type or change the schedule.`);
+      const conflict = checkTimeConflict(exams, formData, exam?.id);
+      if (conflict) {
+        toast.error(
+          `Time conflict: An exam "${conflict.name}" already exists ` +
+          `from ${conflict.start_time} to ${conflict.end_time} on ${conflict.start_date}. ` +
+          `Please choose a different time that does not overlap with existing exams.`,
+          { autoClose: 6000 }
+        );
         return;
       }
     }
@@ -550,24 +564,26 @@ const ExamForm = ({ open, onClose, exam, onSave, terms, classes, branches, isSup
               InputLabelProps={{ shrink: true }}
             />
           </Grid>
-          <Grid item xs={12} md={6}>
+          <Grid item xs={6}>
             <TextField
               fullWidth
               type="time"
-              label="Start Time"
+              label="Start Time *"
               value={formData.start_time}
               onChange={(e) => handleChange('start_time', e.target.value?.substring(0, 5))}
               InputLabelProps={{ shrink: true }}
+              required
             />
           </Grid>
-          <Grid item xs={12} md={6}>
+          <Grid item xs={6}>
             <TextField
               fullWidth
               type="time"
-              label="End Time"
+              label="End Time *"
               value={formData.end_time}
               onChange={(e) => handleChange('end_time', e.target.value?.substring(0, 5))}
               InputLabelProps={{ shrink: true }}
+              required
             />
           </Grid>
           <Grid item xs={12} md={6}>

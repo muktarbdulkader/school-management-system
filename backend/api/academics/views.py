@@ -125,15 +125,38 @@ class TermsViewSet(viewsets.ModelViewSet):
                 teacher_branch_ids = list(TeacherAssignment.objects.filter(teacher=teacher).values_list('class_fk__branch_id', flat=True).distinct())
                 accessible_branches = list(set(accessible_branches + teacher_branch_ids))
             
+            # Allow students to see terms for their branch
+            from students.models import Student
+            student = Student.objects.filter(user=user).first()
+            if student and student.branch_id:
+                accessible_branches.append(student.branch_id)
+            
+            # Allow parents to see terms for their children's branches
+            from students.models import Parent
+            parent = Parent.objects.filter(user=user).first()
+            if parent:
+                parent_branch_ids = list(parent.students.values_list('branch_id', flat=True).distinct())
+                accessible_branches = list(set(accessible_branches + parent_branch_ids))
+            
             if accessible_branches:
                 queryset = queryset.filter(branch_id__in=accessible_branches)
             else:
-                # If no branch access and not a teacher, return empty
+                # If no branch access and not a teacher/student/parent, return empty
                 queryset = queryset.none()
 
         if branch_id:
             if not user.is_superuser and not UserBranchAccess.objects.filter(user=user, branch_id=branch_id).exists():
-                raise PermissionDenied("You do not have access to this branch.")
+                # Allow students/parents to filter by their own branch
+                can_access = False
+                from students.models import Student, Parent
+                student = Student.objects.filter(user=user, branch_id=branch_id).first()
+                if student:
+                    can_access = True
+                parent = Parent.objects.filter(user=user).first()
+                if parent and parent.students.filter(branch_id=branch_id).exists():
+                    can_access = True
+                if not can_access:
+                    raise PermissionDenied("You do not have access to this branch.")
             queryset = queryset.filter(branch_id=branch_id)
         
         if academic_year:

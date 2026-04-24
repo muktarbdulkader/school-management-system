@@ -31,6 +31,9 @@ import {
   IconButton,
   Chip,
   Tooltip,
+  Tabs,
+  Tab,
+  Alert,
 } from '@mui/material';
 import { useLocation } from 'react-router-dom';
 import {
@@ -43,6 +46,7 @@ import {
   TableChart as TableChartIcon,
   Save as SaveIcon,
   Info as InfoIcon,
+  Settings as SettingsIcon,
 } from '@mui/icons-material';
 import GetToken from 'utils/auth-token';
 import Backend from 'services/backend';
@@ -74,7 +78,6 @@ export default function GradeBookPage() {
   });
 
   // Dialog states
-  const [openExamDialog, setOpenExamDialog] = useState(false);
   const [openGradeDialog, setOpenGradeDialog] = useState(false);
   const [openBulkDialog, setOpenBulkDialog] = useState(false);
   const [selectedStudent, setSelectedStudent] = useState(null);
@@ -83,17 +86,43 @@ export default function GradeBookPage() {
   const [bulkGrades, setBulkGrades] = useState([]);
   const [bulkMaxScore, setBulkMaxScore] = useState(100);
 
-  // Form states
-  const [examForm, setExamForm] = useState({
-    name: '',
-    exam_type: 'Quiz',
-    start_date: '',
-    end_date: '',
-    start_time: '',
-    end_time: '',
-    max_score: 100,
+  // Tab state for K-12 assessment types
+  const [activeTab, setActiveTab] = useState(0); // 0=Exams, 1=Continuous Assessment, 2=Skills
+
+  // Continuous Assessment (CA) states
+  const [continuousAssessments, setContinuousAssessments] = useState([]);
+  const [openCADialog, setOpenCADialog] = useState(false);
+  const [caForm, setCaForm] = useState({
+    ca_type: 'quiz',
+    title: '',
     description: '',
+    score: '',
+    max_score: 100,
+    date_given: '',
+    weight: 1.0,
   });
+  const [selectedCAStudent, setSelectedCAStudent] = useState(null);
+
+  // Skills Assessment states
+  const [skillsAssessments, setSkillsAssessments] = useState([]);
+  const [openSkillsDialog, setOpenSkillsDialog] = useState(false);
+  const [skillsForm, setSkillsForm] = useState({
+    skill: 'communication',
+    rating: 'G',
+    comment: '',
+  });
+  const [selectedSkillsStudent, setSelectedSkillsStudent] = useState(null);
+
+  // Weight Configuration - Flexible grading weights set by teacher
+  const [weightConfig, setWeightConfig] = useState({
+    exam: 60,      // Default 60%, but teacher can change
+    ca: 20,        // Default 20%
+    assignment: 10, // Default 10%
+    attendance: 10, // Default 10%
+  });
+  const [openWeightDialog, setOpenWeightDialog] = useState(false);
+  const [tempWeights, setTempWeights] = useState(weightConfig);
+
 
   const [gradeForm, setGradeForm] = useState({
     score: '',
@@ -571,79 +600,6 @@ export default function GradeBookPage() {
     return studentName.toLowerCase().includes(searchTerm.toLowerCase());
   });
 
-  // Handle Create Exam
-  const handleCreateExam = async () => {
-    try {
-      // Validate required fields
-      if (!term || !subject || !grade) {
-        toast.error('Please select term, class, and subject first');
-        return;
-      }
-
-      if (!examForm.start_date || !examForm.end_date) {
-        toast.error('Please provide start and end dates');
-        return;
-      }
-
-      const token = await GetToken();
-      const header = {
-        Authorization: `Bearer ${token}`,
-        accept: 'application/json',
-        'Content-Type': 'application/json',
-      };
-
-      // Get branch_id from cached teacher profile
-      const branchId = teacherProfile?.branch_id;
-      if (!branchId) {
-        toast.error('Branch information is required. Please ensure your teacher profile has a branch assigned.');
-        return;
-      }
-      console.log('Using branch_id from cached teacher profile:', branchId);
-
-      const payload = {
-        name: examForm.name,
-        exam_type: examForm.exam_type,
-        start_date: examForm.start_date,
-        end_date: examForm.end_date,
-        start_time: examForm.start_time || null,
-        end_time: examForm.end_time || null,
-        max_score: examForm.max_score || 100,
-        description: examForm.description || '',
-        term_id: term,
-        subject_id: subject,
-        class_id: grade,
-        section_id: section || null,
-        branch_id: branchId,
-        created_by: user?.id || null,
-      };
-
-      console.log('Creating exam with payload:', payload);
-
-      const response = await fetch(`${Backend.api}${Backend.exams}`, {
-        method: 'POST',
-        headers: header,
-        body: JSON.stringify(payload),
-      });
-
-      const data = await response.json();
-      console.log('Create exam response:', data);
-
-      if (response.ok && data.success) {
-        toast.success('Assessment created successfully!');
-        setOpenExamDialog(false);
-        setExamForm({ name: '', exam_type: 'Quiz', start_date: '', end_date: '', start_time: '', end_time: '', max_score: 100, description: '' });
-        fetchStudentsAndGrades();
-      } else {
-        const errorMsg = data.message || data.error || 'Failed to create assessment';
-        console.error('Assessment creation failed:', data);
-        toast.error(errorMsg);
-      }
-    } catch (error) {
-      console.error('Error creating exam:', error);
-      toast.error('Failed to create assessment: ' + error.message);
-    }
-  };
-
   // Handle Enter Grade
   const handleEnterGrade = async () => {
     try {
@@ -881,6 +837,164 @@ export default function GradeBookPage() {
     }
   };
 
+  // ==================== CONTINUOUS ASSESSMENT (CA) FUNCTIONS ====================
+
+  const fetchContinuousAssessments = async () => {
+    if (!term || !grade || !subject) return;
+    try {
+      const token = await GetToken();
+      const response = await fetch(
+        `${Backend.api}continuous_assessments/?term_id=${term}&class_id=${grade}&subject_id=${subject}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      const data = await response.json();
+      if (data.success) {
+        setContinuousAssessments(data.data || []);
+      }
+    } catch (error) {
+      console.error('Error fetching CA:', error);
+    }
+  };
+
+  const handleOpenCADialog = (student) => {
+    setSelectedCAStudent(student);
+    setCaForm({
+      ca_type: 'quiz',
+      title: '',
+      description: '',
+      score: '',
+      max_score: 100,
+      date_given: new Date().toISOString().split('T')[0],
+      weight: 1.0,
+    });
+    setOpenCADialog(true);
+  };
+
+  const handleSaveCA = async () => {
+    try {
+      const token = await GetToken();
+      const assignment = teacherAssignments.find(a =>
+        a.class_id === grade && (a.section_id === section || (!a.section_id && !section)) && a.id === subject
+      );
+      if (!assignment?.assignment_id) {
+        toast.error('Teacher assignment not found');
+        return;
+      }
+
+      const payload = {
+        student_id: selectedCAStudent.id,
+        teacher_assignment_id: assignment.assignment_id,
+        term_id: term,
+        ca_type: caForm.ca_type,
+        title: caForm.title,
+        description: caForm.description,
+        score: parseFloat(caForm.score),
+        max_score: parseFloat(caForm.max_score),
+        weight: parseFloat(caForm.weight),
+        date_given: caForm.date_given,
+      };
+
+      const response = await fetch(`${Backend.api}continuous_assessments/`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await response.json();
+      if (response.ok && data.success) {
+        toast.success('Continuous Assessment saved!');
+        setOpenCADialog(false);
+        fetchContinuousAssessments();
+      } else {
+        toast.error(data.message || 'Failed to save CA');
+      }
+    } catch (error) {
+      console.error('Error saving CA:', error);
+      toast.error('Failed to save CA');
+    }
+  };
+
+  // ==================== SKILLS ASSESSMENT FUNCTIONS ====================
+
+  const fetchSkillsAssessments = async () => {
+    if (!term || !grade || !subject) return;
+    try {
+      const token = await GetToken();
+      const response = await fetch(
+        `${Backend.api}skills_assessments/?term_id=${term}&class_id=${grade}&subject_id=${subject}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      const data = await response.json();
+      if (data.success) {
+        setSkillsAssessments(data.data || []);
+      }
+    } catch (error) {
+      console.error('Error fetching skills:', error);
+    }
+  };
+
+  const handleOpenSkillsDialog = (student) => {
+    setSelectedSkillsStudent(student);
+    setSkillsForm({
+      skill: 'communication',
+      rating: 'G',
+      comment: '',
+    });
+    setOpenSkillsDialog(true);
+  };
+
+  const handleSaveSkills = async () => {
+    try {
+      const token = await GetToken();
+      const assignment = teacherAssignments.find(a =>
+        a.class_id === grade && (a.section_id === section || (!a.section_id && !section)) && a.id === subject
+      );
+      if (!assignment?.assignment_id) {
+        toast.error('Teacher assignment not found');
+        return;
+      }
+
+      const payload = {
+        student_id: selectedSkillsStudent.id,
+        teacher_assignment_id: assignment.assignment_id,
+        term_id: term,
+        skill: skillsForm.skill,
+        rating: skillsForm.rating,
+        comment: skillsForm.comment,
+      };
+
+      const response = await fetch(`${Backend.api}skills_assessments/`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await response.json();
+      if (response.ok && data.success) {
+        toast.success('Skills Assessment saved!');
+        setOpenSkillsDialog(false);
+        fetchSkillsAssessments();
+      } else {
+        toast.error(data.message || 'Failed to save skills');
+      }
+    } catch (error) {
+      console.error('Error saving skills:', error);
+      toast.error('Failed to save skills');
+    }
+  };
+
+  // Fetch CA and Skills when tab changes
+  useEffect(() => {
+    if (activeTab === 1) fetchContinuousAssessments();
+    if (activeTab === 2) fetchSkillsAssessments();
+  }, [activeTab, term, grade, subject]);
+
   return (
     <Container maxWidth="xl" sx={{ py: 3 }}>
       <Box sx={{ mb: 4 }}>
@@ -895,20 +1009,6 @@ export default function GradeBookPage() {
           </Box>
 
           <Box sx={{ display: 'flex', gap: 2 }}>
-            <Button
-              variant="contained"
-              startIcon={<AddIcon />}
-              onClick={() => {
-                if (!term || !subject || !grade) {
-                  toast.error('Please select term, class, and subject first');
-                  return;
-                }
-                setOpenExamDialog(true);
-              }}
-              sx={{ bgcolor: '#10b981' }}
-            >
-              Create Assessment
-            </Button>
             <Button
               variant="outlined"
               startIcon={<AssignmentIcon />}
@@ -941,6 +1041,17 @@ export default function GradeBookPage() {
               }}
             >
               Bulk Entry
+            </Button>
+            <Button
+              variant="outlined"
+              startIcon={<SettingsIcon />}
+              onClick={() => {
+                setTempWeights(weightConfig);
+                setOpenWeightDialog(true);
+              }}
+              sx={{ borderColor: '#ff9800', color: '#ff9800' }}
+            >
+              Weights ({weightConfig.exam}%/{weightConfig.ca}%/{weightConfig.assignment}%/{weightConfig.attendance}%)
             </Button>
           </Box>
         </Box>
@@ -1016,12 +1127,46 @@ export default function GradeBookPage() {
         </Grid>
       </Grid>
 
+      {/* Assessment Type Tabs - K-12 Feature */}
+      <Box sx={{ mb: 3 }}>
+        <Tabs
+          value={activeTab}
+          onChange={(e, newValue) => setActiveTab(newValue)}
+          variant="scrollable"
+          scrollButtons="auto"
+          sx={{
+            bgcolor: 'background.paper',
+            borderRadius: 1,
+            '& .MuiTabs-flexContainer': {
+              gap: 1,
+            }
+          }}
+        >
+          <Tab
+            label="📋 Exam Grades"
+            sx={{ fontWeight: activeTab === 0 ? 'bold' : 'normal' }}
+          />
+          <Tab
+            label="📝 Continuous Assessment (CA)"
+            sx={{ fontWeight: activeTab === 1 ? 'bold' : 'normal' }}
+          />
+          <Tab
+            label="⭐ Skills & Competencies"
+            sx={{ fontWeight: activeTab === 2 ? 'bold' : 'normal' }}
+          />
+        </Tabs>
+      </Box>
+
       <Grid container spacing={3}>
         <Grid item xs={12}>
           <Card>
             <CardContent>
               <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-                <Typography variant="h6" component="h2">Student Grades</Typography>
+                <Typography variant="h6" component="h2">
+                  {activeTab === 0 && 'Student Grades'}
+                  {activeTab === 1 && 'Continuous Assessment'}
+                  {activeTab === 2 && 'Skills & Competency Assessment'}
+                </Typography>
                 <TextField
                   size="small"
                   placeholder="Search students..."
@@ -1056,7 +1201,7 @@ export default function GradeBookPage() {
                     <TableHead>
                       <TableRow>
                         <TableCell>Student Name</TableCell>
-                        {exams.map(exam => (
+                        {activeTab === 0 && exams.map(exam => (
                           <TableCell key={exam.id} align="center" sx={{ minWidth: 120 }}>
                             <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
                               <Typography variant="subtitle2" fontWeight="bold" noWrap sx={{ maxWidth: 150 }}>
@@ -1071,26 +1216,42 @@ export default function GradeBookPage() {
                             </Box>
                           </TableCell>
                         ))}
-                        <TableCell align="center">
-                          <Tooltip title={
-                            <Typography variant="body2">
-                              <strong>Calculation (Exams + Assignments):</strong><br />
-                              (Exam scores + Assignment grades) ÷ (Exam max + Assignment max) × 100<br />
-                              <em>Assignments are graded out of 100</em>
-                            </Typography>
-                          } arrow>
-                            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.5, cursor: 'help' }}>
-                              <span>Total (%)</span>
-                              <InfoIcon fontSize="small" color="action" />
-                            </Box>
-                          </Tooltip>
-                        </TableCell>
+                        {activeTab === 0 && (
+                          <TableCell align="center">
+                            <Tooltip title={
+                              <Typography variant="body2">
+                                <strong>Calculation (Exams + Assignments):</strong><br />
+                                (Exam scores + Assignment grades) ÷ (Exam max + Assignment max) × 100<br />
+                                <em>Assignments are graded out of 100</em>
+                              </Typography>
+                            } arrow>
+                              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.5, cursor: 'help' }}>
+                                <span>Total (%)</span>
+                                <InfoIcon fontSize="small" color="action" />
+                              </Box>
+                            </Tooltip>
+                          </TableCell>
+                        )}
+                        {activeTab === 1 && (
+                          <>
+                            <TableCell align="center">CA Count</TableCell>
+                            <TableCell align="center">CA Average</TableCell>
+                            <TableCell align="center">Action</TableCell>
+                          </>
+                        )}
+                        {activeTab === 2 && (
+                          <>
+                            <TableCell align="center">Skills Rated</TableCell>
+                            <TableCell align="center">Overall Rating</TableCell>
+                            <TableCell align="center">Action</TableCell>
+                          </>
+                        )}
                       </TableRow>
                     </TableHead>
                     <TableBody>
                       {filteredStudents.length === 0 ? (
                         <TableRow>
-                          <TableCell colSpan={exams.length + 2} align="center">
+                          <TableCell colSpan={activeTab === 0 ? exams.length + 2 : 4} align="center">
                             <Typography variant="body2" color="text.secondary" sx={{ py: 4 }}>
                               No students found. Please select a class, section, and subject.
                             </Typography>
@@ -1114,26 +1275,92 @@ export default function GradeBookPage() {
                                 </Box>
                               </Box>
                             </TableCell>
-                            {exams.map(exam => (
+                            {activeTab === 0 && exams.map(exam => (
                               <TableCell key={exam.id} align="center">
                                 {getExamScore(student.id, exam.id)}
                               </TableCell>
                             ))}
-                            <TableCell align="center">
-                              <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                                <Typography
-                                  variant="body2"
-                                  fontWeight="bold"
-                                  sx={{ color: getScoreColor(getStudentTotal(student.id)) }}
-                                >
-                                  {getStudentTotal(student.id)}
-                                </Typography>
-                                <Typography variant="caption" color="text.secondary">
-                                  {getStudentResults(student.id).length}/{exams.length} exams
-                                  {assignments.length > 0 && `, ${getStudentAssignmentGrades(student.id).length}/${assignments.length} assignments`}
-                                </Typography>
-                              </Box>
-                            </TableCell>
+                            {activeTab === 0 && (
+                              <TableCell align="center">
+                                <Tooltip title={
+                                  <Box>
+                                    <Typography variant="caption" sx={{ fontWeight: 'bold' }}>K-12 Grade Calculation:</Typography>
+                                    <Typography variant="caption" display="block">• Exam (Mid+Final): 60%</Typography>
+                                    <Typography variant="caption" display="block">• Continuous Assessment: 20%</Typography>
+                                    <Typography variant="caption" display="block">• Assignments: 10%</Typography>
+                                    <Typography variant="caption" display="block">• Attendance: 10%</Typography>
+                                    <Typography variant="caption" sx={{ fontWeight: 'bold', mt: 1 }}>Note:</Typography>
+                                    <Typography variant="caption" display="block">If CA/Assignments not entered,</Typography>
+                                    <Typography variant="caption" display="block">weights redistribute automatically.</Typography>
+                                    <Typography variant="caption" display="block">Example: Exams only = 100%</Typography>
+                                  </Box>
+                                } arrow>
+                                  <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', cursor: 'help' }}>
+                                    <Typography
+                                      variant="body2"
+                                      fontWeight="bold"
+                                      sx={{ color: getScoreColor(getStudentTotal(student.id)) }}
+                                    >
+                                      {getStudentTotal(student.id)}
+                                    </Typography>
+                                    <Typography variant="caption" color="text.secondary">
+                                      {getStudentResults(student.id).length}/{exams.length} exams
+                                    </Typography>
+                                  </Box>
+                                </Tooltip>
+                              </TableCell>
+                            )}
+                            {activeTab === 1 && (
+                              <>
+                                <TableCell align="center">
+                                  {continuousAssessments.filter(ca => ca.student === student.id).length} assessments
+                                </TableCell>
+                                <TableCell align="center">
+                                  {(() => {
+                                    const studentCAs = continuousAssessments.filter(ca => ca.student === student.id);
+                                    if (studentCAs.length === 0) return '-';
+                                    const avg = studentCAs.reduce((sum, ca) => sum + (ca.score / ca.max_score * 100), 0) / studentCAs.length;
+                                    return `${avg.toFixed(1)}%`;
+                                  })()}
+                                </TableCell>
+                                <TableCell align="center">
+                                  <Button
+                                    size="small"
+                                    variant="outlined"
+                                    onClick={() => handleOpenCADialog(student)}
+                                  >
+                                    Add CA
+                                  </Button>
+                                </TableCell>
+                              </>
+                            )}
+                            {activeTab === 2 && (
+                              <>
+                                <TableCell align="center">
+                                  {skillsAssessments.filter(s => s.student === student.id).length} skills
+                                </TableCell>
+                                <TableCell align="center">
+                                  {(() => {
+                                    const studentSkills = skillsAssessments.filter(s => s.student === student.id);
+                                    if (studentSkills.length === 0) return '-';
+                                    const ratingMap = { EX: 5, VG: 4, G: 3, S: 2, NI: 1, U: 0 };
+                                    const avg = studentSkills.reduce((sum, s) => sum + (ratingMap[s.rating] || 0), 0) / studentSkills.length;
+                                    const ratingLabels = ['U', 'NI', 'S', 'G', 'VG', 'EX'];
+                                    return ratingLabels[Math.round(avg)] || '-';
+                                  })()}
+                                </TableCell>
+                                <TableCell align="center">
+                                  <Button
+                                    size="small"
+                                    variant="outlined"
+                                    color="secondary"
+                                    onClick={() => handleOpenSkillsDialog(student)}
+                                  >
+                                    Rate Skills
+                                  </Button>
+                                </TableCell>
+                              </>
+                            )}
                           </TableRow>
                         ))
                       )}
@@ -1151,99 +1378,6 @@ export default function GradeBookPage() {
           </Card>
         </Grid>
       </Grid>
-
-      {/* Create Exam Dialog */}
-      <Dialog open={openExamDialog} onClose={() => setOpenExamDialog(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <Typography variant="h6">Create New Assessment</Typography>
-            <IconButton onClick={() => setOpenExamDialog(false)}>
-              <CloseIcon />
-            </IconButton>
-          </Box>
-        </DialogTitle>
-        <DialogContent>
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 2 }}>
-            <TextField
-              label="Assessment Name"
-              value={examForm.name}
-              onChange={(e) => setExamForm({ ...examForm, name: e.target.value })}
-              fullWidth
-              required
-            />
-            <FormControl fullWidth>
-              <InputLabel>Assessment Type</InputLabel>
-              <Select
-                value={examForm.exam_type}
-                onChange={(e) => setExamForm({ ...examForm, exam_type: e.target.value })}
-                label="Assessment Type"
-              >
-                <MenuItem value="Quiz">Quiz</MenuItem>
-                <MenuItem value="Midterm">Midterm</MenuItem>
-                <MenuItem value="Final">Final</MenuItem>
-                <MenuItem value="Assignment">Assignment</MenuItem>
-                <MenuItem value="Project">Project</MenuItem>
-              </Select>
-            </FormControl>
-            <TextField
-              label="Start Date"
-              type="date"
-              value={examForm.start_date}
-              onChange={(e) => setExamForm({ ...examForm, start_date: e.target.value })}
-              InputLabelProps={{ shrink: true }}
-              fullWidth
-            />
-            <TextField
-              label="End Date"
-              type="date"
-              value={examForm.end_date}
-              onChange={(e) => setExamForm({ ...examForm, end_date: e.target.value })}
-              InputLabelProps={{ shrink: true }}
-              fullWidth
-            />
-            <Box sx={{ display: 'flex', gap: 2 }}>
-              <TextField
-                label="Start Time"
-                type="time"
-                value={examForm.start_time}
-                onChange={(e) => setExamForm({ ...examForm, start_time: e.target.value })}
-                InputLabelProps={{ shrink: true }}
-                fullWidth
-              />
-              <TextField
-                label="End Time"
-                type="time"
-                value={examForm.end_time}
-                onChange={(e) => setExamForm({ ...examForm, end_time: e.target.value })}
-                InputLabelProps={{ shrink: true }}
-                fullWidth
-              />
-            </Box>
-            <TextField
-              label="Maximum Score"
-              type="number"
-              value={examForm.max_score}
-              onChange={(e) => setExamForm({ ...examForm, max_score: parseInt(e.target.value) || 100 })}
-              fullWidth
-              inputProps={{ min: 1 }}
-            />
-            <TextField
-              label="Description"
-              value={examForm.description}
-              onChange={(e) => setExamForm({ ...examForm, description: e.target.value })}
-              multiline
-              rows={3}
-              fullWidth
-            />
-          </Box>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setOpenExamDialog(false)}>Cancel</Button>
-          <Button variant="contained" onClick={handleCreateExam} disabled={!examForm.name}>
-            Create Assessment
-          </Button>
-        </DialogActions>
-      </Dialog>
 
       {/* Enter Grade Dialog */}
       <Dialog open={openGradeDialog} onClose={() => setOpenGradeDialog(false)} maxWidth="sm" fullWidth>
@@ -1414,6 +1548,280 @@ export default function GradeBookPage() {
             startIcon={bulkSaving ? <CircularProgress size={20} color="inherit" /> : <SaveIcon />}
           >
             {bulkSaving ? 'Saving...' : `Save ${bulkGrades.filter(g => g.score !== '').length} Grades`}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Continuous Assessment Entry Dialog */}
+      <Dialog open={openCADialog} onClose={() => setOpenCADialog(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Typography variant="h6">
+              Add Continuous Assessment for {selectedCAStudent?.name || selectedCAStudent?.user_details?.full_name || 'Student'}
+            </Typography>
+            <IconButton onClick={() => setOpenCADialog(false)}>
+              <CloseIcon />
+            </IconButton>
+          </Box>
+        </DialogTitle>
+        <DialogContent>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 2 }}>
+            <FormControl fullWidth>
+              <InputLabel>CA Type</InputLabel>
+              <Select
+                value={caForm.ca_type}
+                onChange={(e) => setCaForm({ ...caForm, ca_type: e.target.value })}
+                label="CA Type"
+              >
+                <MenuItem value="quiz">Daily Quiz</MenuItem>
+                <MenuItem value="homework">Homework</MenuItem>
+                <MenuItem value="participation">Class Participation</MenuItem>
+                <MenuItem value="classwork">Classwork</MenuItem>
+                <MenuItem value="project">Mini Project</MenuItem>
+                <MenuItem value="assignment">Assignment</MenuItem>
+              </Select>
+            </FormControl>
+            <TextField
+              label="Title"
+              value={caForm.title}
+              onChange={(e) => setCaForm({ ...caForm, title: e.target.value })}
+              placeholder="e.g., Week 3 Quiz, Chapter 5 Homework"
+              fullWidth
+              required
+            />
+            <TextField
+              label="Description (Optional)"
+              value={caForm.description}
+              onChange={(e) => setCaForm({ ...caForm, description: e.target.value })}
+              multiline
+              rows={2}
+              fullWidth
+            />
+            <TextField
+              label="Date Given"
+              type="date"
+              value={caForm.date_given}
+              onChange={(e) => setCaForm({ ...caForm, date_given: e.target.value })}
+              InputLabelProps={{ shrink: true }}
+              fullWidth
+            />
+            <Box sx={{ display: 'flex', gap: 2 }}>
+              <TextField
+                label="Score"
+                type="number"
+                value={caForm.score}
+                onChange={(e) => setCaForm({ ...caForm, score: e.target.value })}
+                fullWidth
+                required
+              />
+              <TextField
+                label="Max Score"
+                type="number"
+                value={caForm.max_score}
+                onChange={(e) => setCaForm({ ...caForm, max_score: e.target.value })}
+                fullWidth
+              />
+            </Box>
+            <TextField
+              label="Weight (in CA calculation)"
+              type="number"
+              value={caForm.weight}
+              onChange={(e) => setCaForm({ ...caForm, weight: e.target.value })}
+              helperText="Default is 1.0. Increase for important assessments."
+              fullWidth
+              inputProps={{ min: 0.1, step: 0.1 }}
+            />
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setOpenCADialog(false)}>Cancel</Button>
+          <Button
+            variant="contained"
+            onClick={handleSaveCA}
+            disabled={!caForm.title || !caForm.score}
+          >
+            Save Assessment
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Skills Assessment Entry Dialog */}
+      <Dialog open={openSkillsDialog} onClose={() => setOpenSkillsDialog(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Typography variant="h6">
+              Rate Skills for {selectedSkillsStudent?.name || selectedSkillsStudent?.user_details?.full_name || 'Student'}
+            </Typography>
+            <IconButton onClick={() => setOpenSkillsDialog(false)}>
+              <CloseIcon />
+            </IconButton>
+          </Box>
+        </DialogTitle>
+        <DialogContent>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 2 }}>
+            <FormControl fullWidth>
+              <InputLabel>Skill</InputLabel>
+              <Select
+                value={skillsForm.skill}
+                onChange={(e) => setSkillsForm({ ...skillsForm, skill: e.target.value })}
+                label="Skill"
+              >
+                <MenuItem value="communication">Communication Skills</MenuItem>
+                <MenuItem value="teamwork">Teamwork & Collaboration</MenuItem>
+                <MenuItem value="critical_thinking">Critical Thinking</MenuItem>
+                <MenuItem value="creativity">Creativity & Innovation</MenuItem>
+                <MenuItem value="leadership">Leadership</MenuItem>
+                <MenuItem value="discipline">Discipline & Punctuality</MenuItem>
+                <MenuItem value="participation">Active Participation</MenuItem>
+                <MenuItem value="homework_completion">Homework Completion</MenuItem>
+                <MenuItem value="respect">Respect for Others</MenuItem>
+                <MenuItem value="self_confidence">Self-Confidence</MenuItem>
+              </Select>
+            </FormControl>
+            <FormControl fullWidth>
+              <InputLabel>Rating</InputLabel>
+              <Select
+                value={skillsForm.rating}
+                onChange={(e) => setSkillsForm({ ...skillsForm, rating: e.target.value })}
+                label="Rating"
+              >
+                <MenuItem value="EX">Excellent (EX)</MenuItem>
+                <MenuItem value="VG">Very Good (VG)</MenuItem>
+                <MenuItem value="G">Good (G)</MenuItem>
+                <MenuItem value="S">Satisfactory (S)</MenuItem>
+                <MenuItem value="NI">Needs Improvement (NI)</MenuItem>
+                <MenuItem value="U">Unsatisfactory (U)</MenuItem>
+              </Select>
+            </FormControl>
+            <TextField
+              label="Comment (Optional)"
+              value={skillsForm.comment}
+              onChange={(e) => setSkillsForm({ ...skillsForm, comment: e.target.value })}
+              placeholder="e.g., Shows great improvement in class discussions"
+              multiline
+              rows={3}
+              fullWidth
+            />
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setOpenSkillsDialog(false)}>Cancel</Button>
+          <Button
+            variant="contained"
+            color="secondary"
+            onClick={handleSaveSkills}
+            disabled={!skillsForm.skill || !skillsForm.rating}
+          >
+            Save Rating
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Weight Configuration Dialog - Teacher defines custom weights */}
+      <Dialog open={openWeightDialog} onClose={() => setOpenWeightDialog(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Typography variant="h6">⚖️ Configure Grade Weights</Typography>
+            <IconButton onClick={() => setOpenWeightDialog(false)}>
+              <CloseIcon />
+            </IconButton>
+          </Box>
+        </DialogTitle>
+        <DialogContent>
+          <Box sx={{ mt: 2 }}>
+            <Alert severity="info" sx={{ mb: 3 }}>
+              <Typography variant="body2">
+                Set custom weights for each component. The system will only use components that have data. Total should ideally be 100%, but the system will normalize automatically.
+              </Typography>
+            </Alert>
+
+            <Typography variant="subtitle2" gutterBottom sx={{ fontWeight: 'bold', color: '#1976d2' }}>
+              Default K-12 Weights: 60% / 20% / 10% / 10%
+            </Typography>
+
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3, mt: 3 }}>
+              <Box>
+                <Typography variant="body2" gutterBottom>📝 Exam (Mid + Final)</Typography>
+                <TextField
+                  type="number"
+                  value={tempWeights.exam}
+                  onChange={(e) => setTempWeights({ ...tempWeights, exam: parseInt(e.target.value) || 0 })}
+                  InputProps={{ endAdornment: <InputAdornment position="end">%</InputAdornment> }}
+                  fullWidth
+                  size="small"
+                  helperText="Weight for midterm and final exam scores"
+                />
+              </Box>
+
+              <Box>
+                <Typography variant="body2" gutterBottom>📚 Continuous Assessment (CA)</Typography>
+                <TextField
+                  type="number"
+                  value={tempWeights.ca}
+                  onChange={(e) => setTempWeights({ ...tempWeights, ca: parseInt(e.target.value) || 0 })}
+                  InputProps={{ endAdornment: <InputAdornment position="end">%</InputAdornment> }}
+                  fullWidth
+                  size="small"
+                  helperText="Weight for quizzes, homework, participation"
+                />
+              </Box>
+
+              <Box>
+                <Typography variant="body2" gutterBottom>📋 Assignments</Typography>
+                <TextField
+                  type="number"
+                  value={tempWeights.assignment}
+                  onChange={(e) => setTempWeights({ ...tempWeights, assignment: parseInt(e.target.value) || 0 })}
+                  InputProps={{ endAdornment: <InputAdornment position="end">%</InputAdornment> }}
+                  fullWidth
+                  size="small"
+                  helperText="Weight for major assignments/projects"
+                />
+              </Box>
+
+              <Box>
+                <Typography variant="body2" gutterBottom>✓ Attendance</Typography>
+                <TextField
+                  type="number"
+                  value={tempWeights.attendance}
+                  onChange={(e) => setTempWeights({ ...tempWeights, attendance: parseInt(e.target.value) || 0 })}
+                  InputProps={{ endAdornment: <InputAdornment position="end">%</InputAdornment> }}
+                  fullWidth
+                  size="small"
+                  helperText="Weight for class attendance"
+                />
+              </Box>
+            </Box>
+
+            <Box sx={{ mt: 3, p: 2, backgroundColor: '#f5f5f5', borderRadius: 1 }}>
+              <Typography variant="subtitle2">
+                Total Weight: {tempWeights.exam + tempWeights.ca + tempWeights.assignment + tempWeights.attendance}%
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                If total ≠ 100%, the system will normalize automatically. Only components with teacher-entered data will be used in calculation.
+              </Typography>
+            </Box>
+
+            <Typography variant="caption" color="text.secondary" sx={{ mt: 2, display: 'block' }}>
+              💡 <strong>Examples:</strong><br />
+              • Exam only (80%): Teacher enters only exam scores → Exam counts 100%<br />
+              • Exam (60%) + Attendance (5%): If both entered, Exam 92%, Attendance 8%<br />
+              • All entered: Uses the exact weights you set above
+            </Typography>
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setOpenWeightDialog(false)} variant="outlined">Cancel</Button>
+          <Button
+            variant="contained"
+            color="primary"
+            onClick={() => {
+              setWeightConfig(tempWeights);
+              toast.success(`Weights updated: ${tempWeights.exam}%/${tempWeights.ca}%/${tempWeights.assignment}%/${tempWeights.attendance}%`);
+              setOpenWeightDialog(false);
+            }}
+          >
+            Save Weights
           </Button>
         </DialogActions>
       </Dialog>

@@ -340,9 +340,19 @@ class ExamsSerializer(serializers.ModelSerializer):
 
     created_by_id = serializers.PrimaryKeyRelatedField(queryset=User.objects.all(), source='created_by', write_only=True, required=False)
 
+    # Weight profile fields
+    weights = serializers.SerializerMethodField(read_only=True)
+
     class Meta:
         model = Exam
-        fields = ['id', 'name', 'term_id', 'term_details', 'exam_type', 'subject_id', 'subject', 'class_id', 'class_details', 'section_id', 'section_details', 'branch_id', 'branch', 'start_date', 'end_date', 'start_time', 'end_time', 'max_score', 'passing_score', 'description', 'created_by_id', 'created_at']
+        fields = ['id', 'name', 'term_id', 'term_details', 'exam_type', 'subject_id', 'subject', 'class_id', 'class_details', 'section_id', 'section_details', 'branch_id', 'branch', 'start_date', 'end_date', 'start_time', 'end_time', 'max_score', 'passing_score', 'description', 'created_by_id', 'created_at',
+                  # Weight profile fields
+                  'weight_profile', 'custom_exam_weight', 'custom_ca_weight', 'custom_assignment_weight', 'custom_attendance_weight',
+                  'weights']
+
+    def get_weights(self, obj):
+        """Return the calculated weights based on profile"""
+        return obj.get_weights()
 
 class SubjectExamDaysSerializer(serializers.ModelSerializer):
     subject_id = serializers.PrimaryKeyRelatedField(queryset=Subject.objects.all(), source='subject', write_only=True)
