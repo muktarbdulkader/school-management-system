@@ -1398,6 +1398,40 @@ class ExamsViewSet(viewsets.ModelViewSet):
 
         return queryset
 
+    def _times_overlap(self, start1, end1, start2, end2):
+        """Check if two time ranges overlap.
+        
+        Time ranges overlap if:
+        - start1 < end2 AND end1 > start2
+        """
+        from datetime import datetime
+        
+        # Convert times to comparable format (minutes since midnight)
+        def time_to_minutes(t):
+            if isinstance(t, str):
+                try:
+                    # Try HH:MM:SS format
+                    h, m, s = map(int, t.split(':'))
+                    return h * 60 + m
+                except:
+                    try:
+                        # Try HH:MM format
+                        h, m = map(int, t.split(':'))
+                        return h * 60 + m
+                    except:
+                        return 0
+            elif hasattr(t, 'hour') and hasattr(t, 'minute'):
+                return t.hour * 60 + t.minute
+            return 0
+        
+        s1 = time_to_minutes(start1)
+        e1 = time_to_minutes(end1) if end1 else s1 + 60  # Default 1 hour
+        s2 = time_to_minutes(start2)
+        e2 = time_to_minutes(end2) if end2 else s2 + 60  # Default 1 hour
+        
+        # Two ranges overlap if start1 < end2 AND end1 > start2
+        return s1 < e2 and e1 > s2
+
     def list(self, request, *args, **kwargs):
         queryset = self.filter_queryset(self.get_queryset())
         serializer = self.get_serializer(queryset, many=True)
@@ -1484,6 +1518,76 @@ class ExamsViewSet(viewsets.ModelViewSet):
                     ]
                 })
 
+        # Check for TIME OVERLAP with any existing exam in same class/section on same date
+        # This prevents scheduling exams that conflict with each other
+        start_date = request.data.get('start_date')
+        end_date = request.data.get('end_date')
+        start_time = request.data.get('start_time')
+        end_time = request.data.get('end_time')
+        class_id = request.data.get('class_id')
+        section_id = request.data.get('section_id')
+
+        if start_date and start_time and class_id:
+            from datetime import datetime, timedelta
+
+            # Build overlap query - any exam on same date for same class/section
+            overlap_query = self.queryset.filter(
+                start_date=start_date,
+                class_fk_id=class_id
+            )
+
+            # Filter by section (if section specified, check only that section)
+            if section_id:
+                overlap_query = overlap_query.filter(section_id=section_id)
+
+            # Check time overlap: new exam overlaps with existing if:
+            # new_start < existing_end AND new_end > existing_start
+            overlapping_exams = []
+            for existing_exam in overlap_query:
+                existing_start = existing_exam.start_time
+                existing_end = existing_exam.end_time
+
+                # If no end time, assume default duration (e.g., 1 hour)
+                if not existing_end and existing_start:
+                    try:
+                        start_dt = datetime.strptime(str(existing_start), '%H:%M:%S')
+                        existing_end = (start_dt + timedelta(hours=1)).strftime('%H:%M:%S')
+                    except:
+                        existing_end = existing_start  # fallback
+
+                # If no end_time for new exam, assume 1 hour duration
+                new_end_time = end_time
+                if not new_end_time and start_time:
+                    try:
+                        start_dt = datetime.strptime(str(start_time), '%H:%M:%S')
+                        new_end_time = (start_dt + timedelta(hours=1)).strftime('%H:%M:%S')
+                    except:
+                        new_end_time = start_time
+
+                # Check for time overlap
+                if self._times_overlap(start_time, new_end_time, existing_start, existing_end):
+                    overlapping_exams.append({
+                        'name': existing_exam.name,
+                        'type': existing_exam.exam_type,
+                        'subject': existing_exam.subject.name if existing_exam.subject else 'N/A',
+                        'start': str(existing_start)[:5],
+                        'end': str(existing_end)[:5] if existing_end else 'N/A'
+                    })
+
+            if overlapping_exams:
+                exam_details = ', '.join([
+                    f'"{e["name"]}" ({e["type"]}) {e["start"]}-{e["end"]}'
+                    for e in overlapping_exams[:3]  # Show first 3 conflicts
+                ])
+
+                raise serializers.ValidationError({
+                    'non_field_errors': [
+                        f'Time conflict detected! There are already {len(overlapping_exams)} exam(s) scheduled '
+                        f'at this time: {exam_details}. '
+                        f'Please choose a different time slot.'
+                    ]
+                })
+
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         self.perform_create(serializer)
@@ -1515,6 +1619,73 @@ class ExamsViewSet(viewsets.ModelViewSet):
             
             if not has_branch_access and not is_teacher_for_branch:
                 raise PermissionDenied("You do not have permission to update exams in this branch.")
+
+        # Check for time overlap with other exams (excluding current exam)
+        start_date = request.data.get('start_date') or instance.start_date
+        end_date = request.data.get('end_date') or instance.end_date
+        start_time = request.data.get('start_time') or instance.start_time
+        end_time = request.data.get('end_time') or instance.end_time
+        class_id = request.data.get('class_id') or instance.class_fk_id
+        section_id = request.data.get('section_id') or instance.section_id
+
+        if start_date and start_time and class_id:
+            from datetime import datetime, timedelta
+            from rest_framework import serializers
+
+            # Build overlap query - any exam on same date for same class/section (excluding this exam)
+            overlap_query = self.queryset.filter(
+                start_date=start_date,
+                class_fk_id=class_id
+            ).exclude(id=instance.id)  # Exclude current exam
+
+            # Filter by section
+            if section_id:
+                overlap_query = overlap_query.filter(section_id=section_id)
+
+            # Check time overlap
+            overlapping_exams = []
+            for existing_exam in overlap_query:
+                existing_start = existing_exam.start_time
+                existing_end = existing_exam.end_time
+
+                # If no end time, assume default duration
+                if not existing_end and existing_start:
+                    try:
+                        start_dt = datetime.strptime(str(existing_start), '%H:%M:%S')
+                        existing_end = (start_dt + timedelta(hours=1)).strftime('%H:%M:%S')
+                    except:
+                        existing_end = existing_start
+
+                # If no end_time for new exam, assume 1 hour duration
+                new_end_time = end_time
+                if not new_end_time and start_time:
+                    try:
+                        start_dt = datetime.strptime(str(start_time), '%H:%M:%S')
+                        new_end_time = (start_dt + timedelta(hours=1)).strftime('%H:%M:%S')
+                    except:
+                        new_end_time = start_time
+
+                # Check for time overlap
+                if self._times_overlap(start_time, new_end_time, existing_start, existing_end):
+                    overlapping_exams.append({
+                        'name': existing_exam.name,
+                        'type': existing_exam.exam_type,
+                        'start': str(existing_start)[:5],
+                        'end': str(existing_end)[:5] if existing_end else 'N/A'
+                    })
+
+            if overlapping_exams:
+                exam_details = ', '.join([
+                    f'"{e["name"]}" ({e["type"]}) {e["start"]}-{e["end"]}'
+                    for e in overlapping_exams[:3]
+                ])
+
+                raise serializers.ValidationError({
+                    'non_field_errors': [
+                        f'Time conflict detected! Overlaps with: {exam_details}. '
+                        f'Please choose a different time slot.'
+                    ]
+                })
 
         serializer = self.get_serializer(instance, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)

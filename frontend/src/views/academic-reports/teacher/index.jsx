@@ -392,7 +392,10 @@ const TeacherReportCards = () => {
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <Typography variant="h6">📋 Student Report Card</Typography>
             <Chip
-              label={`Rank: ${selectedReport?.rank_in_class || selectedReport?.rank || 'N/A'} of ${selectedReport?.total_students || 'N/A'}`}
+              label={selectedReport?.rank_in_class !== null && selectedReport?.rank_in_class !== undefined
+                && selectedReport?.total_students !== null && selectedReport?.total_students !== undefined
+                ? `Rank: ${selectedReport.rank_in_class}/${selectedReport.total_students}`
+                : 'Rank: N/A'}
               color="primary"
               size="small"
             />

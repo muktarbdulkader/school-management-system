@@ -263,6 +263,177 @@ class ReportCard(models.Model):
     def __str__(self):
         return f"{self.student.user.full_name} - {self.term.name}"
 
+    def has_all_subjects_graded(self):
+        """Check if all enrolled subjects have results entered"""
+        from django.apps import apps
+        TeacherAssignment = apps.get_model('teachers', 'TeacherAssignment')
+        StudentSubject = apps.get_model('students', 'StudentSubject')
+
+        student = self.student
+        graded_count = 0
+
+        # Count actually graded subjects in report card
+        for subject in self.subjects.all():
+            has_exam = subject.exam_score is not None and subject.exam_max_score > 0
+            has_ca = subject.ca_score is not None and subject.ca_max > 0
+            has_assignment = subject.assignment_avg is not None and subject.assignment_max > 0
+            has_attendance = subject.attendance_score is not None and subject.attendance_max > 0
+
+            if has_exam or has_ca or has_assignment or has_attendance:
+                graded_count += 1
+
+        # Get enrolled subjects count from database directly
+        total_enrolled = 0
+        ss_count = 0
+        ta_count = 0
+
+        # Method 1: Count StudentSubject records for this student
+        try:
+            ss_count = StudentSubject.objects.filter(student=student).count()
+            if ss_count > 0:
+                total_enrolled = ss_count
+        except Exception:
+            pass
+
+        # Method 2: If no StudentSubject, check TeacherAssignment subjects for class/section
+        if total_enrolled == 0:
+            try:
+                ta_count = TeacherAssignment.objects.filter(
+                    class_fk=self.class_fk,
+                    section=self.section
+                ).values_list('subject_id', flat=True).distinct().count()
+                if ta_count > 0:
+                    total_enrolled = ta_count
+            except Exception:
+                pass
+
+        # Method 3: Last resort - use report card subject count
+        if total_enrolled == 0:
+            total_enrolled = self.subjects.count()
+
+        # Student has all subjects graded only if graded count equals enrolled count
+        # AND enrolled count is greater than 0
+        return total_enrolled > 0 and graded_count >= total_enrolled
+
+    def calculate_overall_percentage(self):
+        """Calculate overall percentage from subjects if not set
+        Only calculates if ALL subjects have results entered"""
+        from decimal import Decimal
+
+        # Only calculate if all subjects are graded
+        if not self.has_all_subjects_graded():
+            return None
+
+        subjects = self.subjects.all()
+        total_percentage = Decimal('0')
+        subject_count = 0
+
+        for subject in subjects:
+            if subject.percentage is not None:
+                total_percentage += subject.percentage
+                subject_count += 1
+
+        if subject_count > 0:
+            return total_percentage / subject_count
+        return None
+
+    def get_overall_percentage(self):
+        """Get overall percentage - use stored value or calculate dynamically
+        Only returns value if all subjects have results entered"""
+        if self.overall_percentage is not None:
+            return self.overall_percentage
+        return self.calculate_overall_percentage()
+
+    def is_class_fully_graded(self):
+        """Check if ALL students in the class have ALL their subjects graded"""
+        from django.apps import apps
+        Student = apps.get_model('students', 'Student')
+
+        # Get all students in this class/section
+        students = Student.objects.filter(
+            grade=self.class_fk,
+            section=self.section
+        )
+
+        total_students = students.count()
+        if total_students == 0:
+            return False
+
+        # Check each student has a report card with all subjects graded
+        complete_count = 0
+        for student in students:
+            try:
+                report_card = ReportCard.objects.get(
+                    student=student,
+                    term=self.term,
+                    class_fk=self.class_fk,
+                    section=self.section
+                )
+                if report_card.has_all_subjects_graded():
+                    complete_count += 1
+            except ReportCard.DoesNotExist:
+                return False  # Missing report card means not complete
+
+        # Class is fully graded only if ALL students have complete results
+        return complete_count >= total_students
+
+    def get_rank_in_class(self):
+        """Get rank - only when ALL students in class have complete results"""
+        # Only calculate rank if this student has all subjects graded
+        if not self.has_all_subjects_graded():
+            return None
+
+        # Only calculate rank when ENTIRE CLASS is fully graded
+        if not self.is_class_fully_graded():
+            return None
+
+        # Get overall percentage
+        overall = self.get_overall_percentage()
+        if overall is None:
+            return None
+
+        # Count students with higher percentage
+        from decimal import Decimal
+        all_report_cards = ReportCard.objects.filter(
+            class_fk=self.class_fk,
+            section=self.section,
+            term=self.term
+        )
+
+        higher_count = 0
+        for rc in all_report_cards:
+            rc_overall = rc.get_overall_percentage()
+            if rc_overall is not None and rc_overall > overall:
+                higher_count += 1
+
+        # Return rank (1-based)
+        return higher_count + 1
+
+    def get_total_students_with_complete_results(self):
+        """Count ALL students in the class/section (for rank denominator)"""
+        # Count all students in this class/section via Student model
+        try:
+            from django.apps import apps
+            Student = apps.get_model('students', 'Student')
+
+            # Count students in this class and section
+            total_students = Student.objects.filter(
+                grade=self.class_fk,
+                section=self.section
+            ).count()
+
+            if total_students > 0:
+                return total_students
+        except Exception:
+            pass
+
+        # Fallback: count all report cards for this class/section/term
+        return ReportCard.objects.filter(
+            class_fk=self.class_fk,
+            section=self.section,
+            term=self.term
+        ).count()
+
 
 class ReportCardSubject(models.Model):
     """Individual subject grades in a report card - Grades 1-12"""

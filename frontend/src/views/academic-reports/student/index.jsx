@@ -63,7 +63,7 @@ const StudentAcademicReport = () => {
     try {
       const token = await GetToken();
       console.log('[StudentReport] Fetching student info with token...');
-      const res = await fetch(`${Backend.api}/students/me/`, {
+      const res = await fetch(`${Backend.api}students/me/`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       console.log('[StudentReport] Student info response status:', res.status);
@@ -240,18 +240,25 @@ const StudentAcademicReport = () => {
                 <Grid item xs={12} md={3}>
                   <Box sx={{ textAlign: 'center' }}>
                     <Typography variant="h2" fontWeight="bold">
-                      {reportCard.overall_percentage?.toFixed(1)}%
+                      {reportCard.overall_percentage !== null && reportCard.overall_percentage !== undefined
+                        ? `${reportCard.overall_percentage.toFixed(1)}%`
+                        : '...'}
                     </Typography>
                     <Typography variant="body1">Overall Score</Typography>
+                    {reportCard.overall_percentage === null && (
+                      <Typography variant="caption" sx={{ opacity: 0.8, display: 'block', mt: 0.5 }}>
+                        (Complete all subjects)
+                      </Typography>
+                    )}
                   </Box>
                 </Grid>
                 <Grid item xs={12} md={3}>
                   <Box sx={{ textAlign: 'center' }}>
                     <Chip
-                      label={reportCard.subjects?.[0]?.descriptive_grade || reportCard.subjects?.[0]?.letter_grade || 'N/A'}
+                      label={reportCard.overall_grade || '...'}
                       sx={{
                         backgroundColor: 'white',
-                        color: getGradeColor(reportCard.subjects?.[0]?.descriptive_grade || reportCard.subjects?.[0]?.letter_grade),
+                        color: reportCard.overall_grade ? getGradeColor(reportCard.overall_grade) : '#666',
                         fontWeight: 'bold',
                         fontSize: '1.2rem',
                         py: 1,
@@ -259,18 +266,28 @@ const StudentAcademicReport = () => {
                       }}
                     />
                     <Typography variant="body1" sx={{ mt: 1 }}>
-                      {getGradeLabel(reportCard.subjects?.[0]?.descriptive_grade || reportCard.subjects?.[0]?.letter_grade)}
+                      {reportCard.overall_grade ? getGradeLabel(reportCard.overall_grade) : 'Grade'}
                     </Typography>
                   </Box>
                 </Grid>
                 <Grid item xs={12} md={3}>
                   <Box sx={{ textAlign: 'center' }}>
                     <Typography variant="h2" fontWeight="bold">
-                      #{reportCard.rank_in_class || '-'}
+                      {reportCard.rank_in_class !== null && reportCard.rank_in_class !== undefined
+                        && reportCard.total_students !== null && reportCard.total_students !== undefined
+                        ? `${reportCard.rank_in_class}/${reportCard.total_students}`
+                        : '...'}
                     </Typography>
-                    <Typography variant="body1">
-                      of {reportCard.total_students || '-'} Students
-                    </Typography>
+                    <Typography variant="body1">Your Rank</Typography>
+                    {reportCard.rank_in_class !== null && reportCard.total_students !== null ? (
+                      <Typography variant="caption" sx={{ opacity: 0.8, display: 'block', mt: 0.5 }}>
+                        in class of {reportCard.total_students} students
+                      </Typography>
+                    ) : (
+                      <Typography variant="caption" sx={{ opacity: 0.8, display: 'block', mt: 0.5 }}>
+                        (Rank under process)
+                      </Typography>
+                    )}
                   </Box>
                 </Grid>
                 <Grid item xs={12} md={3}>
@@ -292,25 +309,17 @@ const StudentAcademicReport = () => {
                 <AssignmentIcon /> Subject Performance Breakdown
               </Typography>
 
-              <Alert severity="info" sx={{ mb: 2 }}>
-                {/* <Typography variant="body2">
-                  <strong>How your grade is calculated:</strong> Your teachers can customize weights for each component.
-                  The system only includes components they have entered (Exam, CA, Assignment, Attendance).
-                  If a component shows "-", your teacher hasn't entered it yet, and the remaining components are weighted proportionally.
-                </Typography> */}
-              </Alert>
-
               <TableContainer component={Paper} variant="outlined" sx={{ mt: 2 }}>
                 <Table>
                   <TableHead>
-                    <TableRow sx={{ backgroundColor: '#f5f5f5' }}>
-                      <TableCell><strong>Subject</strong></TableCell>
-                      <TableCell align="center"><strong>Exam (60%)</strong></TableCell>
-                      <TableCell align="center"><strong>C.A. (20%)</strong></TableCell>
-                      <TableCell align="center"><strong>Assignment (10%)</strong></TableCell>
-                      <TableCell align="center"><strong>Attendance (10%)</strong></TableCell>
-                      <TableCell align="center"><strong>Total</strong></TableCell>
-                      <TableCell align="center"><strong>Grade</strong></TableCell>
+                    <TableRow sx={{ backgroundColor: '#1976d2' }}>
+                      <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Subject</TableCell>
+                      <TableCell align="center" sx={{ color: 'white', fontWeight: 'bold' }}>Exams</TableCell>
+                      <TableCell align="center" sx={{ color: 'white', fontWeight: 'bold' }}>C.A.</TableCell>
+                      <TableCell align="center" sx={{ color: 'white', fontWeight: 'bold' }}>Assignment</TableCell>
+                      <TableCell align="center" sx={{ color: 'white', fontWeight: 'bold' }}>Attendance</TableCell>
+                      <TableCell align="center" sx={{ color: 'white', fontWeight: 'bold' }}>Total</TableCell>
+                      <TableCell align="center" sx={{ color: 'white', fontWeight: 'bold' }}>Grade</TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
@@ -333,203 +342,78 @@ const StudentAcademicReport = () => {
                             </Box>
                           </Box>
                         </TableCell>
-                        {/* Exam Score */}
+                        {/* Exams - Shows teacher entered exam types with raw scores */}
                         <TableCell align="center">
-                          <Tooltip title={subject.exam_types?.length > 0
-                            ? `Exams: ${subject.exam_types.map(e => `${e.type}: ${e.score.toFixed(1)}%`).join(', ')}`
-                            : `Exam Score: ${subject.exam_score?.toFixed(1) || 0}% (out of ${subject.exam_max_score || 100})`}>
-                            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.5 }}>
-                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, justifyContent: 'center' }}>
-                                <LinearProgress
-                                  variant="determinate"
-                                  value={Math.min(subject.exam_score || 0, 100)}
-                                  sx={{
-                                    width: 60,
-                                    height: 8,
-                                    borderRadius: 1,
-                                    bgcolor: 'grey.200',
-                                    '& .MuiLinearProgress-bar': {
-                                      bgcolor: getComponentBarColor(subject.exam_score || 0),
-                                      borderRadius: 1,
-                                    }
-                                  }}
-                                />
-                                <Typography variant="body2" fontWeight="medium" sx={{ minWidth: 45 }}>
-                                  {subject.exam_score?.toFixed(1) || 0}%
+                          {subject.exam_types?.length > 0 ? (
+                            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                              {subject.exam_types.map((e, idx) => (
+                                <Typography key={idx} variant="body2" fontWeight="medium">
+                                  {e.type}: {e.raw_score?.toFixed(0) || e.score?.toFixed(0)}/{e.max_score?.toFixed(0) || 100}
                                 </Typography>
-                              </Box>
-                              {subject.exam_types?.length > 0 && (
-                                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, mt: 0.5 }}>
-                                  {subject.exam_types.map((e, idx) => (
-                                    <Typography key={idx} variant="caption" sx={{ color: 'text.secondary', fontSize: '0.7rem' }}>
-                                      {e.type}: {e.raw_score?.toFixed(0) || e.score?.toFixed(0)}/{e.max_score?.toFixed(0) || 100}
-                                    </Typography>
-                                  ))}
-                                </Box>
-                              )}
+                              ))}
                             </Box>
-                          </Tooltip>
+                          ) : subject.exam_score !== null && subject.exam_score !== undefined ? (
+                            <Typography variant="body2" fontWeight="medium">
+                              {subject.exam_score.toFixed(1)}%
+                            </Typography>
+                          ) : (
+                            <Typography variant="caption" color="text.disabled">-</Typography>
+                          )}
                         </TableCell>
                         {/* CA Score */}
                         <TableCell align="center">
-                          <Tooltip title={`Continuous Assessment: ${subject.ca_score?.toFixed(1) || 0}% (out of ${subject.ca_max || 100})`}>
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, justifyContent: 'center' }}>
-                              <LinearProgress
-                                variant="determinate"
-                                value={Math.min(subject.ca_score || 0, 100)}
-                                sx={{
-                                  width: 60,
-                                  height: 8,
-                                  borderRadius: 1,
-                                  bgcolor: 'grey.200',
-                                  '& .MuiLinearProgress-bar': {
-                                    bgcolor: getComponentBarColor(subject.ca_score || 0),
-                                    borderRadius: 1,
-                                  }
-                                }}
-                              />
-                              <Typography variant="body2" fontWeight="medium" sx={{ minWidth: 45, color: subject.ca_score ? 'info.main' : 'text.disabled' }}>
-                                {subject.ca_score?.toFixed(1) || '-'}%
-                              </Typography>
-                            </Box>
-                          </Tooltip>
+                          {subject.ca_score !== null && subject.ca_score !== undefined ? (
+                            <Typography variant="body2" fontWeight="medium" color="info.main">
+                              {subject.ca_score.toFixed(1)}%
+                            </Typography>
+                          ) : (
+                            <Typography variant="caption" color="text.disabled">-</Typography>
+                          )}
                         </TableCell>
                         {/* Assignment */}
                         <TableCell align="center">
-                          <Tooltip title={`Assignment Average: ${subject.assignment_avg?.toFixed(1) || 0}% (out of ${subject.assignment_max || 100})`}>
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, justifyContent: 'center' }}>
-                              <LinearProgress
-                                variant="determinate"
-                                value={Math.min(subject.assignment_avg || 0, 100)}
-                                sx={{
-                                  width: 60,
-                                  height: 8,
-                                  borderRadius: 1,
-                                  bgcolor: 'grey.200',
-                                  '& .MuiLinearProgress-bar': {
-                                    bgcolor: getComponentBarColor(subject.assignment_avg || 0),
-                                    borderRadius: 1,
-                                  }
-                                }}
-                              />
-                              <Typography variant="body2" fontWeight="medium" sx={{ minWidth: 45 }}>
-                                {subject.assignment_avg?.toFixed(1) || 0}%
-                              </Typography>
-                            </Box>
-                          </Tooltip>
-                        </TableCell>
-                        <TableCell align="center">
-                          <Tooltip title={`Attendance: ${subject.attendance_score?.toFixed(1) || 0}% (out of ${subject.attendance_max || 100})`}>
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, justifyContent: 'center' }}>
-                              <AccessTimeIcon fontSize="small" sx={{ color: getComponentBarColor(subject.attendance_score || 0) }} />
-                              <Typography variant="body2" fontWeight="medium">
-                                {subject.attendance_score?.toFixed(1) || 0}%
-                              </Typography>
-                            </Box>
-                          </Tooltip>
-                        </TableCell>
-                        <TableCell align="center">
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, justifyContent: 'center' }}>
-                            <LinearProgress
-                              variant="determinate"
-                              value={Math.min(subject.total_score || 0, 100)}
-                              sx={{
-                                width: 80,
-                                height: 10,
-                                borderRadius: 1,
-                                bgcolor: 'grey.200',
-                                '& .MuiLinearProgress-bar': {
-                                  bgcolor: getComponentBarColor(subject.total_score || 0),
-                                  borderRadius: 1,
-                                }
-                              }}
-                            />
-                            <Typography variant="body1" fontWeight="bold" color="primary" sx={{ minWidth: 55 }}>
-                              {subject.total_score?.toFixed(1) || 0}%
+                          {subject.assignment_avg !== null && subject.assignment_avg !== undefined ? (
+                            <Typography variant="body2" fontWeight="medium">
+                              {subject.assignment_avg.toFixed(1)}%
                             </Typography>
-                          </Box>
+                          ) : (
+                            <Typography variant="caption" color="text.disabled">-</Typography>
+                          )}
                         </TableCell>
+                        {/* Attendance */}
                         <TableCell align="center">
-                          <Tooltip title={getGradeLabel(subject.descriptive_grade || subject.letter_grade)}>
-                            <Chip
-                              icon={getPerformanceIcon(subject.total_score || 0)}
-                              label={subject.descriptive_grade || subject.letter_grade || '-'}
-                              size="small"
-                              sx={{
-                                backgroundColor: getGradeColor(subject.descriptive_grade || subject.letter_grade),
-                                color: 'white',
-                                fontWeight: 'bold',
-                                minWidth: 60,
-                                '& .MuiChip-icon': {
-                                  color: 'white',
-                                }
-                              }}
-                            />
-                          </Tooltip>
+                          {subject.attendance_score !== null && subject.attendance_score !== undefined ? (
+                            <Typography variant="body2" fontWeight="medium">
+                              {subject.attendance_score.toFixed(1)}%
+                            </Typography>
+                          ) : (
+                            <Typography variant="caption" color="text.disabled">-</Typography>
+                          )}
+                        </TableCell>
+                        {/* Total */}
+                        <TableCell align="center">
+                          <Typography variant="body1" fontWeight="bold" color={subject.total_score >= 80 ? 'success.main' : subject.total_score >= 60 ? 'warning.main' : 'error.main'}>
+                            {subject.total_score?.toFixed(1) || 0}%
+                          </Typography>
+                        </TableCell>
+                        {/* Grade */}
+                        <TableCell align="center">
+                          <Chip
+                            label={subject.descriptive_grade || subject.letter_grade || '-'}
+                            size="small"
+                            sx={{
+                              backgroundColor: getGradeColor(subject.descriptive_grade || subject.letter_grade),
+                              color: 'white',
+                              fontWeight: 'bold',
+                              minWidth: 50,
+                            }}
+                          />
                         </TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
                 </Table>
               </TableContainer>
-
-              {/* Performance Summary */}
-              <Box sx={{ mt: 3, p: 3, backgroundColor: '#f8f9fa', borderRadius: 2 }}>
-                <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
-                  How Your Grade is Calculated
-                </Typography>
-                <Grid container spacing={2}>
-                  <Grid item xs={12} md={4}>
-                    <Card variant="outlined" sx={{ bgcolor: '#e3f2fd' }}>
-                      <CardContent sx={{ py: 1, '&:last-child': { pb: 1 } }}>
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                          <SchoolIcon color="primary" />
-                          <Box>
-                            <Typography variant="body2" fontWeight="medium">Exams (70%)</Typography>
-                            <Typography variant="caption" color="text.secondary">
-                              Mid-term, Final, Quizzes
-                            </Typography>
-                          </Box>
-                        </Box>
-                      </CardContent>
-                    </Card>
-                  </Grid>
-                  <Grid item xs={12} md={4}>
-                    <Card variant="outlined" sx={{ bgcolor: '#e8f5e9' }}>
-                      <CardContent sx={{ py: 1, '&:last-child': { pb: 1 } }}>
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                          <AssignmentIcon color="success" />
-                          <Box>
-                            <Typography variant="body2" fontWeight="medium">Assignments (20%)</Typography>
-                            <Typography variant="caption" color="text.secondary">
-                              Homework, Projects
-                            </Typography>
-                          </Box>
-                        </Box>
-                      </CardContent>
-                    </Card>
-                  </Grid>
-                  <Grid item xs={12} md={4}>
-                    <Card variant="outlined" sx={{ bgcolor: '#fff3e0' }}>
-                      <CardContent sx={{ py: 1, '&:last-child': { pb: 1 } }}>
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                          <AccessTimeIcon sx={{ color: '#ff9800' }} />
-                          <Box>
-                            <Typography variant="body2" fontWeight="medium">Attendance (10%)</Typography>
-                            <Typography variant="caption" color="text.secondary">
-                              Class Participation
-                            </Typography>
-                          </Box>
-                        </Box>
-                      </CardContent>
-                    </Card>
-                  </Grid>
-                </Grid>
-                <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
-                  <strong>Note:</strong> Your final grade is automatically calculated by the system based on these components.
-                  Teachers enter individual scores, and the system applies the weighting to determine your final result.
-                </Typography>
-              </Box>
 
               {/* Teacher Remarks */}
               {(reportCard.teacher_remarks || reportCard.principal_remarks) && (

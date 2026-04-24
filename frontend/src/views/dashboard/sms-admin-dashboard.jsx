@@ -42,9 +42,26 @@ const CourseTypeStats = () => {
         const data = await response.json();
         if (data.success) {
           const subjects = data.data || [];
-          const core = subjects.filter(s => s.course_type_details?.name === 'Core' || s.course_type === 'Core').length;
-          const elective = subjects.filter(s => s.course_type_details?.name === 'Elective' || s.course_type === 'Elective').length;
-          const extra = subjects.filter(s => s.course_type_details?.name === 'Extra' || s.course_type === 'Extra').length;
+          // Helper to get course type name from various possible field structures
+          const getCourseTypeName = (subject) => {
+            // Check course_type_details.name (preferred)
+            if (subject.course_type_details?.name) {
+              return subject.course_type_details.name.toLowerCase();
+            }
+            // Check if course_type is an object with name
+            if (subject.course_type?.name) {
+              return subject.course_type.name.toLowerCase();
+            }
+            // Check if course_type is a string directly
+            if (typeof subject.course_type === 'string') {
+              return subject.course_type.toLowerCase();
+            }
+            return null;
+          };
+
+          const core = subjects.filter(s => getCourseTypeName(s) === 'core').length;
+          const elective = subjects.filter(s => getCourseTypeName(s) === 'elective').length;
+          const extra = subjects.filter(s => getCourseTypeName(s) === 'extra').length;
           setStats({ core, elective, extra, loading: false });
         }
       } catch (error) {
@@ -381,43 +398,6 @@ const OverviewTab = ({ stats, loading, navigate, refreshStats }) => {
           </DrogaCard>
         </Grid>
 
-        {/* Branch Teachers */}
-        <Grid item xs={12} md={4}>
-          <DrogaCard sx={{ height: '100%' }}>
-            <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
-              <Typography variant="h4">Branch Teachers</Typography>
-              <IconUsers size={20} color={theme.palette.success.main} />
-            </Stack>
-            <Box sx={{ maxHeight: 300, overflowY: 'auto', pr: 1, '&::-webkit-scrollbar': { width: '4px' }, '&::-webkit-scrollbar-thumb': { bgcolor: 'rgba(0,0,0,0.1)', borderRadius: 10 } }}>
-              {loading ? <ActivityIndicator size={24} /> : (stats.branch_teachers || []).length === 0 ? (
-                <Typography color="text.secondary" align="center" py={4}>No teachers found</Typography>
-              ) : stats.branch_teachers.map((teacher, i) => (
-                <Box key={i} sx={{ p: 1, mb: 1, borderBottom: '1px solid #eee', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Box>
-                    <Typography variant="subtitle2">{teacher.user?.full_name}</Typography>
-                    <Typography variant="caption" color="text.secondary">{teacher.employee_id || 'No ID'} • {teacher.department || 'No Dept'}</Typography>
-                  </Box>
-                  <Stack direction="row" spacing={0.5}>
-                    <Chip
-                      label={teacher.is_active ? "Active" : "Inactive"}
-                      size="small"
-                      variant="outlined"
-                      color={teacher.is_active ? "success" : "default"}
-                      sx={{ fontSize: '10px', height: 20 }}
-                    />
-                  </Stack>
-                </Box>
-              ))}
-            </Box>
-          </DrogaCard>
-        </Grid>
-
-        {/* Course Types - Only visible for users with VIEW_SUBJECTS permission */}
-        {canViewSubjects && (
-          <Grid item xs={12} md={4}>
-            <CourseTypeStats />
-          </Grid>
-        )}
       </Grid>
 
       <DrogaCard sx={{ mt: 3 }}>
@@ -1301,7 +1281,7 @@ const SMSAdminDashboard = () => {
     total_students: 0, total_teachers: 0, total_classes: 0,
     total_subjects: 0, total_parents: 0, pending_tasks: 0,
     pending_leaves: 0, recent_announcements: 0,
-    branch_classes: [], branch_students: [],
+    branch_classes: [], branch_students: [], branch_teachers: [],
     attendance_summary: { summary: { Present: 0, Absent: 0 }, breakdown: {} },
     teacher_rankings: [],
     recent_activity: []
@@ -1337,7 +1317,7 @@ const SMSAdminDashboard = () => {
       }
 
       // Fetch evaluation period settings
-      const evalSettingsRes = await fetch(`${Backend.api}/api/performance-criteria/evaluation-settings/`, { headers: { Authorization: `Bearer ${token}` } });
+      const evalSettingsRes = await fetch(`${Backend.api}performance-criteria/evaluation-settings/`, { headers: { Authorization: `Bearer ${token}` } });
       if (evalSettingsRes.ok) {
         const evalData = await evalSettingsRes.json();
         setEvalSettings(evalData.data || { is_evaluation_period_open: false, start_date: null, end_date: null });
@@ -1374,7 +1354,11 @@ const SMSAdminDashboard = () => {
       ]);
 
       if (s) newStats.total_students = (Array.isArray(s.data) ? s.data : (s.results || [])).length;
-      if (t) newStats.total_teachers = (Array.isArray(t.data) ? t.data : (t.results || [])).length;
+      if (t) {
+        const teachersData = Array.isArray(t.data) ? t.data : (t.results || []);
+        newStats.total_teachers = teachersData.length;
+        newStats.branch_teachers = teachersData;
+      }
       if (c) newStats.total_classes = (Array.isArray(c.data) ? c.data : (c.results || [])).length;
       if (sub) newStats.total_subjects = (Array.isArray(sub.data) ? sub.data : (sub.results || [])).length;
       if (p) newStats.total_parents = (Array.isArray(p.data) ? p.data : (p.results || [])).length;

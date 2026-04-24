@@ -61,7 +61,7 @@ const ParentAcademicOverview = () => {
   const fetchChildren = async () => {
     try {
       const token = await GetToken();
-      const res = await fetch(`${Backend.api}/parent_students/`, {
+      const res = await fetch(`${Backend.api}parent_students/`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();

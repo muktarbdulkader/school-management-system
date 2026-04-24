@@ -908,12 +908,58 @@ class ReportCardSerializer(serializers.ModelSerializer):
     class_details = ClassSerializer(source='class_fk', read_only=True)
     section_details = SectionSerializer(source='section', read_only=True)
     subjects = ReportCardSubjectSerializer(many=True, read_only=True)
+    # Use calculated values if stored values are null
+    overall_percentage = serializers.SerializerMethodField()
+    rank_in_class = serializers.SerializerMethodField()
+    total_students = serializers.SerializerMethodField()
+    overall_grade = serializers.SerializerMethodField()
+
+    def get_overall_percentage(self, obj):
+        value = obj.get_overall_percentage()
+        return float(value) if value is not None else None
+
+    def get_rank_in_class(self, obj):
+        return obj.get_rank_in_class()
+
+    def get_total_students(self, obj):
+        """Return count of students who have ALL subjects graded (for rank denominator)"""
+        return obj.get_total_students_with_complete_results()
+
+    def get_overall_grade(self, obj):
+        """Calculate overall grade based on overall percentage"""
+        percentage = obj.get_overall_percentage()
+        if percentage is None:
+            return None
+
+        p = float(percentage)
+        # Determine grade based on student's grade level
+        try:
+            student_grade = int(obj.student.grade.grade) if obj.student.grade and obj.student.grade.grade else 8
+        except (ValueError, TypeError):
+            student_grade = 8  # Default to grade 8 if conversion fails
+
+        if student_grade <= 8:
+            # Descriptive grades for grades 1-8
+            if p >= 90: return 'EX'
+            elif p >= 80: return 'VG'
+            elif p >= 70: return 'G'
+            elif p >= 60: return 'S'
+            elif p >= 50: return 'NI'
+            else: return 'U'
+        else:
+            # Letter grades for grades 9-12
+            if p >= 90: return 'A'
+            elif p >= 80: return 'B'
+            elif p >= 70: return 'C'
+            elif p >= 60: return 'D'
+            elif p >= 50: return 'E'
+            else: return 'F'
 
     class Meta:
         model = ReportCard
         fields = ['id', 'student', 'student_details', 'term', 'term_details',
                   'class_fk', 'class_details', 'section', 'section_details',
-                  'generated_at', 'overall_percentage', 'rank_in_class', 'total_students',
+                  'generated_at', 'overall_percentage', 'overall_grade', 'rank_in_class', 'total_students',
                   'attendance_percentage', 'teacher_remarks', 'principal_remarks',
                   'is_published', 'published_at', 'subjects']
 
@@ -959,7 +1005,7 @@ class ClassSubunitProgressSerializer(serializers.ModelSerializer):
                   'is_completed', 'updated_at']
 
 
-# ==================== K-12 Continuous Assessment ====================
+# ==================== Continuous Assessment ====================
 class ContinuousAssessmentSerializer(serializers.ModelSerializer):
     student_details = StudentSerializer(source='student', read_only=True)
     teacher_assignment_details = TeacherAssignmentSerializer(source='teacher_assignment', read_only=True)

@@ -3,6 +3,75 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useSelector } from 'react-redux';
+
+// Helper function to format time nicely
+const formatTimeRange = (startDate, endDate, startTime, endTime) => {
+  if (!startDate) return 'Date TBD';
+
+  const formatDate = (dateStr) => {
+    if (!dateStr) return '';
+    const date = new Date(dateStr);
+    return date.toLocaleDateString('en-US', {
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+      year: date.getFullYear() !== new Date().getFullYear() ? 'numeric' : undefined
+    });
+  };
+
+  const formatTime = (timeStr) => {
+    if (!timeStr) return '';
+    // Handle HH:MM:SS or HH:MM
+    const parts = timeStr.split(':');
+    const hours = parseInt(parts[0], 10);
+    const minutes = parts[1] || '00';
+    const ampm = hours >= 12 ? 'PM' : 'AM';
+    const displayHours = hours % 12 || 12;
+    return `${displayHours}:${minutes} ${ampm}`;
+  };
+
+  const dateStr = formatDate(startDate);
+  const endDateStr = endDate && endDate !== startDate ? formatDate(endDate) : null;
+
+  let result = dateStr;
+  if (endDateStr) {
+    result += ` - ${endDateStr}`;
+  }
+
+  if (startTime) {
+    const timeStr = formatTime(startTime);
+    const endTimeStr = endTime ? formatTime(endTime) : '';
+    if (endTimeStr && endTimeStr !== timeStr) {
+      result += ` | ${timeStr} - ${endTimeStr}`;
+    } else {
+      result += ` | ${timeStr}`;
+    }
+  }
+
+  return result;
+};
+
+const formatTimeOnly = (startTime, endTime) => {
+  const formatTime = (timeStr) => {
+    if (!timeStr) return '';
+    const parts = timeStr.split(':');
+    const hours = parseInt(parts[0], 10);
+    const minutes = parts[1] || '00';
+    const ampm = hours >= 12 ? 'PM' : 'AM';
+    const displayHours = hours % 12 || 12;
+    return `${displayHours}:${minutes} ${ampm}`;
+  };
+
+  if (!startTime) return 'Time TBD';
+
+  const start = formatTime(startTime);
+  const end = endTime ? formatTime(endTime) : '';
+
+  if (end && end !== start) {
+    return `${start} - ${end}`;
+  }
+  return start;
+};
 import {
   Box,
   Container,
@@ -672,14 +741,30 @@ const ViewExamDialog = ({ open, onClose, exam }) => {
             <Grid item xs={6}>
               <Typography variant="body2" color="text.secondary">Date</Typography>
               <Typography variant="body1">
-                {exam.start_date} {exam.end_date !== exam.start_date && `to ${exam.end_date}`}
+                {new Date(exam.start_date).toLocaleDateString('en-US', {
+                  weekday: 'long',
+                  month: 'long',
+                  day: 'numeric',
+                  year: 'numeric'
+                })}
+                {exam.end_date && exam.end_date !== exam.start_date && (
+                  <>
+                    <br />
+                    to {new Date(exam.end_date).toLocaleDateString('en-US', {
+                      weekday: 'long',
+                      month: 'long',
+                      day: 'numeric',
+                      year: 'numeric'
+                    })}
+                  </>
+                )}
               </Typography>
             </Grid>
             {(exam.start_time || exam.end_time) && (
               <Grid item xs={6}>
                 <Typography variant="body2" color="text.secondary">Time</Typography>
-                <Typography variant="body1">
-                  {exam.start_time || '--:--'} to {exam.end_time || '--:--'}
+                <Typography variant="body1" sx={{ fontWeight: 'bold', color: 'primary.main' }}>
+                  {formatTimeOnly(exam.start_time, exam.end_time)}
                 </Typography>
               </Grid>
             )}
@@ -1106,7 +1191,16 @@ export default function ExamManagement() {
                 <CardContent>
                   <Typography color="text.secondary" gutterBottom>Upcoming</Typography>
                   <Typography variant="h4" color="info.main">
-                    {exams.filter(e => new Date(e.start_date) >= new Date()).length}
+                    {exams.filter(e => {
+                      const now = new Date();
+                      const examStart = new Date(e.start_date);
+                      // Include start time in comparison if available
+                      if (e.start_time) {
+                        const [hours, minutes] = e.start_time.split(':').map(Number);
+                        examStart.setHours(hours, minutes, 0, 0);
+                      }
+                      return examStart >= now;
+                    }).length}
                   </Typography>
                 </CardContent>
               </Card>
@@ -1118,7 +1212,16 @@ export default function ExamManagement() {
                 <CardContent>
                   <Typography color="text.secondary" gutterBottom>Completed</Typography>
                   <Typography variant="h4" color="success.main">
-                    {exams.filter(e => new Date(e.end_date) < new Date()).length}
+                    {exams.filter(e => {
+                      const now = new Date();
+                      const examEnd = new Date(e.end_date);
+                      // Include end time in comparison if available
+                      if (e.end_time) {
+                        const [hours, minutes] = e.end_time.split(':').map(Number);
+                        examEnd.setHours(hours, minutes, 0, 0);
+                      }
+                      return examEnd < now;
+                    }).length}
                   </Typography>
                 </CardContent>
               </Card>
@@ -1335,21 +1438,36 @@ export default function ExamManagement() {
                           {exam.section_details?.name && ` - ${exam.section_details.name}`}
                         </TableCell>
                         <TableCell>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                            <CalendarIcon fontSize="small" color="action" />
-                            <Typography variant="body2">
-                              {exam.start_date}
-                              {exam.end_date !== exam.start_date && ` to ${exam.end_date}`}
-                            </Typography>
-                          </Box>
-                          {(exam.start_time || exam.end_time) && (
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                              <TimeIcon fontSize="small" color="action" />
-                              <Typography variant="caption" color="text.secondary">
-                                {exam.start_time || '--:--'} - {exam.end_time || '--:--'}
-                              </Typography>
+                          <Tooltip title={formatTimeRange(exam.start_date, exam.end_date, exam.start_time, exam.end_time)}>
+                            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.3 }}>
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                <CalendarIcon fontSize="small" color="action" />
+                                <Typography variant="body2" fontWeight="medium">
+                                  {new Date(exam.start_date).toLocaleDateString('en-US', {
+                                    weekday: 'long',
+                                    month: 'short',
+                                    day: 'numeric',
+                                    year: new Date(exam.start_date).getFullYear() !== new Date().getFullYear() ? 'numeric' : undefined
+                                  })}
+                                  {exam.end_date && exam.end_date !== exam.start_date && (
+                                    <> - {new Date(exam.end_date).toLocaleDateString('en-US', {
+                                      weekday: 'long',
+                                      month: 'short',
+                                      day: 'numeric'
+                                    })}</>
+                                  )}
+                                </Typography>
+                              </Box>
+                              {(exam.start_time || exam.end_time) && (
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, ml: 2.5 }}>
+                                  <TimeIcon fontSize="small" color="action" sx={{ fontSize: 14 }} />
+                                  <Typography variant="caption" color="text.secondary" fontWeight="medium">
+                                    {formatTimeOnly(exam.start_time, exam.end_time)}
+                                  </Typography>
+                                </Box>
+                              )}
                             </Box>
-                          )}
+                          </Tooltip>
                         </TableCell>
                         <TableCell>
                           <Typography variant="body2">

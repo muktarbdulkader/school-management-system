@@ -673,7 +673,7 @@ function SubjectsPage() {
                           </TableCell>
                           <TableCell>
                             <Chip
-                              label={subject.course_type_details?.name || subject.course_type || 'Standard'}
+                              label={subject.course_type_details?.name || subject.course_type || 'Core'}
                               size="small"
                               color={
                                 subject.course_type_details?.name?.toLowerCase() === 'core' || subject.course_type?.toLowerCase() === 'core'
