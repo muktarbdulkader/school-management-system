@@ -207,7 +207,7 @@ class Attendance(models.Model):
 
     class Meta:
         db_table = 'attendance'
-        unique_together = ['student', 'date']
+        unique_together = ['student', 'date', 'schedule_slot']
 
     def __str__(self):
         subject_name = self.teacher_assignment.subject.name if self.teacher_assignment else "Unknown"

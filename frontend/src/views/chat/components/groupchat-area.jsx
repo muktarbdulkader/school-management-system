@@ -13,6 +13,15 @@ import {
   useTheme,
   Menu,
   MenuItem,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  List,
+  ListItem,
+  ListItemText,
+  ListItemAvatar,
+  Checkbox,
 } from '@mui/material';
 import AttachFileIcon from '@mui/icons-material/AttachFile';
 import SendRoundedIcon from '@mui/icons-material/SendRounded';
@@ -20,6 +29,7 @@ import InsertDriveFileIcon from '@mui/icons-material/InsertDriveFile';
 import CloseIcon from '@mui/icons-material/Close';
 import ArrowBackIosNewIcon from '@mui/icons-material/ArrowBackIosNew';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
+import PersonAddIcon from '@mui/icons-material/PersonAdd';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import DoneAllIcon from '@mui/icons-material/DoneAll';
@@ -42,10 +52,15 @@ export function GroupChatArea({ group, onMessageSend, onBack }) {
   const [isUploading, setIsUploading] = useState(false);
   const [contextMenu, setContextMenu] = useState(null);
   const [editingMessage, setEditingMessage] = useState(null);
+  const [addMembersOpen, setAddMembersOpen] = useState(false);
+  const [availableUsers, setAvailableUsers] = useState([]);
+  const [selectedUsers, setSelectedUsers] = useState([]);
+  const [loadingUsers, setLoadingUsers] = useState(false);
   const messagesContainerRef = useRef(null);
   const longPressTimeout = useRef(null);
 
   const currentUser = useSelector((state) => state.user.user);
+  const isSuperAdmin = currentUser?.is_superuser || currentUser?.is_staff;
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
 
@@ -54,6 +69,13 @@ export function GroupChatArea({ group, onMessageSend, onBack }) {
       fetchGroupMessages(group.id);
     }
   }, [group]);
+
+  // Fetch users when Add Members dialog opens
+  useEffect(() => {
+    if (addMembersOpen) {
+      fetchAvailableUsers();
+    }
+  }, [addMembersOpen]);
 
   useEffect(() => {
     if (messagesContainerRef.current) {
@@ -86,7 +108,7 @@ export function GroupChatArea({ group, onMessageSend, onBack }) {
     setLoading(true);
     try {
       const token = await GetToken();
-      const Api = `${Backend.auth}${Backend.groupChatsMessageConversation}${groupId}`;
+      const Api = `${Backend.auth}${Backend.groupChatConversation.replace('{group_id}', groupId)}`;
       const header = {
         Authorization: `Bearer ${token}`,
         accept: 'application/json',
@@ -149,7 +171,7 @@ export function GroupChatArea({ group, onMessageSend, onBack }) {
 
     try {
       const token = await GetToken();
-      const Api = `${Backend.auth}${Backend.groupChatsMessage}`;
+      const Api = `${Backend.auth}${Backend.groupChatMessages}`;
 
       // Use FormData for file uploads
       const formData = new FormData();
@@ -182,9 +204,9 @@ export function GroupChatArea({ group, onMessageSend, onBack }) {
         prev.map((msg) =>
           msg.id === tempMessage.id
             ? {
-                ...responseData.data,
-                status: 'sent',
-              }
+              ...responseData.data,
+              status: 'sent',
+            }
             : msg,
         ),
       );
@@ -296,6 +318,65 @@ export function GroupChatArea({ group, onMessageSend, onBack }) {
         message,
       });
     }
+  };
+
+  // Add Members Functions
+  const fetchAvailableUsers = async () => {
+    setLoadingUsers(true);
+    try {
+      const token = await GetToken();
+      // Fetch all users
+      const response = await fetch(`${Backend.auth}${Backend.users}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await response.json();
+      if (data.success) {
+        setAvailableUsers(data.data || []);
+      }
+    } catch (error) {
+      toast.error('Failed to fetch users');
+    } finally {
+      setLoadingUsers(false);
+    }
+  };
+
+  const handleAddMembers = async () => {
+    if (selectedUsers.length === 0) {
+      toast.warning('Please select at least one user');
+      return;
+    }
+
+    try {
+      const token = await GetToken();
+      const promises = selectedUsers.map(userId =>
+        fetch(`${Backend.auth}${Backend.groupChatMembers}/`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            group_chat: group.id,
+            user: userId
+          })
+        })
+      );
+
+      await Promise.all(promises);
+      toast.success(`${selectedUsers.length} members added successfully`);
+      setAddMembersOpen(false);
+      setSelectedUsers([]);
+    } catch (error) {
+      toast.error('Failed to add members');
+    }
+  };
+
+  const toggleUserSelection = (userId) => {
+    setSelectedUsers(prev =>
+      prev.includes(userId)
+        ? prev.filter(id => id !== userId)
+        : [...prev, userId]
+    );
   };
 
   const handleStartEditing = (message) => {
@@ -416,6 +497,19 @@ export function GroupChatArea({ group, onMessageSend, onBack }) {
             </Typography>
           )}
         </Box>
+
+        {/* Add Members Button for Super Admin */}
+        {isSuperAdmin && (
+          <Button
+            variant="outlined"
+            size="small"
+            startIcon={<PersonAddIcon />}
+            onClick={() => setAddMembersOpen(true)}
+            sx={{ ml: 1 }}
+          >
+            Add Members
+          </Button>
+        )}
       </Box>
 
       {/* Messages Area */}
@@ -816,6 +910,55 @@ export function GroupChatArea({ group, onMessageSend, onBack }) {
           <DeleteIcon sx={{ mr: 1 }} /> Delete
         </MenuItem>
       </Menu>
+
+      {/* Add Members Dialog */}
+      <Dialog
+        open={addMembersOpen}
+        onClose={() => setAddMembersOpen(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>Add Members to {group?.name}</DialogTitle>
+        <DialogContent>
+          {loadingUsers ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
+              <CircularProgress />
+            </Box>
+          ) : (
+            <List sx={{ maxHeight: 400, overflow: 'auto' }}>
+              {availableUsers.map((user) => (
+                <ListItem
+                  key={user.id}
+                  button
+                  onClick={() => toggleUserSelection(user.id)}
+                >
+                  <Checkbox
+                    checked={selectedUsers.includes(user.id)}
+                    edge="start"
+                  />
+                  <ListItemAvatar>
+                    <Avatar>{user.full_name?.[0] || 'U'}</Avatar>
+                  </ListItemAvatar>
+                  <ListItemText
+                    primary={user.full_name || 'Unknown'}
+                    secondary={user.email}
+                  />
+                </ListItem>
+              ))}
+            </List>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setAddMembersOpen(false)}>Cancel</Button>
+          <Button
+            variant="contained"
+            onClick={handleAddMembers}
+            disabled={selectedUsers.length === 0}
+          >
+            Add {selectedUsers.length > 0 && `(${selectedUsers.length})`}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }

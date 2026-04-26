@@ -838,11 +838,24 @@ class TeacherViewSet(viewsets.ModelViewSet):
         students_data = []
         for student in students_query:
             # Check if attendance already marked for today
-            attendance_record = Attendance.objects.filter(
+            # Filter by date and student, then check if it matches the subject/section
+            attendance_query = Attendance.objects.filter(
                 student=student,
-                date=attendance_date,
+                date=attendance_date
+            )
+            
+            # If section is specified, only show attendance for that section
+            if section_obj:
+                attendance_query = attendance_query.filter(
+                    schedule_slot__section=section_obj
+                )
+            
+            # Filter by subject
+            attendance_query = attendance_query.filter(
                 schedule_slot__subject=subject_obj
-            ).first()
+            )
+            
+            attendance_record = attendance_query.first()
 
             students_data.append({
                 'id': str(student.id),
@@ -947,11 +960,21 @@ class TeacherViewSet(viewsets.ModelViewSet):
                             if schedule_slot.teacher_assignment:
                                 defaults['teacher_assignment'] = schedule_slot.teacher_assignment
                         
-                        Attendance.objects.update_or_create(
-                            student=student,
-                            date=attendance_date,
-                            defaults=defaults
-                        )
+                        # Update or create attendance record with schedule_slot for uniqueness
+                        if schedule_slot:
+                            Attendance.objects.update_or_create(
+                                student=student,
+                                date=attendance_date,
+                                schedule_slot=schedule_slot,
+                                defaults=defaults
+                            )
+                        else:
+                            # Fallback if no schedule slot exists (shouldn't happen in normal flow)
+                            Attendance.objects.update_or_create(
+                                student=student,
+                                date=attendance_date,
+                                defaults=defaults
+                            )
                         marked_count += 1
                     except Student.DoesNotExist:
                         print(f"[MarkAttendance] Student {student_id} not found")

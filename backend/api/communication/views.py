@@ -648,10 +648,16 @@ class MeetingViewSet(viewsets.ModelViewSet):
         return Response(response_data)
 
     def perform_create(self, serializer):
+        user = self.request.user
         branch_id = self.request.data.get('branch_id')
-        if branch_id and not has_model_permission(self.request.user, 'meeting', 'add_meeting', branch_id):
-            raise PermissionDenied("You do not have permission to create meetings in this branch.")
-        serializer.save()
+        
+        # Super admins bypass permission check
+        if not user.is_superuser:
+            if not has_model_permission(user, 'meeting', 'add_meeting', branch_id):
+                raise PermissionDenied("You do not have permission to create meetings.")
+        
+        # Auto-set requested_by to current user
+        serializer.save(requested_by=user)
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
@@ -1145,7 +1151,15 @@ class GroupChatViewSet(viewsets.ModelViewSet):
         if branch_id and not has_model_permission(user, 'groupchat', 'view_groupchat', branch_id):
             raise PermissionDenied("You do not have permission to view group chats in this branch.")
         # Show groups where user is a member (not just creator)
-        return self.queryset.filter(members__user=user).distinct()
+        queryset = self.queryset.filter(members__user=user).distinct()
+        print(f"DEBUG GroupChatViewSet: user={user.email}, id={user.id}, queryset count={queryset.count()}")
+        # Check if user has any memberships
+        from .models import GroupChatMember
+        memberships = GroupChatMember.objects.filter(user=user)
+        print(f"DEBUG GroupChatViewSet: memberships count={memberships.count()}")
+        for m in memberships:
+            print(f"DEBUG GroupChatViewSet: membership - group={m.group_chat.name}, user={m.user.email}")
+        return queryset
 
     def list(self, request, *args, **kwargs):
         queryset = self.filter_queryset(self.get_queryset())
@@ -1176,6 +1190,9 @@ class GroupChatViewSet(viewsets.ModelViewSet):
         serializer.save(created_by=self.request.user)
 
     def create(self, request, *args, **kwargs):
+        from users.models import UserRole
+        from django.db.models import Q
+        
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         self.perform_create(serializer)
@@ -1183,6 +1200,39 @@ class GroupChatViewSet(viewsets.ModelViewSet):
         # Add creator as a member of the group
         group = serializer.instance
         GroupChatMember.objects.get_or_create(group_chat=group, user=request.user)
+        
+        # Add members based on target audience
+        target = request.data.get('target', 'all')
+        if target and target != 'all':
+            # Get users with specific role
+            role_map = {
+                'teachers': 'teacher',
+                'students': 'student',
+                'admins': 'admin',
+                'parents': 'parent',
+            }
+            role_name = role_map.get(target, target)
+            
+            # Find users with this role
+            users_with_role = User.objects.filter(
+                userrole__role__name__iexact=role_name
+            ).distinct()
+            
+            # Add them as members (exclude creator who is already added)
+            for user in users_with_role:
+                if user.id != request.user.id:
+                    GroupChatMember.objects.get_or_create(group_chat=group, user=user)
+        elif target == 'all':
+            # Add all staff (teachers, admins)
+            staff_users = User.objects.filter(
+                Q(userrole__role__name__iexact='teacher') |
+                Q(userrole__role__name__iexact='admin') |
+                Q(userrole__role__name__iexact='super_admin')
+            ).distinct()
+            
+            for user in staff_users:
+                if user.id != request.user.id:
+                    GroupChatMember.objects.get_or_create(group_chat=group, user=user)
         
         response_data = {
             'success': True,
@@ -1265,8 +1315,10 @@ class GroupChatMemberViewSet(viewsets.ModelViewSet):
         group_id = self.request.data.get('group_chat')
         user_id = self.request.data.get('user')
         branch_id = self.request.data.get('branch_id')
-        if branch_id and not has_model_permission(self.request.user, 'groupchatmember', 'add_groupchatmember', branch_id):
-            raise PermissionDenied("You do not have permission to add group chat members in this branch.")
+        # Check permission for non-superusers
+        if not self.request.user.is_superuser:
+            if not has_model_permission(self.request.user, 'groupchatmember', 'add_groupchatmember', branch_id):
+                raise PermissionDenied("You do not have permission to add group chat members.")
 
         try:
             group = GroupChat.objects.get(id=group_id)
@@ -1276,6 +1328,8 @@ class GroupChatMemberViewSet(viewsets.ModelViewSet):
             user = User.objects.get(id=user_id)
         except User.DoesNotExist:
             raise PermissionDenied("User does not exist.")
+        # The serializer uses PrimaryKeyRelatedField, so validated_data already has IDs
+        # Just call save() to create the member
         serializer.save()
 
     def create(self, request, *args, **kwargs):

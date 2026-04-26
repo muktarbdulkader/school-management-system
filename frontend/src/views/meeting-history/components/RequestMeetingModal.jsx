@@ -24,6 +24,16 @@ import { useSelector } from 'react-redux';
 
 const RequestMeetingModal = ({ open, onClose, onSuccess }) => {
   const { user } = useSelector((state) => state.user);
+  const userRole = user?.role?.toLowerCase() || '';
+  const isSuperAdmin = user?.is_superuser || user?.is_staff || userRole.includes('super');
+  const isAdmin = userRole.includes('admin');
+  const isTeacher = userRole.includes('teacher');
+  const isParent = userRole.includes('parent');
+
+  console.log('DEBUG RequestMeetingModal INIT: user=', user);
+  console.log('DEBUG RequestMeetingModal INIT: userRole=', userRole);
+  console.log('DEBUG RequestMeetingModal INIT: isSuperAdmin=', isSuperAdmin, 'isAdmin=', isAdmin);
+
   const [formData, setFormData] = useState({
     requested_to: '',
     requested_date: '',
@@ -32,7 +42,8 @@ const RequestMeetingModal = ({ open, onClose, onSuccess }) => {
     branch_id: '',
   });
   const [loading, setLoading] = useState(false);
-  const [teachers, setTeachers] = useState([]);
+  const [contacts, setContacts] = useState([]);
+  const [contactType, setContactType] = useState('teachers'); // teachers, admins, parents, students
   const [branches, setBranches] = useState([]);
   const [loadingUser, setLoadingUser] = useState(false);
   const [loadingBranches, setLoadingBranches] = useState(false);
@@ -44,16 +55,25 @@ const RequestMeetingModal = ({ open, onClose, onSuccess }) => {
 
   useEffect(() => {
     if (open) {
-      fetchRoleBasedContacts();
+      fetchContacts();
       fetchBranches();
     }
-  }, [open]);
+  }, [open, contactType]);
 
-  const fetchRoleBasedContacts = async () => {
+  const fetchContacts = async () => {
     setLoadingUser(true);
     const token = await GetToken();
     const branchId = user?.branch_id;
-    const Api = `${Backend.auth}${Backend.communicationChatsTeacherStudentsContacts}?branch_id=${branchId || ''}${selectedSubject ? `&subject_id=${selectedSubject}` : ''}`;
+
+    // For Super Admin/Admin, fetch all users based on selected contact type
+    let Api;
+    if (isSuperAdmin || isAdmin) {
+      Api = `${Backend.auth}${Backend.users}?branch_id=${branchId || ''}`;
+    } else {
+      // For others, use the existing endpoint
+      Api = `${Backend.auth}${Backend.communicationChatsTeacherStudentsContacts}?branch_id=${branchId || ''}${selectedSubject ? `&subject_id=${selectedSubject}` : ''}`;
+    }
+
     const header = {
       Authorization: `Bearer ${token}`,
       accept: 'application/json',
@@ -70,8 +90,33 @@ const RequestMeetingModal = ({ open, onClose, onSuccess }) => {
 
       if (responseData.success) {
         const data = responseData.data;
-        setTeachers(data.teachers || []);
-        setSubjects(data.subjects || []);
+        console.log('DEBUG RequestMeetingModal: API Response data:', data);
+        console.log('DEBUG RequestMeetingModal: isSuperAdmin=', isSuperAdmin, 'isAdmin=', isAdmin);
+        console.log('DEBUG RequestMeetingModal: contactType=', contactType);
+
+        if (isSuperAdmin || isAdmin) {
+          // Filter users by role based on contactType
+          const allUsers = data || [];
+          console.log('DEBUG RequestMeetingModal: allUsers count=', allUsers.length);
+          console.log('DEBUG RequestMeetingModal: allUsers sample:', allUsers.slice(0, 3));
+
+          const filtered = allUsers.filter(u => {
+            const role = u.role?.toLowerCase() || '';
+            const match = contactType === 'teachers' ? role.includes('teacher') :
+              contactType === 'admins' ? role.includes('admin') :
+                contactType === 'parents' ? role.includes('parent') :
+                  contactType === 'students' ? role.includes('student') : true;
+            console.log(`DEBUG: User ${u.full_name}, role=${role}, match=${match}`);
+            return match;
+          });
+          console.log('DEBUG RequestMeetingModal: filtered count=', filtered.length);
+          setContacts(filtered);
+          setSubjects([]);
+        } else {
+          // For teachers/parents/students
+          setContacts(data.teachers || []);
+          setSubjects(data.subjects || []);
+        }
         setError(false);
       } else {
         toast.warning(responseData.message);
@@ -215,8 +260,28 @@ const RequestMeetingModal = ({ open, onClose, onSuccess }) => {
       sx={{ overflowY: 'auto' }}
     >
       <Grid container spacing={2}>
+        {/* Contact Type Selector (for Super Admin/Admin) */}
+        {(isSuperAdmin || isAdmin) && (
+          <Grid item xs={12}>
+            <FormControl fullWidth>
+              <InputLabel>Select User Type</InputLabel>
+              <Select
+                value={contactType}
+                label="Select User Type"
+                onChange={(e) => setContactType(e.target.value)}
+                disabled={loadingUser}
+              >
+                <MenuItem value="teachers">Teachers</MenuItem>
+                <MenuItem value="admins">Admins</MenuItem>
+                <MenuItem value="parents">Parents</MenuItem>
+                <MenuItem value="students">Students</MenuItem>
+              </Select>
+            </FormControl>
+          </Grid>
+        )}
+
         {/* Subject Filter (for teachers) */}
-        {subjects && subjects.length > 0 && (
+        {!isSuperAdmin && !isAdmin && subjects && subjects.length > 0 && (
           <Grid item xs={12}>
             <FormControl fullWidth>
               <InputLabel>Filter by Subject (Optional)</InputLabel>
@@ -241,24 +306,28 @@ const RequestMeetingModal = ({ open, onClose, onSuccess }) => {
 
         <Grid item xs={12}>
           <FormControl fullWidth>
-            <InputLabel>Select Teacher</InputLabel>
+            <InputLabel>
+              {isSuperAdmin || isAdmin
+                ? `Select ${contactType.charAt(0).toUpperCase() + contactType.slice(1)}`
+                : 'Select Teacher'}
+            </InputLabel>
             <Select
-              labelId="teacher-select-label"
-              id="teacher-select"
+              labelId="contact-select-label"
+              id="contact-select"
               name="requested_to"
               value={formData.requested_to}
-              label="Select Teacher"
+              label={isSuperAdmin || isAdmin ? `Select ${contactType}` : 'Select Teacher'}
               onChange={handleChange}
               disabled={loadingUser}
             >
               <MenuItem value="">
-                <em>Select a teacher</em>
+                <em>{isSuperAdmin || isAdmin ? `Select a ${contactType.slice(0, -1)}` : 'Select a teacher'}</em>
               </MenuItem>
-              {teachers.map((teacher) => (
-                <MenuItem key={teacher.user_id || teacher.id} value={teacher.user_id || teacher.id}>
-                  {teacher.full_name || teacher.name}
-                  {teacher.branch_name && ` - ${teacher.branch_name}`}
-                  {teacher.subjects && teacher.subjects.length > 0 && ` (${teacher.subjects.join(', ')})`}
+              {contacts.map((contact) => (
+                <MenuItem key={contact.user_id || contact.id} value={contact.user_id || contact.id}>
+                  {contact.full_name || contact.name}
+                  {contact.branch_name && ` - ${contact.branch_name}`}
+                  {contact.subjects && contact.subjects.length > 0 && ` (${contact.subjects.join(', ')})`}
                 </MenuItem>
               ))}
             </Select>
@@ -277,8 +346,8 @@ const RequestMeetingModal = ({ open, onClose, onSuccess }) => {
             value={
               formData.requested_date && formData.requested_time
                 ? new Date(
-                    `${formData.requested_date}T${formData.requested_time}`,
-                  )
+                  `${formData.requested_date}T${formData.requested_time}`,
+                )
                 : null
             }
             onChange={handleDateTimeChange}

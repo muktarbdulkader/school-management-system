@@ -164,10 +164,13 @@ const GroupChatDialog = ({ open, onClose }) => {
       const res = await fetch(`${Backend.api}${Backend.groupChats}`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: form.name, description: form.description })
+        body: JSON.stringify({ name: form.name, description: form.description, target: form.target })
       });
       const data = await res.json();
-      if (res.ok) { toast.success('Group chat created'); onClose(); }
+      if (res.ok) {
+        toast.success(`Group chat created with ${form.target} members`);
+        onClose();
+      }
       else toast.error(data.message || 'Failed to create group chat');
     } catch { toast.error('Error creating group chat'); }
     finally { setSaving(false); }
@@ -182,6 +185,7 @@ const GroupChatDialog = ({ open, onClose }) => {
           <TextField label="Description" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} fullWidth multiline rows={2} />
           <TextField select label="Target Audience" value={form.target} onChange={e => setForm({ ...form, target: e.target.value })} fullWidth>
             <MenuItem value="teachers">Teachers</MenuItem>
+            <MenuItem value="students">Students</MenuItem>
             <MenuItem value="admins">Admins</MenuItem>
             <MenuItem value="parents">Parents</MenuItem>
             <MenuItem value="all">All Staff</MenuItem>
@@ -913,9 +917,9 @@ const CommunicationTab = ({ navigate }) => {
         {[
           { label: 'Announcements', sub: 'School-wide alerts & notices', icon: IconBell, color: '#9c27b0', path: '/announcements' },
           { label: 'Messages', sub: 'Internal messaging hub', icon: IconMessage, color: '#1976d2', path: '/messages' },
-          { label: 'Group Chats', sub: 'Manage group conversations', icon: IconMessages, color: '#2e7d32', path: '/messages' },
+          { label: 'Group Chats', sub: 'Manage group conversations', icon: IconMessages, color: '#2e7d32', path: '/messages?tab=groups' },
           { label: 'Blog / PR', sub: 'Public relations content', icon: IconFileText, color: '#f57c00', path: '/blog' },
-          { label: 'Parent Feedback', sub: 'View parent communications', icon: IconUserCheck, color: '#c62828', path: '/messages' },
+          { label: 'Parent Feedback', sub: 'View parent communications', icon: IconUserCheck, color: '#c62828', path: '/meeting-requests' },
           { label: 'Meeting Requests', sub: 'Schedule & manage meetings', icon: IconCalendar, color: '#607d8b', path: '/meeting-requests' },
         ].map((item, i) => (
           <Grid item xs={12} sm={6} md={4} key={i}>

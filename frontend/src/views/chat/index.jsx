@@ -4,7 +4,8 @@ import { ChatArea } from './components/chat-area';
 import { GroupChatArea } from './components/groupchat-area';
 import PageContainer from 'ui-component/MainPage';
 import { Box } from '@mui/system';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 
 // pages/chat.js
 export default function Chat() {
@@ -14,6 +15,15 @@ export default function Chat() {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const [showSidebar, setShowSidebar] = useState(true);
+  const [searchParams] = useSearchParams();
+
+  // Handle query param ?tab=groups to auto-switch to Groups tab
+  useEffect(() => {
+    const tab = searchParams.get('tab');
+    if (tab === 'groups') {
+      setActiveTab(2);
+    }
+  }, [searchParams]);
 
   const handleSelectConversation = (conversation) => {
     setSelectedConversation(conversation);
@@ -61,6 +71,7 @@ export default function Chat() {
               selectedConversation={selectedConversation}
               selectedGroup={selectedGroup}
               onTabChange={setActiveTab}
+              tabValue={activeTab}
             />
           </Box>
         )}

@@ -31,6 +31,16 @@ class AnnouncementAdmin(admin.ModelAdmin):
 class GroupChatAdmin(admin.ModelAdmin):
     list_display = ('id', 'name', 'created_by', 'created_at')
     search_fields = ('id', 'name', 'created_by')
+    
+    def save_model(self, request, obj, form, change):
+        # Set created_by if not already set
+        if not obj.created_by:
+            obj.created_by = request.user
+        super().save_model(request, obj, form, change)
+        
+        # Auto-add creator as member after save
+        if not change:  # Only on create, not update
+            GroupChatMember.objects.get_or_create(group_chat=obj, user=obj.created_by)
 
 @admin.register(GroupChatMember)
 class GroupChatMemberAdmin(admin.ModelAdmin):

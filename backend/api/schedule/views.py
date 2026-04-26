@@ -285,9 +285,17 @@ class AttendanceViewSet(viewsets.ModelViewSet):
         if class_id:
             queryset = queryset.filter(student__grade_id=class_id)
         if section_id and section_id != 'null':
-            queryset = queryset.filter(student__section_id=section_id)
+            # Filter by schedule_slot section OR include records without schedule_slot (backward compatibility)
+            from django.db.models import Q
+            queryset = queryset.filter(
+                Q(schedule_slot__section_id=section_id) | Q(schedule_slot__isnull=True)
+            )
         if subject_id:
-            queryset = queryset.filter(schedule_slot__subject_id=subject_id)
+            # Filter by schedule_slot subject OR include records without schedule_slot (backward compatibility)
+            from django.db.models import Q
+            queryset = queryset.filter(
+                Q(schedule_slot__subject_id=subject_id) | Q(schedule_slot__isnull=True)
+            )
 
         # 1. Superusers see all
         if user.is_superuser:

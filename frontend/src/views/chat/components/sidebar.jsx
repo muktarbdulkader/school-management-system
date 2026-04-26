@@ -146,9 +146,11 @@ export function Sidebar({
   selectedConversation,
   selectedGroup,
   onTabChange,
+  tabValue: externalTabValue,
 }) {
   const theme = useTheme();
-  const [tabValue, setTabValue] = useState(0);
+  const [internalTabValue, setInternalTabValue] = useState(0);
+  const tabValue = externalTabValue !== undefined ? externalTabValue : internalTabValue;
   const [conversations, setConversations] = useState([]);
   const [groupConversations, setGroupConversations] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -510,7 +512,7 @@ export function Sidebar({
   };
 
   const handleTabChange = (event, newValue) => {
-    setTabValue(newValue);
+    setInternalTabValue(newValue);
     if (onTabChange) {
       onTabChange(newValue);
     }
@@ -922,6 +924,28 @@ export function Sidebar({
               Retry
             </Button>
           </Box>
+        ) : tabValue === 2 ? (
+          // Groups tab empty state
+          groupConversations.length === 0 ? (
+            <Box
+              sx={{
+                p: 3,
+                textAlign: 'center',
+                bgcolor: 'background.paper',
+                borderRadius: 2,
+                boxShadow: '0 2px 8px rgba(0,0,0,0.05)',
+              }}
+            >
+              <Typography color="text.secondary" gutterBottom>
+                No group chats found
+              </Typography>
+              <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1 }}>
+                Create a group from Super Admin Portal to get started
+              </Typography>
+            </Box>
+          ) : (
+            renderTabContent()
+          )
         ) : studentConversations.length === 0 ? (
           <Box
             sx={{
