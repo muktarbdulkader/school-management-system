@@ -132,10 +132,10 @@ class TermsViewSet(viewsets.ModelViewSet):
                 accessible_branches.append(student.branch_id)
             
             # Allow parents to see terms for their children's branches
-            from students.models import Parent
+            from students.models import Parent, ParentStudent
             parent = Parent.objects.filter(user=user).first()
             if parent:
-                parent_branch_ids = list(parent.students.values_list('branch_id', flat=True).distinct())
+                parent_branch_ids = list(ParentStudent.objects.filter(parent=parent).values_list('student__branch_id', flat=True).distinct())
                 accessible_branches = list(set(accessible_branches + parent_branch_ids))
             
             if accessible_branches:
@@ -148,12 +148,12 @@ class TermsViewSet(viewsets.ModelViewSet):
             if not user.is_superuser and not UserBranchAccess.objects.filter(user=user, branch_id=branch_id).exists():
                 # Allow students/parents to filter by their own branch
                 can_access = False
-                from students.models import Student, Parent
+                from students.models import Student, Parent, ParentStudent
                 student = Student.objects.filter(user=user, branch_id=branch_id).first()
                 if student:
                     can_access = True
                 parent = Parent.objects.filter(user=user).first()
-                if parent and parent.students.filter(branch_id=branch_id).exists():
+                if parent and ParentStudent.objects.filter(parent=parent, student__branch_id=branch_id).exists():
                     can_access = True
                 if not can_access:
                     raise PermissionDenied("You do not have access to this branch.")
@@ -1116,7 +1116,11 @@ class SubjectsViewSet(viewsets.ModelViewSet):
         from teachers.models import Teacher
         teacher = Teacher.objects.filter(user=user).first()
         if teacher:
-            return queryset.filter(teacherassignment__teacher=teacher).distinct()
+            queryset = queryset.filter(teacherassignment__teacher=teacher)
+            # Also filter by class_id if provided
+            if class_id:
+                queryset = queryset.filter(teacherassignment__class_fk__id=class_id)
+            return queryset.distinct()
 
         # 3. Student Context
         from students.models import Student
@@ -1124,12 +1128,35 @@ class SubjectsViewSet(viewsets.ModelViewSet):
         if student:
             return queryset.filter(teacherassignment__class_fk=student.grade).distinct()
 
-        # 4. Parent Context
+        # 4. Parent/Student Context - viewing specific student's subjects
         if student_id:
-            from students.models import ParentStudent
-            if not ParentStudent.objects.filter(parent__user=user, student_id=student_id).exists():
+            from students.models import ParentStudent, Student
+            from django.core.exceptions import ValidationError
+            
+            try:
+                # First try to find student by Student.id
+                target_student = Student.objects.get(id=student_id)
+            except (Student.DoesNotExist, ValidationError):
+                # If that fails, try to find by Student.user_id
+                try:
+                    target_student = Student.objects.get(user_id=student_id)
+                except Student.DoesNotExist:
+                    return queryset.none()
+            
+            # Check if user is parent of this student OR is the student themselves
+            is_parent = ParentStudent.objects.filter(parent__user=user, student=target_student).exists()
+            is_own_profile = target_student.user == user
+            
+            if not (is_parent or is_own_profile):
                 raise PermissionDenied("You do not have permission to view subjects for this student.")
-            return queryset.filter(teacherassignment__class_fk__student=student_id).distinct()
+            
+            # Filter to only subjects the student is enrolled in
+            from students.models import StudentSubject
+            enrolled_subject_ids = StudentSubject.objects.filter(
+                student=target_student
+            ).values_list('subject_id', flat=True)
+            
+            return queryset.filter(id__in=enrolled_subject_ids).distinct()
 
         return queryset.none()
 

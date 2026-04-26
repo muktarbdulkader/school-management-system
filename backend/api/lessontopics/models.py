@@ -51,6 +51,7 @@ class LessonPlans(models.Model):
     duration = models.IntegerField(null=True, blank=True)
     block = models.CharField(max_length=50, null=True, blank=True, help_text="e.g., Morning Block, Afternoon Block")
     week = models.IntegerField(null=True, blank=True, help_text="Week number in the term")
+    lesson_date = models.DateField(null=True, blank=True, help_text="Date when the lesson is scheduled/completed")
     lesson_aims = models.TextField()
     learning_objectives = models.ForeignKey(LearningObjectives, on_delete=models.CASCADE, null=True, blank=True)
     created_by = models.ForeignKey('teachers.TeacherAssignment', on_delete=models.CASCADE)

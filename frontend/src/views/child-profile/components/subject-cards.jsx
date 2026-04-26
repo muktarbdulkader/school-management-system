@@ -39,14 +39,19 @@ export function SubjectCards({ data, studentId, userRole = 'parent' }) {
   const [assignmentsData, setAssignmentsData] = useState(null);
   const isTeacher = userRole === 'teacher';
 
-  // Format subjects data
-  const formattedSubjects = data.subjects.map((subject) => ({
+  // Debug logging
+  console.log('[SubjectCards] data:', data);
+  console.log('[SubjectCards] data.subjects:', data?.subjects);
+
+  // Format subjects data with fallback
+  const subjects = data?.subjects || [];
+  const formattedSubjects = subjects.map((subject) => ({
     id: subject.id,
     subject_id: subject.subject_id,
     name: subject.subject_name,
     instructor: subject.teacher_name,
     progress: subject.progress || 0,
-    lastUpdated: new Date(subject.enrolled_on).toLocaleDateString(),
+    lastUpdated: subject.enrolled_on ? new Date(subject.enrolled_on).toLocaleDateString() : 'N/A',
   }));
 
   // Function to handle view details click (parent view)

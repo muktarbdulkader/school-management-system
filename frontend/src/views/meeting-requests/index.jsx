@@ -34,7 +34,7 @@ export default function MeetingRequestsPage() {
   const [meetings, setMeetings] = useState([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
-  
+
   const [formData, setFormData] = useState({
     teacher_id: '',
     preferred_date: null,
@@ -55,7 +55,7 @@ export default function MeetingRequestsPage() {
     try {
       const token = await GetToken();
       const response = await fetch(
-        `${Backend.api}${Backend.teachers}`,
+        `${Backend.auth}${Backend.communicationChatsTeacherStudentsContacts}`,
         {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -65,7 +65,7 @@ export default function MeetingRequestsPage() {
 
       const data = await response.json();
       if (data.success) {
-        setTeachers(data.data || []);
+        setTeachers(data.data?.teachers || []);
       }
     } catch (error) {
       console.error('Error fetching teachers:', error);
@@ -77,7 +77,7 @@ export default function MeetingRequestsPage() {
     try {
       const token = await GetToken();
       const response = await fetch(
-        `${Backend.api}${Backend.communicationMeetingRequests}`,
+        `${Backend.auth}${Backend.communicationMeetings}`,
         {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -98,7 +98,7 @@ export default function MeetingRequestsPage() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    
+
     if (!formData.teacher_id || !formData.preferred_date || !formData.purpose) {
       toast.warning('Please fill in all required fields');
       return;
@@ -108,7 +108,7 @@ export default function MeetingRequestsPage() {
     try {
       const token = await GetToken();
       const response = await fetch(
-        `${Backend.api}${Backend.communicationMeetingRequests}`,
+        `${Backend.auth}${Backend.communicationMeetings}`,
         {
           method: 'POST',
           headers: {
@@ -116,8 +116,12 @@ export default function MeetingRequestsPage() {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            ...formData,
-            student_id: studentId,
+            requested_to: formData.teacher_id,
+            requested_date: formData.preferred_date ? formData.preferred_date.toISOString().split('T')[0] : '',
+            requested_time: formData.preferred_date ? formData.preferred_date.toTimeString().split(' ')[0] : '',
+            notes: formData.notes,
+            purpose: formData.purpose,
+            requested_by: studentId,
           }),
         }
       );
@@ -195,7 +199,7 @@ export default function MeetingRequestsPage() {
                 <Typography variant="h6" gutterBottom>
                   New Meeting Request
                 </Typography>
-                
+
                 <Box component="form" onSubmit={handleSubmit} sx={{ mt: 2 }}>
                   <FormControl fullWidth sx={{ mb: 2 }}>
                     <InputLabel>Select Teacher</InputLabel>
@@ -205,8 +209,10 @@ export default function MeetingRequestsPage() {
                       required
                     >
                       {teachers.map((teacher) => (
-                        <MenuItem key={teacher.id} value={teacher.id}>
-                          {teacher.name} - {teacher.specialization || teacher.subject_specialties || 'Not Assigned'}
+                        <MenuItem key={teacher.user_id || teacher.id} value={teacher.user_id || teacher.id}>
+                          {teacher.full_name || teacher.name}
+                          {teacher.branch_name && ` - ${teacher.branch_name}`}
+                          {teacher.subjects && teacher.subjects.length > 0 && ` (${teacher.subjects.join(', ')})`}
                         </MenuItem>
                       ))}
                     </Select>
@@ -313,6 +319,6 @@ export default function MeetingRequestsPage() {
           </Grid>
         </Grid>
       </Container>
-    </LocalizationProvider>
+    </LocalizationProvider >
   );
 }

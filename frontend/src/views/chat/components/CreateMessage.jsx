@@ -14,6 +14,7 @@ import {
   IconButton,
   Chip,
   Pagination,
+  ListSubheader,
 } from '@mui/material';
 import { toast } from 'react-toastify';
 import DrogaFormModal from 'ui-component/modal/DrogaFormModal';
@@ -30,17 +31,22 @@ const CreateMessageForm = ({ open, onClose, onSubmit }) => {
   // Get user data from Redux store
   const user = useSelector((state) => state?.user?.user);
   const userRoles = user?.roles || [];
-  
-  // Determine if user is a student and get their student_id
-  const isStudent = userRoles.some(role => 
-    typeof role === 'string' 
-      ? role.toLowerCase() === 'student' 
+
+  // Determine user role
+  const isStudent = userRoles.some(role =>
+    typeof role === 'string'
+      ? role.toLowerCase() === 'student'
       : role?.name?.toLowerCase() === 'student'
   );
-  
+  const isAdmin = userRoles.some(role =>
+    typeof role === 'string'
+      ? role.toLowerCase() === 'admin' || role.toLowerCase() === 'superadmin'
+      : role?.name?.toLowerCase() === 'admin' || role?.name?.toLowerCase() === 'superadmin'
+  ) || user?.is_superuser || user?.is_staff;
+
   // For students, try to get their student_id from user data
   const studentId = isStudent ? (user?.student_id || user?.id) : null;
-  
+
   const [messageDetails, setMessageDetails] = useState({
     message: '',
     receiver: '',
@@ -91,12 +97,18 @@ const CreateMessageForm = ({ open, onClose, onSubmit }) => {
     }
   }, [open]);
 
-  // Fetch students when modal opens or filters/pagination changes
+  // Fetch contacts when modal opens
   useEffect(() => {
     if (open && !isStudent) {
-      fetchStudents();
+      if (isAdmin) {
+        // Admin fetches all students and teachers
+        fetchRoleBasedContacts();
+      } else {
+        // Parents fetch their children
+        fetchStudents();
+      }
     }
-  }, [open, filters.subject_id, pagination.page, pagination.per_page, isStudent]);
+  }, [open, isStudent, isAdmin]);
 
   useEffect(() => {
     if (!open) return;
@@ -131,15 +143,29 @@ const CreateMessageForm = ({ open, onClose, onSubmit }) => {
 
   // Fetch available teachers when a student is selected
   useEffect(() => {
-    if (messageDetails.student_id) {
-      fetchAvailableTeachers(messageDetails.student_id);
+    // Use role from Redux instead of localStorage
+    const userRole = userRoles[0];
+    const userId = localStorage.getItem('user_id');
+    console.log('DEBUG CreateMessage: userRole from Redux:', userRole, 'userId:', userId);
+
+    // Wait for role to be loaded
+    if (!userRole) {
+      console.log('DEBUG CreateMessage: Waiting for role to load...');
+      return;
+    }
+
+    // For students, use user_id if student_id is not set
+    const effectiveStudentId = messageDetails.student_id || (userRole === 'student' ? userId : null);
+
+    if (effectiveStudentId) {
+      fetchAvailableTeachers(effectiveStudentId);
     } else {
       setAvailableTeachers([]);
       setAvailableSubjects([]);
       setSelectedSubject('');
       setMessageDetails((prev) => ({ ...prev, receiver: '' }));
     }
-  }, [messageDetails.student_id]);
+  }, [messageDetails.student_id, userRoles]);
 
   // Set student_id in messageDetails when studentId from Redux changes
   useEffect(() => {
@@ -193,10 +219,11 @@ const CreateMessageForm = ({ open, onClose, onSubmit }) => {
     }
   };
 
-  const fetchAvailableTeachers = async (studentId) => {
+  const fetchRoleBasedContacts = async () => {
+    setLoadingStudents(true);
     setLoadingTeachers(true);
     const token = await GetToken();
-    const Api = `${Backend.auth}${Backend.parentAvailableTeachers}${studentId}`;
+    const Api = `${Backend.auth}${Backend.communicationChatsTeacherStudentsContacts}`;
     const header = {
       Authorization: `Bearer ${token}`,
       accept: 'application/json',
@@ -209,14 +236,52 @@ const CreateMessageForm = ({ open, onClose, onSubmit }) => {
 
       if (!response.ok) throw new Error(responseData.message);
       if (responseData.success) {
-        setAvailableTeachers(responseData.data.teachers || []);
-        // Extract available subjects from filters
-        const subjects = responseData.data.filters?.available_subjects || [];
-        setAvailableSubjects(subjects);
+        const data = responseData.data;
+        setStudents(data.students || []);
+        setAvailableTeachers(data.teachers || []);
+        setFilteredTeachers(data.teachers || []);
+        toast.success('Contacts loaded successfully');
       } else {
         toast.warning(responseData.message);
       }
     } catch (error) {
+      toast.error(error.message);
+    } finally {
+      setLoadingStudents(false);
+      setLoadingTeachers(false);
+    }
+  };
+
+  const fetchAvailableTeachers = async (studentId) => {
+    setLoadingTeachers(true);
+    const token = await GetToken();
+    const Api = `${Backend.auth}${Backend.parentAvailableTeachers}${studentId}`;
+    console.log('DEBUG: Fetching teachers from:', Api);
+    const header = {
+      Authorization: `Bearer ${token}`,
+      accept: 'application/json',
+    };
+    try {
+      const response = await fetch(Api, {
+        method: 'GET',
+        headers: header,
+      });
+      const responseData = await response.json();
+      console.log('DEBUG: Teachers response:', responseData);
+
+      if (!response.ok) throw new Error(responseData.message);
+      if (responseData.success) {
+        const teachers = responseData.data?.teachers || [];
+        console.log('DEBUG: Setting teachers:', teachers);
+        console.log('DEBUG: First teacher sample:', teachers[0]);
+        console.log('DEBUG: Teacher data structure:', teachers[0] && Object.keys(teachers[0]));
+        setAvailableTeachers(teachers);
+        // Extract available subjects from filters
+        const subjects = responseData.data?.filters?.available_subjects || [];
+        setAvailableSubjects(subjects);
+      }
+    } catch (error) {
+      console.error('DEBUG: Error fetching teachers:', error);
       toast.error(error.message);
     } finally {
       setLoadingTeachers(false);
@@ -301,7 +366,18 @@ const CreateMessageForm = ({ open, onClose, onSubmit }) => {
     setLoading(true);
     try {
       const token = await GetToken();
-      const Api = `${Backend.auth}${Backend.subjects}`;
+      const userRole = userRoles[0]; // Use Redux role
+      let Api = `${Backend.auth}${Backend.subjects}`;
+
+      // For students, fetch only their enrolled subjects by passing user_id as student_id
+      if (userRole === 'student') {
+        const userId = localStorage.getItem('user_id');
+        if (userId) {
+          Api += `?student_id=${userId}`;
+        }
+      }
+      console.log('DEBUG: Fetching subjects from:', Api, 'Role:', userRole);
+
       const header = {
         Authorization: `Bearer ${token}`,
         accept: 'application/json',
@@ -310,6 +386,7 @@ const CreateMessageForm = ({ open, onClose, onSubmit }) => {
 
       const response = await fetch(Api, { method: 'GET', headers: header });
       const responseData = await response.json();
+      console.log('DEBUG: Subjects response:', responseData);
 
       if (!response.ok) {
         throw new Error(
@@ -414,10 +491,11 @@ const CreateMessageForm = ({ open, onClose, onSubmit }) => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    // Admin only needs message and receiver; students/teachers need student_id
     if (
       !messageDetails.message ||
       !messageDetails.receiver ||
-      !messageDetails.student_id
+      (!isAdmin && !messageDetails.student_id)
     ) {
       toast.error('Please fill all required fields.');
       return;
@@ -434,7 +512,10 @@ const CreateMessageForm = ({ open, onClose, onSubmit }) => {
 
       formData.append('message', messageDetails.message);
       formData.append('receiver', messageDetails.receiver);
-      formData.append('student_id', messageDetails.student_id);
+      // Only append student_id for non-admin users
+      if (!isAdmin && messageDetails.student_id) {
+        formData.append('student_id', messageDetails.student_id);
+      }
 
       if (messageDetails.branch_id) {
         formData.append('branch_id', messageDetails.branch_id);
@@ -531,7 +612,7 @@ const CreateMessageForm = ({ open, onClose, onSubmit }) => {
           </Grid>
         )}
 
-        {  <Grid item xs={12} sm={6}>
+        {<Grid item xs={12} sm={6}>
           <FormControl fullWidth margin="normal">
             <InputLabel id="Subject-select-label">Select Subject</InputLabel>
             <Select
@@ -559,9 +640,58 @@ const CreateMessageForm = ({ open, onClose, onSubmit }) => {
               />
             )}
           </FormControl>
-        </Grid> }
+        </Grid>}
 
-        {!isStudent && (
+        {/* Admin sees unified recipient dropdown with students and teachers */}
+        {isAdmin && (
+          <Grid item xs={12}>
+            <FormControl fullWidth margin="normal">
+              <InputLabel id="recipient-select-label">Select Recipient</InputLabel>
+              <Select
+                labelId="recipient-select-label"
+                id="recipient-select"
+                name="receiver"
+                value={messageDetails.receiver}
+                label="Select Recipient"
+                onChange={handleChange}
+                disabled={loadingStudents || loadingTeachers}
+              >
+                <MenuItem value="">
+                  <em>Select a recipient</em>
+                </MenuItem>
+                {/* Students group */}
+                <ListSubheader>Students</ListSubheader>
+                {students.map((student) => (
+                  <MenuItem
+                    key={student.user_id || student.id}
+                    value={student.user_id || student.id}
+                  >
+                    {student.full_name || student.student_details?.user_details?.full_name || 'Unknown'}
+                  </MenuItem>
+                ))}
+                {/* Teachers group */}
+                <ListSubheader>Teachers</ListSubheader>
+                {availableTeachers.map((teacher) => (
+                  <MenuItem
+                    key={teacher.user_id || teacher.id}
+                    value={teacher.user_id || teacher.id}
+                  >
+                    {teacher.full_name || teacher.name || 'Unknown'}
+                  </MenuItem>
+                ))}
+              </Select>
+              {(loadingStudents || loadingTeachers) && (
+                <CircularProgress
+                  size={24}
+                  sx={{ position: 'absolute', right: 40, top: 20 }}
+                />
+              )}
+            </FormControl>
+          </Grid>
+        )}
+
+        {/* Non-admin (parents) see student then teacher dropdown */}
+        {!isStudent && !isAdmin && (
           <Grid item xs={12}>
             <FormControl fullWidth margin="normal">
               <InputLabel id="student-select-label">Select Student</InputLabel>
@@ -675,16 +805,17 @@ const CreateMessageForm = ({ open, onClose, onSubmit }) => {
                   <MenuItem value="">
                     <em>Select a teacher</em>
                   </MenuItem>
-                  {filteredTeachers.map((teacher) => (
-                    <MenuItem key={teacher.user_id} value={teacher.user_id}>
-                      {teacher.full_name} - {teacher.email}
-                      {teacher.subjects && (
-                        <Typography variant="caption" sx={{ ml: 1 }}>
-                          {/* ({teacher.subjects.map((s) => s.name).join(', ')}) */}
-                        </Typography>
-                      )}
-                    </MenuItem>
-                  ))}
+                  {filteredTeachers.map((teacher) => {
+                    // TeacherSerializer returns 'name' (from user.full_name) and 'user_details'
+                    const teacherName = teacher.name || teacher.user_details?.full_name || teacher.user?.full_name || 'Unknown Teacher';
+                    const teacherEmail = teacher.user_details?.email || teacher.user?.email || '';
+                    const teacherId = teacher.user || teacher.user_details?.id || teacher.id;
+                    return (
+                      <MenuItem key={teacherId} value={teacherId}>
+                        {teacherName} {teacherEmail && `- ${teacherEmail}`}
+                      </MenuItem>
+                    );
+                  })}
                 </Select>
                 {loadingTeachers && (
                   <CircularProgress

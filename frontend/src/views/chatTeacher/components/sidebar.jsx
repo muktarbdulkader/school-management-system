@@ -135,8 +135,9 @@ export function Sidebar({
   selectedConversation,
   selectedGroup,
   onTabChange,
+  activeTab = 0,
 }) {
-  const [tabValue, setTabValue] = useState(0);
+  const [tabValue, setTabValue] = useState(activeTab);
   const [conversations, setConversations] = useState([]);
   const [groupConversations, setGroupConversations] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -349,32 +350,51 @@ export function Sidebar({
     setLoading(true);
     try {
       const token = await GetToken();
-      const Api = `${Backend.auth}${Backend.groupChats}`;
+
+      // Fetch actual GroupChats
+      const groupApi = `${Backend.auth}${Backend.groupChats}`;
       const header = {
         Authorization: `Bearer ${token}`,
         accept: 'application/json',
         'Content-Type': 'application/json',
       };
 
-      const response = await fetch(Api, { method: 'GET', headers: header });
-      const responseData = await response.json();
+      const groupResponse = await fetch(groupApi, { method: 'GET', headers: header });
+      const groupData = await groupResponse.json();
 
-      if (!response.ok) {
-        throw new Error(
-          responseData.message || 'Failed to fetch conversations',
-        );
+      // Fetch subject groups (virtual groups for bulk messaging)
+      const contactsApi = `${Backend.auth}${Backend.communicationChatsTeacherStudentsContacts}`;
+      const contactsResponse = await fetch(contactsApi, { method: 'GET', headers: header });
+      const contactsData = await contactsResponse.json();
+
+      let allGroups = [];
+
+      // Add actual GroupChats
+      if (groupData.success) {
+        allGroups = [...groupData.data];
       }
 
-      if (responseData.success) {
-        setGroupConversations(responseData.data);
-        setPagination({
-          last_page: responseData.last_page || 1,
-          total: responseData.total || responseData.data.length,
-        });
-        setError(false);
-      } else {
-        toast.warning(responseData.message);
+      // Add subject groups (students with is_group flag)
+      if (contactsData.success && contactsData.data?.students) {
+        const subjectGroups = contactsData.data.students.filter(s => s.is_group);
+        // Transform subject groups to match GroupChat format
+        const formattedSubjectGroups = subjectGroups.map(sg => ({
+          id: sg.user_id || sg.student_id,
+          name: sg.full_name || sg.student_name || 'Subject Group',
+          is_subject_group: true,
+          subject_id: sg.user_id?.replace('subject_group_', '') || sg.student_id?.replace('subject_group_', ''),
+          latest_message: 'Click to send message to all students in this subject',
+          created_at: new Date().toISOString(),
+        }));
+        allGroups = [...allGroups, ...formattedSubjectGroups];
       }
+
+      setGroupConversations(allGroups);
+      setPagination({
+        last_page: 1,
+        total: allGroups.length,
+      });
+      setError(false);
     } catch (error) {
       toast.error(error.message);
       setError(true);
@@ -422,6 +442,22 @@ export function Sidebar({
       fetchAvailableFilters();
     }
   }, [tabValue]);
+
+  // Sync tabValue with parent's activeTab
+  useEffect(() => {
+    if (activeTab !== undefined && activeTab !== tabValue) {
+      setTabValue(activeTab);
+    }
+  }, [activeTab]);
+
+  // Listen for openNewMessageModal event from subject groups
+  useEffect(() => {
+    const handleOpenModal = () => {
+      setAdd(true);
+    };
+    window.addEventListener('openNewMessageModal', handleOpenModal);
+    return () => window.removeEventListener('openNewMessageModal', handleOpenModal);
+  }, []);
 
   return (
     <Box

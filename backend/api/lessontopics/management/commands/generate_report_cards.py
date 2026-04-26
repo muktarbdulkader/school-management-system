@@ -51,9 +51,10 @@ class Command(BaseCommand):
             raise CommandError(f'Term with ID {term_id} does not exist')
 
         # Get students to process
-        students = Student.objects.filter(current_term=term)
+        # Note: Students don't have a current_term field, filter by class/section
+        students = Student.objects.all()
         if class_id:
-            students = students.filter(class_fk_id=class_id)
+            students = students.filter(grade_id=class_id)
         if section_id:
             students = students.filter(section_id=section_id)
 
@@ -77,7 +78,7 @@ class Command(BaseCommand):
             student=student,
             term=term,
             defaults={
-                'class_fk': student.class_fk,
+                'class_fk': student.grade,
                 'section': student.section,
                 'generated_at': timezone.now(),
                 'is_published': publish,
@@ -87,7 +88,7 @@ class Command(BaseCommand):
 
         # Get all teacher assignments for this student
         teacher_assignments = TeacherAssignment.objects.filter(
-            class_fk=student.class_fk,
+            class_fk=student.grade,
             section=student.section,
             is_active=True
         ).select_related('subject')
@@ -160,6 +161,14 @@ class Command(BaseCommand):
                 normalized_percentage = 0
 
             # Create or update report card subject
+            # Extract numeric grade level from grade string (e.g., "Grade 1" -> 1)
+            grade_level = 0
+            if student.grade and student.grade.grade:
+                import re
+                match = re.search(r'\d+', student.grade.grade)
+                if match:
+                    grade_level = int(match.group())
+
             ReportCardSubject.objects.update_or_create(
                 report_card=report_card,
                 teacher_assignment=ta,
@@ -174,9 +183,9 @@ class Command(BaseCommand):
                     'total_score': float(normalized_percentage),
                     'total_max': 100,
                     'percentage': normalized_percentage,
-                    # Determine which grading system to use based on class grade level
-                    'descriptive_grade': self.calculate_descriptive_grade(normalized_percentage) if student.class_fk.grade <= 8 else None,
-                    'letter_grade': self.calculate_letter_grade(normalized_percentage) if student.class_fk.grade >= 9 else None,
+                    # Determine which grading system to use based on class grade level (K-8 vs 9-12)
+                    'descriptive_grade': self.calculate_descriptive_grade(normalized_percentage) if grade_level <= 8 else None,
+                    'letter_grade': self.calculate_letter_grade(normalized_percentage) if grade_level >= 9 else None,
                 }
             )
 

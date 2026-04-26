@@ -6,6 +6,7 @@ import {
   Grid,
   LinearProgress,
   CircularProgress,
+  Chip,
 } from '@mui/material';
 
 export function AcademicSummary({ data }) {

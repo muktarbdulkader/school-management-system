@@ -36,6 +36,8 @@ export default function TeacherRatingsPage() {
   const [criteriaLoading, setCriteriaLoading] = useState(true);
   const [myRatings, setMyRatings] = useState([]);
   const [myRatingsLoading, setMyRatingsLoading] = useState(false);
+  const [children, setChildren] = useState([]);
+  const [selectedChild, setSelectedChild] = useState(null);
 
   const user = useSelector((state) => state.user?.user);
   const userRoles = (user?.roles || []).map(r =>
@@ -194,7 +196,9 @@ export default function TeacherRatingsPage() {
           if (isStudent) sId = profileData.data?.id || profileData.id;
           else {
             const kids = profileData.data || profileData.results || [];
-            if (kids.length > 0) sId = kids[0].student?.id || kids[0].student_id;
+            if (kids.length > 0) {
+              sId = kids[0].student_details?.id || kids[0].student?.id || kids[0].student_id || kids[0].id;
+            }
           }
           if (sId) apiUrl = `${Backend.api}${Backend.parentAvailableTeachers}${sId}/`;
         }
@@ -230,12 +234,19 @@ export default function TeacherRatingsPage() {
 
       if (studentRes?.ok) {
         const data = await studentRes.json();
+        console.log('[TeacherRatings] Student/Children data:', data);
         if (isStudent) {
           studentId = data.data?.id || data.id;
         } else {
           const kids = data.data || data.results || [];
+          console.log('[TeacherRatings] Children found:', kids.length, kids);
+          setChildren(kids);
           if (kids.length > 0) {
-            studentId = kids[0].student?.id || kids[0].student_id;
+            const firstChild = kids[0];
+            setSelectedChild(firstChild);
+            // Try multiple possible ID locations in the data structure
+            studentId = firstChild.student_details?.id || firstChild.student?.id || firstChild.student_id || firstChild.id;
+            console.log('[TeacherRatings] First child ID:', studentId, firstChild);
           }
         }
       }
@@ -266,6 +277,39 @@ export default function TeacherRatingsPage() {
     }
   };
 
+  // Handle child selection for parents
+  const handleChildSelect = async (child) => {
+    setSelectedChild(child);
+    const studentId = child.student_details?.id || child.student?.id || child.student_id || child.id;
+    if (!studentId) {
+      toast.error('Invalid student ID');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      const token = await GetToken();
+      const res = await fetch(`${Backend.api}${Backend.parentAvailableTeachers}${studentId}/`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        const list = data.data?.teachers || data.data || [];
+        setTeachers(list);
+      } else {
+        setTeachers([]);
+        toast.error('Failed to load teachers for selected child');
+      }
+    } catch (error) {
+      console.error('Error fetching teachers:', error);
+      setTeachers([]);
+      toast.error('Failed to load teachers');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // State for multi-category ratings
   const [multiRatings, setMultiRatings] = useState({});
 
@@ -291,10 +335,10 @@ export default function TeacherRatingsPage() {
       return;
     }
 
-    // Validate all criteria have ratings (optional - can rate partial)
+    // Validate all criteria have ratings - all 14 must be filled
     const unratedCriteria = criteria.filter(c => !multiRatings[c.code]);
-    if (unratedCriteria.length === criteria.length) {
-      toast.warning('Please rate at least one criteria');
+    if (unratedCriteria.length > 0) {
+      toast.error('Please fill all measurements');
       return;
     }
 
@@ -599,6 +643,35 @@ export default function TeacherRatingsPage() {
                 <Alert severity="info" sx={{ mt: 2, maxWidth: 600, mx: 'auto' }}>
                   {evaluationSettings.message || 'Teacher evaluation is currently closed. Please check back during the end-of-term evaluation period.'}
                 </Alert>
+              )}
+
+              {/* Child Selector for Parents */}
+              {isParent && children.length > 0 && (
+                <Box sx={{ mt: 3, mb: 2 }}>
+                  <Typography variant="subtitle1" gutterBottom>
+                    Select Child:
+                  </Typography>
+                  <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', justifyContent: 'center' }}>
+                    {children.map((child) => {
+                      const childName = child.student_details?.name || child.student_name || 'Child';
+                      const isSelected = selectedChild?.id === child.id;
+                      return (
+                        <Chip
+                          key={child.id}
+                          label={childName}
+                          onClick={() => handleChildSelect(child)}
+                          color={isSelected ? 'primary' : 'default'}
+                          variant={isSelected ? 'filled' : 'outlined'}
+                          sx={{
+                            cursor: 'pointer',
+                            fontWeight: isSelected ? 'bold' : 'normal',
+                            px: 2
+                          }}
+                        />
+                      );
+                    })}
+                  </Box>
+                </Box>
               )}
 
               <Box sx={{ mt: 3, maxWidth: 450, mx: 'auto' }}>

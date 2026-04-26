@@ -176,23 +176,69 @@ export function Sidebar({
     (state) => state.student,
   );
 
+  // Get user role from Redux (same as CreateMessage.jsx)
+  const reduxUser = useSelector((state) => state?.user?.user);
+  const userRoles = reduxUser?.roles || [];
+  const role = userRoles[0] || reduxUser?.role || null;
+
+  // Debug user from Redux
+  console.log('DEBUG Redux user:', reduxUser, 'role:', role);
+
+  // Retry counter for role loading
+  const [retryCount, setRetryCount] = useState(0);
+
   // Initialize data with proper order
   useEffect(() => {
     const initializeData = async () => {
       setIsInitializing(true);
-      await fetchStudents();
-      setIsInitializing(false);
+      console.log('DEBUG SIDEBAR INIT: Role from Redux =', role, 'retryCount=', retryCount);
+
+      // Wait for role to be loaded from Redux
+      if (!role) {
+        console.log('DEBUG SIDEBAR INIT: Waiting for role to load...');
+        setIsInitializing(false);
+
+        // Retry up to 5 times with 500ms delay
+        if (retryCount < 5) {
+          setTimeout(() => {
+            setRetryCount(prev => prev + 1);
+          }, 500);
+        }
+        return;
+      }
+
+      if (role === 'student' || role === 'teacher') {
+        // For students and teachers, skip student selection and fetch conversations directly
+        setStudents([]);
+        setIsInitializing(false);
+        // Fetch conversations after initialization
+        console.log('DEBUG SIDEBAR INIT: Calling fetchStudentConversationsForCurrentUser for', role);
+        fetchStudentConversationsForCurrentUser();
+      } else {
+        // For parents, fetch their children
+        await fetchStudents();
+        setIsInitializing(false);
+      }
     };
 
     initializeData();
-  }, []);
+  }, [role, retryCount]);
 
-  // Fetch available teachers when student ID changes
+  // For students and teachers - fetch conversations once initialization is complete
   useEffect(() => {
-    if (!isInitializing && actualStudentId) {
-      fetchAvailableTeachers(actualStudentId);
+    if (!isInitializing && (role === 'student' || role === 'teacher') && tabValue === 0) {
+      fetchStudentConversationsForCurrentUser();
     }
-  }, [isInitializing, actualStudentId]);
+  }, [isInitializing, role, tabValue]);
+
+  // Fetch available teachers when student ID changes (only for parents)
+  // DISABLED: This endpoint causes 404 errors and is not needed for messaging
+  useEffect(() => {
+    if (role === 'student') return;
+    if (!isInitializing && actualStudentId) {
+      // fetchAvailableTeachers(actualStudentId);
+    }
+  }, [isInitializing, actualStudentId, role]);
 
   // Fetch student conversations when filters change
   useEffect(() => {
@@ -204,6 +250,13 @@ export function Sidebar({
       );
     }
   }, [isInitializing, actualStudentId, selectedSubjectId, selectedTeacherId]);
+
+  // For direct student login - fetch conversations when no actualStudentId (student is logged in directly)
+  useEffect(() => {
+    if (!isInitializing && !actualStudentId && role === 'student' && tabValue === 0) {
+      fetchStudentConversationsForCurrentUser();
+    }
+  }, [isInitializing, actualStudentId, tabValue]);
 
   // Fetch subjects when teacher changes
   useEffect(() => {
@@ -351,13 +404,18 @@ export function Sidebar({
 
     setLoading(true);
     try {
-      const studentDetailsId = student.student_details.id;
       const token = await GetToken();
-      let Api = `${Backend.auth}${Backend.chatsConversations}${studentDetailsId}/`;
+      // The conversations endpoint returns chats for the authenticated user
+      let Api = `${Backend.auth}${Backend.chatsConversations}`;
 
       // Add query parameters if provided
       const params = new URLSearchParams();
       if (subjectId) params.append('subject_id', subjectId);
+      // Only pass student_id if this is a parent viewing their child's messages
+      // If student is logged in directly, backend will detect from request.user
+      if (role !== 'student' && student?.student_details?.id) {
+        params.append('student_id', student.student_details.id);
+      }
       // if (teacherId) params.append('teacher_id', teacherId);
 
       const queryString = params.toString();
@@ -395,6 +453,54 @@ export function Sidebar({
     }
   };
 
+  // Fetch conversations for the currently logged-in student/teacher (direct login, not parent view)
+  const fetchStudentConversationsForCurrentUser = async () => {
+    setLoading(true);
+    try {
+      const token = await GetToken();
+      // For direct student/teacher login, call conversations endpoint without student_id
+      // Backend will detect the user from the authentication token
+      const Api = `${Backend.auth}${Backend.chatsConversations}`;
+
+      const header = {
+        Authorization: `Bearer ${token}`,
+        accept: 'application/json',
+        'Content-Type': 'application/json',
+      };
+
+      console.log('DEBUG: fetchStudentConversationsForCurrentUser calling:', Api);
+
+      const response = await fetch(Api, { method: 'GET', headers: header });
+      const responseData = await response.json();
+
+      console.log('DEBUG: fetchStudentConversationsForCurrentUser response:', responseData);
+
+      if (!response.ok) {
+        throw new Error(
+          responseData.message || 'Failed to fetch conversations',
+        );
+      }
+
+      if (responseData.success) {
+        // Handle nested data structure
+        const conversationsData = responseData.data?.data || responseData.data || [];
+        setStudentConversations(conversationsData);
+        if (responseData.student_context) {
+          setStudentContext(responseData.student_context);
+        }
+        setError(false);
+      } else {
+        toast.warning(responseData.message);
+      }
+    } catch (error) {
+      console.error('DEBUG: fetchStudentConversationsForCurrentUser error:', error);
+      toast.error(error.message);
+      setError(true);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleSelectConversation = (conversation) => {
     const conversationWithContext = {
       ...conversation,
@@ -410,8 +516,12 @@ export function Sidebar({
     }
 
     if (newValue === 0) {
-      if (studentConversations.length === 0 && actualStudentId) {
-        fetchStudentConversations(actualStudentId);
+      if (studentConversations.length === 0) {
+        if (role === 'student' || role === 'teacher') {
+          fetchStudentConversationsForCurrentUser();
+        } else if (actualStudentId) {
+          fetchStudentConversations(actualStudentId);
+        }
       }
     } else if (newValue === 2) {
       getGroupConversations();
@@ -423,6 +533,7 @@ export function Sidebar({
     try {
       const token = await GetToken();
       const Api = `${Backend.auth}${Backend.groupChats}`;
+      console.log('DEBUG: Fetching group chats from:', Api);
       const header = {
         Authorization: `Bearer ${token}`,
         accept: 'application/json',
@@ -431,6 +542,7 @@ export function Sidebar({
 
       const response = await fetch(Api, { method: 'GET', headers: header });
       const responseData = await response.json();
+      console.log('DEBUG: Group chats response:', responseData);
 
       if (!response.ok) {
         throw new Error(
@@ -440,6 +552,7 @@ export function Sidebar({
 
       if (responseData.success) {
         setGroupConversations(responseData.data);
+        console.log('DEBUG: Group conversations set:', responseData.data);
         setPagination({
           last_page: responseData.last_page || 1,
           total: responseData.total || responseData.data.length,
@@ -457,13 +570,17 @@ export function Sidebar({
   };
 
   const handleMessageAddition = async (newMessageData) => {
-    if (newMessageData && actualStudentId) {
+    if (newMessageData) {
       try {
-        await fetchStudentConversations(
-          actualStudentId,
-          selectedSubjectId,
-          selectedTeacherId,
-        );
+        if (role === 'student' || role === 'teacher') {
+          await fetchStudentConversationsForCurrentUser();
+        } else if (actualStudentId) {
+          await fetchStudentConversations(
+            actualStudentId,
+            selectedSubjectId,
+            selectedTeacherId,
+          );
+        }
       } catch (error) {
         console.error('Error refreshing conversations:', error);
         toast.error('Failed to refresh conversations');
@@ -693,7 +810,8 @@ export function Sidebar({
           </Button>
         </Box>
 
-        {students.length > 0 && relationshipId && (
+        {/* Only show student name for parents (not admin/teacher) */}
+        {role === 'parent' && students.length > 0 && relationshipId && (
           <Typography
             variant="body2"
             sx={{ mt: 2, color: 'text.secondary', fontWeight: 'bold' }}
@@ -793,7 +911,9 @@ export function Sidebar({
             <Button
               variant="outlined"
               onClick={() => {
-                if (actualStudentId) {
+                if (role === 'student' || role === 'teacher') {
+                  fetchStudentConversationsForCurrentUser();
+                } else if (actualStudentId) {
                   fetchStudentConversations(actualStudentId);
                 }
               }}

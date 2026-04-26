@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { useSelector } from 'react-redux';
 
 import CreateMessageForm from './CreateMessage';
 import Backend from 'services/backend';
@@ -43,6 +44,7 @@ import MessageDetailStarted from './MessageDetailStarted';
 import EmptyStateStarted from './EmptyStateStarted';
 
 const MessageSideNav = () => {
+  console.log('DEBUG MessageSideNav: Component mounted');
   const [activeTabIndex, setActiveTabIndex] = useState(0);
   const [data, setData] = useState([]);
   const navigate = useNavigate();
@@ -56,6 +58,11 @@ const MessageSideNav = () => {
     last_page: 1,
     total: 0,
   });
+
+  // Get role from Redux store
+  const user = useSelector((state) => state.auth?.user);
+  const role = user?.roles?.[0] || null;
+  console.log('DEBUG MessageSideNav: Role from Redux:', role, 'User:', user);
 
   const handleMessageSelect = (message) => {
     setSelectedMessage(message);
@@ -123,13 +130,69 @@ const MessageSideNav = () => {
     }
   }, [pagination.page, pagination.per_page, search]);
 
-  useEffect(() => {
-    const debounceTimeout = setTimeout(() => {
-      fetchMessages();
-    }, 800);
+  // Fetch conversations for students and teachers
+  const fetchConversations = useCallback(async () => {
+    setLoading(true);
+    try {
+      const token = await GetToken();
+      const Api = `${Backend.auth}${Backend.chatsConversations}`;
+      console.log('DEBUG MessageSideNav: Fetching conversations from:', Api);
 
-    return () => clearTimeout(debounceTimeout);
-  }, []);
+      const header = {
+        Authorization: `Bearer ${token}`,
+        accept: 'application/json',
+      };
+
+      const response = await fetch(Api, {
+        method: 'GET',
+        headers: header,
+      });
+
+      const responseData = await response.json();
+      console.log('DEBUG MessageSideNav: Conversations response:', responseData);
+
+      if (!response.ok) {
+        throw new Error(responseData.message || 'Failed to fetch conversations');
+      }
+
+      if (responseData.success) {
+        const conversations = responseData.data?.data || responseData.data || [];
+        console.log('DEBUG MessageSideNav: Setting conversations:', conversations);
+        setData(conversations);
+        setPagination({
+          ...pagination,
+          last_page: responseData.last_page || 1,
+          total: responseData.total || conversations.length,
+        });
+        setError(false);
+      }
+    } catch (error) {
+      console.error('DEBUG MessageSideNav: Error fetching conversations:', error);
+      toast.error(error.message);
+      setError(true);
+    } finally {
+      setLoading(false);
+    }
+  }, [pagination.page, pagination.per_page]);
+
+  useEffect(() => {
+    console.log('DEBUG MessageSideNav: useEffect triggered, role =', role);
+    if (!role) {
+      console.log('DEBUG MessageSideNav: Waiting for role to load...');
+      return;
+    }
+    if (role === 'student' || role === 'teacher') {
+      // For students and teachers, fetch conversations
+      console.log('DEBUG MessageSideNav: Fetching conversations for', role);
+      fetchConversations();
+    } else {
+      // For others, fetch messages
+      const debounceTimeout = setTimeout(() => {
+        fetchMessages();
+      }, 800);
+      return () => clearTimeout(debounceTimeout);
+    }
+  }, [role]);
 
   useEffect(() => {
     setSelectedMessage(null);
@@ -286,11 +349,11 @@ const MessageSideNav = () => {
           <Box sx={{ p: 3, height: '100%', borderLeft: '1px solid #e0e0e0' }}>
             {selectedMessage
               ? React.createElement(
-                  MessageTabOptions[activeTabIndex].detailView,
-                  {
-                    message: selectedMessage,
-                  },
-                )
+                MessageTabOptions[activeTabIndex].detailView,
+                {
+                  message: selectedMessage,
+                },
+              )
               : MessageTabOptions[activeTabIndex].emptyState}
           </Box>
         </Grid>

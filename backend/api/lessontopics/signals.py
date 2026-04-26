@@ -12,12 +12,9 @@ def get_or_create_report_card_subject(student, teacher_assignment, term):
     """Get or create a ReportCardSubject for the given student, assignment and term"""
     # Skip if term is not available
     if not term:
-        # Try to get student's current term as fallback
+        # Try to get current active term
         from academics.models import Term
-        term = student.current_term if hasattr(student, 'current_term') else None
-        if not term:
-            # Try to get current active term
-            term = Term.objects.filter(is_current=True).first()
+        term = Term.objects.filter(is_current=True).first()
         if not term:
             print(f"[ReportCard] Skipping: No term available for student {student.id}")
             return None

@@ -4,6 +4,7 @@ from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth import authenticate
 from django.contrib.auth.hashers import check_password
+from django.db import models
 from users.models import User
 from .models import Parent, Student, ParentStudent
 from .parent_serializers import (
@@ -12,6 +13,93 @@ from .parent_serializers import (
     ParentDashboardSerializer
 )
 from academics.models import Class, Section
+
+
+def calculate_subject_progress(student, subject):
+    """
+    Shared helper function to calculate subject progress.
+    Checks ClassUnitProgress first, then falls back to LessonPlans.
+    Returns (progress_percentage, total_units, completed_units, in_progress_units)
+    """
+    from lessontopics.models import (
+        ClassUnitProgress, ObjectiveUnits,
+        ObjectiveSubunits, LessonPlans
+    )
+    from datetime import date
+
+    try:
+        today = date.today()
+
+        # Get all units for this subject through curriculum mapping
+        units = ObjectiveUnits.objects.filter(
+            curriculummapping__subject=subject,
+            curriculummapping__class_fk=student.grade
+        ).distinct()
+
+        # Fallback: get units from lesson plans
+        if units.count() == 0:
+            units = ObjectiveUnits.objects.filter(
+                lesson_plans__class_fk=student.grade,
+                lesson_plans__subject=subject
+            ).distinct()
+
+        total_units = units.count()
+        completed_units = 0
+        in_progress_units = 0
+
+        for unit in units:
+            # Check ClassUnitProgress first (class-wide, not section-specific)
+            unit_prog = ClassUnitProgress.objects.filter(
+                class_fk=student.grade,
+                subject=subject,
+                unit=unit
+            ).first()
+
+            if unit_prog:
+                if unit_prog.is_completed:
+                    completed_units += 1
+                elif unit_prog.is_current:
+                    in_progress_units += 1
+            else:
+                # Fallback: check LessonPlans (unit OR subunit level)
+                subunits = ObjectiveSubunits.objects.filter(unit=unit)
+                subunit_ids = list(subunits.values_list('id', flat=True))
+
+                lesson_plans = LessonPlans.objects.filter(
+                    class_fk=student.grade,
+                    subject=subject
+                ).filter(
+                    models.Q(unit=unit) | models.Q(subunit__in=subunit_ids)
+                )
+
+                if lesson_plans.exists():
+                    # Use lesson_date if available, otherwise fall back to created_at
+                    past_lessons = lesson_plans.filter(
+                        models.Q(lesson_date__lt=today) | 
+                        models.Q(lesson_date__isnull=True, created_at__date__lt=today)
+                    )
+                    today_lessons = lesson_plans.filter(
+                        models.Q(lesson_date=today) | 
+                        models.Q(lesson_date__isnull=True, created_at__date=today)
+                    )
+                    future_lessons = lesson_plans.filter(lesson_date__gt=today)
+
+                    if past_lessons.exists():
+                        completed_units += 1
+                    elif today_lessons.exists():
+                        in_progress_units += 1
+                    elif future_lessons.exists():
+                        # Keep as upcoming (no change needed)
+                        pass
+
+        # Calculate percentage
+        progress = int((completed_units / total_units * 100)) if total_units > 0 else 0
+
+        return progress, total_units, completed_units, in_progress_units
+    except Exception as e:
+        print(f"[ERROR] calculate_subject_progress failed for {subject.name}: {e}")
+        return 0, 0, 0, 0
+
 
 class ParentLoginView(APIView):
     """
@@ -658,14 +746,12 @@ class ParentDashboardView(APIView):
         from lessontopics.models import ClassUnitProgress, ClassSubunitProgress, ObjectiveUnits, ObjectiveSubunits
         from lessontopics.serializers import LessonPlansSerializer
         
-        # Get student's class and section
+        # Get student's class (section removed - progress is class-wide)
         class_obj = student.grade
-        section = student.section
         
-        # Get all units for student's class/subjects
+        # Get all units for student's class (all sections)
         unit_progress = ClassUnitProgress.objects.filter(
-            class_fk=class_obj,
-            section=section
+            class_fk=class_obj
         ).select_related('unit', 'subject')
         
         progress_data = {
@@ -693,7 +779,6 @@ class ParentDashboardView(APIView):
             for sub in subunits:
                 sub_prog = ClassSubunitProgress.objects.filter(
                     class_fk=class_obj,
-                    section=section,
                     subunit=sub
                 ).first()
                 

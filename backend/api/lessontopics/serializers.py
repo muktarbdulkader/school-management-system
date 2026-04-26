@@ -1007,41 +1007,69 @@ class ClassSubunitProgressSerializer(serializers.ModelSerializer):
 
 # ==================== Continuous Assessment ====================
 class ContinuousAssessmentSerializer(serializers.ModelSerializer):
+    student_id = serializers.PrimaryKeyRelatedField(
+        queryset=Student.objects.all(),
+        source='student',
+        write_only=True,
+        required=True
+    )
     student_details = StudentSerializer(source='student', read_only=True)
+    teacher_assignment_id = serializers.PrimaryKeyRelatedField(
+        queryset=TeacherAssignment.objects.all(),
+        source='teacher_assignment',
+        write_only=True,
+        required=True
+    )
     teacher_assignment_details = TeacherAssignmentSerializer(source='teacher_assignment', read_only=True)
+    term_id = serializers.PrimaryKeyRelatedField(
+        queryset=Term.objects.all(),
+        source='term',
+        write_only=True,
+        required=True
+    )
     term_details = TermsSerializer(source='term', read_only=True)
     recorded_by_details = UserSerializer(source='recorded_by', read_only=True)
     ca_type_display = serializers.CharField(source='get_ca_type_display', read_only=True)
 
     class Meta:
         model = ContinuousAssessment
-        fields = ['id', 'student', 'student_details', 'teacher_assignment', 'teacher_assignment_details',
-                  'term', 'term_details', 'ca_type', 'ca_type_display', 'title', 'description',
+        fields = ['id', 'student_id', 'student', 'student_details', 
+                  'teacher_assignment_id', 'teacher_assignment', 'teacher_assignment_details',
+                  'term_id', 'term', 'term_details', 'ca_type', 'ca_type_display', 'title', 'description',
                   'score', 'max_score', 'weight', 'date_given', 'date_submitted',
                   'recorded_by', 'recorded_by_details', 'recorded_at']
+        read_only_fields = ['id', 'student_details', 'teacher_assignment_details', 'term_details', 
+                          'recorded_by_details', 'recorded_at', 'ca_type_display']
 
     def create(self, validated_data):
-        # Handle foreign keys from request data
-        student_id = self.initial_data.get('student_id')
-        teacher_assignment_id = self.initial_data.get('teacher_assignment_id')
-        term_id = self.initial_data.get('term_id')
-
-        if student_id:
-            from students.models import Student
-            validated_data['student'] = Student.objects.get(id=student_id)
-        if teacher_assignment_id:
-            from teachers.models import TeacherAssignment
-            validated_data['teacher_assignment'] = TeacherAssignment.objects.get(id=teacher_assignment_id)
-        if term_id:
-            from academics.models import Term
-            validated_data['term'] = Term.objects.get(id=term_id)
-
+        # Set recorded_by to current user if not provided
+        request = self.context.get('request')
+        if request and hasattr(request, 'user'):
+            validated_data['recorded_by'] = request.user
         return super().create(validated_data)
 
 
 class SkillsAssessmentSerializer(serializers.ModelSerializer):
+    student_id = serializers.PrimaryKeyRelatedField(
+        queryset=Student.objects.all(),
+        source='student',
+        write_only=True,
+        required=True
+    )
     student_details = StudentSerializer(source='student', read_only=True)
+    teacher_assignment_id = serializers.PrimaryKeyRelatedField(
+        queryset=TeacherAssignment.objects.all(),
+        source='teacher_assignment',
+        write_only=True,
+        required=True
+    )
     teacher_assignment_details = TeacherAssignmentSerializer(source='teacher_assignment', read_only=True)
+    term_id = serializers.PrimaryKeyRelatedField(
+        queryset=Term.objects.all(),
+        source='term',
+        write_only=True,
+        required=True
+    )
     term_details = TermsSerializer(source='term', read_only=True)
     assessed_by_details = UserSerializer(source='assessed_by', read_only=True)
     skill_display = serializers.CharField(source='get_skill_display', read_only=True)
@@ -1049,26 +1077,18 @@ class SkillsAssessmentSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = SkillsAssessment
-        fields = ['id', 'student', 'student_details', 'teacher_assignment', 'teacher_assignment_details',
-                  'term', 'term_details', 'skill', 'skill_display', 'rating', 'rating_display',
+        fields = ['id', 'student_id', 'student', 'student_details', 
+                  'teacher_assignment_id', 'teacher_assignment', 'teacher_assignment_details',
+                  'term_id', 'term', 'term_details', 'skill', 'skill_display', 'rating', 'rating_display',
                   'comment', 'assessed_by', 'assessed_by_details', 'assessed_at']
+        read_only_fields = ['id', 'student_details', 'teacher_assignment_details', 'term_details',
+                          'assessed_by_details', 'assessed_at', 'skill_display', 'rating_display']
 
     def create(self, validated_data):
-        # Handle foreign keys from request data
-        student_id = self.initial_data.get('student_id')
-        teacher_assignment_id = self.initial_data.get('teacher_assignment_id')
-        term_id = self.initial_data.get('term_id')
-
-        if student_id:
-            from students.models import Student
-            validated_data['student'] = Student.objects.get(id=student_id)
-        if teacher_assignment_id:
-            from teachers.models import TeacherAssignment
-            validated_data['teacher_assignment'] = TeacherAssignment.objects.get(id=teacher_assignment_id)
-        if term_id:
-            from academics.models import Term
-            validated_data['term'] = Term.objects.get(id=term_id)
-
+        # Set assessed_by to current user if not provided
+        request = self.context.get('request')
+        if request and hasattr(request, 'user'):
+            validated_data['assessed_by'] = request.user
         return super().create(validated_data)
 
 

@@ -40,42 +40,109 @@ class ChatViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'], url_path='conversations')
     def conversations(self, request, *args, **kwargs):
         from .models import Chat  # Import here to avoid circular imports
-        queryset = self.get_queryset()
+        from students.models import Student, ParentStudent
+        from users.models import User
+        from teachers.models import Teacher
+        
+        # Check if student_id is provided (for parent viewing child's messages)
+        student_id = request.query_params.get('student_id')
+        effective_user = request.user
+        student = None
+        
+        if student_id and student_id != 'undefined' and student_id != 'null':
+            try:
+                # First try to find by Student.id
+                student = Student.objects.get(id=student_id)
+            except Student.DoesNotExist:
+                # If that fails, try to find by Student.user_id
+                try:
+                    student = Student.objects.get(user_id=student_id)
+                except Student.DoesNotExist:
+                    pass
+            
+            if student:
+                # Check if user is parent of this student or is the student themselves
+                is_parent = ParentStudent.objects.filter(parent__user=request.user, student=student).exists()
+                is_own_profile = student.user == request.user
+                is_teacher = Teacher.objects.filter(user=request.user).exists()
+                
+                if is_parent or is_own_profile or is_teacher or request.user.is_staff:
+                    effective_user = student.user
+                else:
+                    raise PermissionDenied("You do not have permission to view this student's conversations.")
+        
+        # If no student_id provided, check if the logged-in user IS a student
+        if not student:
+            try:
+                student = Student.objects.get(user=request.user)
+                effective_user = student.user
+                print(f"DEBUG: Found student {student.id} from user {request.user.id}")
+            except Student.DoesNotExist:
+                print(f"DEBUG: User {request.user.id} is not a student")
+                pass  # User is not a student, use request.user as-is
+        
+        # Get chats where effective_user is sender or receiver
+        queryset = Chat.objects.filter(
+            models.Q(sender=effective_user) | models.Q(receiver=effective_user)
+        ).order_by('-timestamp')
+        print(f"DEBUG: effective_user={effective_user.id}, queryset count={queryset.count()}")
+        
+        # Debug: Show all chats found
+        for chat in queryset[:5]:
+            print(f"DEBUG CHAT: id={chat.id}, sender={chat.sender.id} ({chat.sender.full_name}), receiver={chat.receiver.id} ({chat.receiver.full_name}), msg={chat.message[:30]}...")
+        
         # Group by other user and get the latest chat
         conversations = {}
         for chat in queryset:
-            user = request.user
-            other_user = chat.receiver if chat.sender == user else chat.sender
-            existing_conversation = conversations.get(other_user)
+            other_user = chat.receiver if chat.sender == effective_user else chat.sender
+            other_user_id = other_user.id
+            existing_conversation = conversations.get(other_user_id)
             if not existing_conversation or chat.timestamp > existing_conversation['chat_instance'].timestamp:
-                conversations[other_user] = {
+                conversations[other_user_id] = {
                     'other_user': other_user,
                     'latest_message': chat.message,
                     'last_timestamp': chat.timestamp,
                     'chat_instance': chat  # Keep the original chat for unread count
                 }
         summarized_chats = conversations.values()
+        print(f"DEBUG: Total conversations found: {len(conversations)}")
+        for conv in summarized_chats:
+            print(f"DEBUG CONV: other_user={conv['other_user'].full_name}, msg={conv['latest_message'][:30]}...")
 
         serializer = ConversationSummarySerializer(summarized_chats, many=True, context={'request': request})
-        return Response({
+        response_data = {
             'success': True,
             'message': 'OK',
             'status': 200,
             'data': serializer.data
-        })
+        }
+        
+        # Include student context if viewing as parent/teacher
+        if student and effective_user != request.user:
+            response_data['student_context'] = {
+                'student_id': str(student.id),
+                'student_name': student.user.full_name,
+                'viewing_as': 'parent'
+            }
+        
+        return Response(response_data)
 
     @action(detail=False, methods=['get'], url_path='conversation/(?P<with_user_id>[^/.]+)')
     def conversation(self, request, with_user_id=None):
         from .models import Chat
         user = request.user
         branch_id = request.query_params.get('branch_id')
+        
+        print(f"DEBUG CONV API: user={user.id} ({user.full_name}), with_user_id={with_user_id}")
 
         if branch_id and not has_model_permission(user, 'chat', 'view_chat', branch_id):
             raise PermissionDenied("You do not have permission to view chats in this branch.")
 
         try:
             other_user = User.objects.get(id=with_user_id)
+            print(f"DEBUG CONV API: other_user={other_user.id} ({other_user.full_name})")
         except User.DoesNotExist:
+            print(f"DEBUG CONV API: User {with_user_id} not found")
             return Response({
                 'success': False,
                 'message': 'User not found',
@@ -88,6 +155,10 @@ class ChatViewSet(viewsets.ModelViewSet):
             (Q(sender=user) & Q(receiver=other_user)) | 
             (Q(sender=other_user) & Q(receiver=user))
         ).order_by('-timestamp')
+        
+        print(f"DEBUG CONV API: Found {queryset.count()} messages")
+        for msg in queryset[:3]:
+            print(f"DEBUG CONV MSG: id={msg.id}, sender={msg.sender.full_name}, receiver={msg.receiver.full_name}, msg={msg.message[:30]}")
 
         serializer = MessageDetailSerializer(queryset, many=True, context={'request': request})
         return Response({
@@ -256,12 +327,14 @@ class ChatViewSet(viewsets.ModelViewSet):
         user = request.user
         branch_id = request.query_params.get('branch_id')
         subject_id = request.query_params.get('subject_id')
+        class_id = request.query_params.get('class_id')
         
         from teachers.models import Teacher, TeacherAssignment
         from students.models import Student, ParentStudent, StudentSubject
         from academics.models import Subject, Class, Section
         from users.models import UserBranchAccess
         from django.db.models import Q
+        from django.core.exceptions import ValidationError
         
         # Detect Roles
         is_admin_staff = user.is_staff or user.is_superuser
@@ -290,6 +363,13 @@ class ChatViewSet(viewsets.ModelViewSet):
             if subject_id:
                 enrolled_student_ids = StudentSubject.objects.filter(subject_id=subject_id).values_list('student_id', flat=True)
                 all_students = all_students.filter(id__in=enrolled_student_ids)
+            
+            # Apply Class Filter for Admin if provided
+            if class_id:
+                try:
+                    all_students = all_students.filter(grade_id=class_id)
+                except (ValidationError, ValueError):
+                    pass
 
             # Format Teachers
             for t in all_teachers:
@@ -326,6 +406,17 @@ class ChatViewSet(viewsets.ModelViewSet):
             # If a subject is selected, narrow down to only those students
             if subject_id:
                 assignment_records = assignment_records.filter(subject=subject_id)
+            
+            # If a class is selected, narrow down to only those students
+            valid_class_id = None
+            if class_id:
+                try:
+                    from academics.models import Class
+                    selected_class = Class.objects.get(id=class_id)
+                    assignment_records = assignment_records.filter(class_fk=selected_class)
+                    valid_class_id = class_id
+                except (Class.DoesNotExist, ValidationError):
+                    pass
 
             # Build query to find relevant students
             student_query = Q()
@@ -334,6 +425,10 @@ class ChatViewSet(viewsets.ModelViewSet):
                     student_query |= Q(section=assignment.section)
                 elif assignment.class_fk:
                     student_query |= Q(grade=assignment.class_fk)
+            
+            # If class_id is directly provided, also filter by that class
+            if valid_class_id:
+                student_query &= Q(grade_id=valid_class_id)
             
             if student_query:
                 students = Student.objects.filter(student_query).distinct().select_related('user', 'grade', 'section')
@@ -1049,7 +1144,8 @@ class GroupChatViewSet(viewsets.ModelViewSet):
         branch_id = self.request.query_params.get('branch_id')
         if branch_id and not has_model_permission(user, 'groupchat', 'view_groupchat', branch_id):
             raise PermissionDenied("You do not have permission to view group chats in this branch.")
-        return self.queryset.filter(created_by=user)
+        # Show groups where user is a member (not just creator)
+        return self.queryset.filter(members__user=user).distinct()
 
     def list(self, request, *args, **kwargs):
         queryset = self.filter_queryset(self.get_queryset())
@@ -1083,6 +1179,11 @@ class GroupChatViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         self.perform_create(serializer)
+        
+        # Add creator as a member of the group
+        group = serializer.instance
+        GroupChatMember.objects.get_or_create(group_chat=group, user=request.user)
+        
         response_data = {
             'success': True,
             'message': 'OK',
@@ -1232,9 +1333,18 @@ class GroupChatMessageViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         user = self.request.user
         branch_id = self.request.query_params.get('branch_id')
+        group_id = self.request.query_params.get('group')
+        
         if branch_id and not has_model_permission(user, 'groupchatmessage', 'view_groupchatmessage', branch_id):
             raise PermissionDenied("You do not have permission to view group chat messages in this branch.")
-        return self.queryset.filter(group__members__user=user).order_by('-timestamp')
+        
+        queryset = self.queryset.filter(group__members__user=user)
+        
+        # Filter by specific group if provided
+        if group_id:
+            queryset = queryset.filter(group_id=group_id)
+        
+        return queryset.order_by('-timestamp')
 
     @action(detail=False, methods=['get'], url_path='conversations')
     def conversations(self, request, *args, **kwargs):

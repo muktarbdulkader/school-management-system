@@ -1369,6 +1369,26 @@ class TeacherPerformanceRatingViewSet(viewsets.ModelViewSet):
             if not teacher:
                 return Response({'success': False, 'message': 'Teacher ID or ratings list required', 'status': 400}, status=400)
             ratings_list = [request.data]
+        
+        # Validate that all active criteria are rated
+        from .models import PerformanceMeasurementCriteria
+        active_criteria = PerformanceMeasurementCriteria.objects.filter(is_active=True)
+        required_criteria_count = active_criteria.count()
+        
+        submitted_categories = set()
+        for item in ratings_list:
+            category = item.get('category')
+            if category:
+                submitted_categories.add(category)
+        
+        if len(submitted_categories) < required_criteria_count:
+            return Response({
+                'success': False,
+                'message': 'Please fill all measurements',
+                'required_count': required_criteria_count,
+                'submitted_count': len(submitted_categories),
+                'status': 400
+            }, status=400)
 
         results = []
         errors = []

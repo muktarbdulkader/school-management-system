@@ -49,14 +49,20 @@ export function ChatArea({
   const longPressTimeout = useRef(null);
 
   const currentUser = useSelector((state) => state.user.user);
+  const userRoles = currentUser?.roles || [];
+  const isStudent = userRoles.some(role =>
+    typeof role === 'string' ? role.toLowerCase() === 'student' : role?.name?.toLowerCase() === 'student'
+  );
+  const currentStudentId = isStudent ? (currentUser?.student_id || currentUser?.id) : null;
 
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   useEffect(() => {
-    if (conversation && studentContext?.student_id) {
+    // Fetch messages if we have conversation and either studentContext (for parents) or direct student login
+    if (conversation && (studentContext?.student_id || currentStudentId)) {
       fetchConversationMessages(conversation.other_user.id);
     }
-  }, [conversation, studentContext]);
+  }, [conversation, studentContext, currentStudentId]);
   const handleLongPressStart = (e, message) => {
     if (isMobile && message.isUser) {
       longPressTimeout.current = setTimeout(() => {
@@ -87,11 +93,10 @@ export function ChatArea({
   const fetchConversationMessages = async (userId) => {
     setLoading(true);
 
-    const studentId = studentContext?.student_id;
-
     try {
       const token = await GetToken();
-      const Api = `${Backend.auth}${Backend.chatsConversation}${userId}/${studentId}`;
+      // Backend only needs userId, student_id is not required in URL
+      const Api = `${Backend.auth}${Backend.chatsConversation}${userId}/`;
       const header = {
         Authorization: `Bearer ${token}`,
         accept: 'application/json',
@@ -158,8 +163,10 @@ export function ChatArea({
       const formData = new FormData();
       formData.append('receiver', conversation.other_user.id);
 
-      if (studentContext && studentContext.student_id) {
-        formData.append('student_id', studentContext.student_id);
+      // Add student_id from studentContext (for parents) or currentStudentId (for direct student login)
+      const effectiveStudentId = studentContext?.student_id || currentStudentId;
+      if (effectiveStudentId) {
+        formData.append('student_id', effectiveStudentId);
       }
 
       if (newMessage.trim()) formData.append('message', newMessage);
@@ -183,10 +190,10 @@ export function ChatArea({
         prev.map((msg) =>
           msg.id === tempMessage.id
             ? {
-                ...responseData.data,
-                isUser: true,
-                status: 'sent',
-              }
+              ...responseData.data,
+              isUser: true,
+              status: 'sent',
+            }
             : msg,
         ),
       );
@@ -218,9 +225,10 @@ export function ChatArea({
         receiver: conversation.other_user.id,
       };
 
-      // Add student_id from studentContext if available
-      if (studentContext && studentContext.student_id) {
-        requestBody.student_id = studentContext.student_id;
+      // Add student_id from studentContext (for parents) or currentStudentId (for direct student login)
+      const effectiveStudentId = studentContext?.student_id || currentStudentId;
+      if (effectiveStudentId) {
+        requestBody.student_id = effectiveStudentId;
       }
 
       const response = await fetch(Api, {

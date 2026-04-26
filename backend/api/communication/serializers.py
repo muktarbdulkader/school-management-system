@@ -43,10 +43,20 @@ class UserSummarySerializer(serializers.ModelSerializer):
         fields = ['id', 'full_name']
 
 class ConversationSummarySerializer(serializers.Serializer):
+    id = serializers.SerializerMethodField()
     other_user = UserSummarySerializer()
+    display_name = serializers.SerializerMethodField()
     latest_message = serializers.CharField()
     last_timestamp = serializers.DateTimeField()
     unread_count = serializers.SerializerMethodField()
+
+    def get_id(self, obj):
+        other_user = obj.get('other_user')
+        return str(other_user.id) if other_user else None
+
+    def get_display_name(self, obj):
+        other_user = obj.get('other_user')
+        return other_user.full_name if other_user else 'Unknown'
 
     def get_unread_count(self, obj):
         user = self.context.get('request').user

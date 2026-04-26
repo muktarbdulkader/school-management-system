@@ -57,7 +57,7 @@ class TeacherRatingViewSet(viewsets.ModelViewSet):
     
     @action(detail=False, methods=['get'], url_path='my-ratings')
     def my_ratings(self, request):
-        """Get ratings for the authenticated teacher"""
+        """Get ratings for the authenticated teacher using weighted average"""
         if not hasattr(request.user, 'teacher_profile'):
             return Response(
                 {'error': 'Only teachers can access this endpoint'},
@@ -76,12 +76,30 @@ class TeacherRatingViewSet(viewsets.ModelViewSet):
             total_count=Count('id')
         )
         
+        # Calculate weighted average using Bayesian approach
+        MIN_RATINGS_FOR_CONFIDENCE = 15
+        from teachers.models import Teacher
+        
+        # Get global average for comparison
+        all_teachers_avg = Teacher.objects.aggregate(
+            global_avg=Avg('ratings__overall_rating')
+        )['global_avg'] or 3.0
+        
+        avg = stats['avg_overall'] or 0
+        n = stats['total_count'] or 0
+        
+        if n == 0:
+            weighted_rating = 0
+        else:
+            weighted_rating = ((avg * n) + (all_teachers_avg * MIN_RATINGS_FOR_CONFIDENCE)) / (n + MIN_RATINGS_FOR_CONFIDENCE)
+        
         serializer = self.get_serializer(ratings, many=True)
         
         return Response({
             'ratings': serializer.data,
             'statistics': {
                 'average_overall': round(stats['avg_overall'] or 0, 2),
+                'weighted_rating': round(weighted_rating, 2),
                 'average_teaching_quality': round(stats['avg_teaching'] or 0, 2),
                 'average_communication': round(stats['avg_communication'] or 0, 2),
                 'average_subject_knowledge': round(stats['avg_subject'] or 0, 2),
@@ -91,7 +109,7 @@ class TeacherRatingViewSet(viewsets.ModelViewSet):
     
     @action(detail=False, methods=['get'], url_path='teacher-stats/(?P<teacher_id>[^/.]+)')
     def teacher_stats(self, request, teacher_id=None):
-        """Get rating statistics for a specific teacher"""
+        """Get rating statistics for a specific teacher using weighted average"""
         # Only admin and teachers themselves can see this
         if not (request.user.role in ['admin', 'super_admin'] or 
                 (hasattr(request.user, 'teacher_profile') and 
@@ -107,6 +125,7 @@ class TeacherRatingViewSet(viewsets.ModelViewSet):
             return Response({
                 'teacher_id': teacher_id,
                 'average_rating': 0,
+                'weighted_rating': 0,
                 'total_ratings': 0,
                 'message': 'No ratings yet'
             })
@@ -121,6 +140,23 @@ class TeacherRatingViewSet(viewsets.ModelViewSet):
             total_count=Count('id')
         )
         
+        # Calculate weighted average using Bayesian approach
+        MIN_RATINGS_FOR_CONFIDENCE = 15
+        from teachers.models import Teacher
+        
+        # Get global average for comparison
+        all_teachers_avg = Teacher.objects.aggregate(
+            global_avg=Avg('ratings__overall_rating')
+        )['global_avg'] or 3.0
+        
+        avg = stats['avg_overall'] or 0
+        n = stats['total_count'] or 0
+        
+        if n == 0:
+            weighted_rating = 0
+        else:
+            weighted_rating = ((avg * n) + (all_teachers_avg * MIN_RATINGS_FOR_CONFIDENCE)) / (n + MIN_RATINGS_FOR_CONFIDENCE)
+        
         # Rating breakdown
         rating_breakdown = {}
         for i in range(1, 6):
@@ -132,6 +168,7 @@ class TeacherRatingViewSet(viewsets.ModelViewSet):
         return Response({
             'teacher_id': teacher_id,
             'average_rating': round(stats['avg_overall'] or 0, 2),
+            'weighted_rating': round(weighted_rating, 2),
             'total_ratings': stats['total_count'],
             'detailed_averages': {
                 'teaching_quality': round(stats['avg_teaching'] or 0, 2),
@@ -154,7 +191,11 @@ class TeacherRatingViewSet(viewsets.ModelViewSet):
     
     @action(detail=False, methods=['get'], url_path='all-teachers-ranking')
     def all_teachers_ranking(self, request):
-        """Get ranking of all teachers by their average rating - Admin only"""
+        """Get ranking of all teachers by their weighted average rating - Admin only
+        
+        Uses Bayesian average to account for number of ratings, preventing teachers
+        with very few ratings from unfairly outranking teachers with many ratings.
+        """
         if request.user.role not in ['admin', 'super_admin']:
             return Response(
                 {'error': 'Only admins can access teacher rankings'},
@@ -164,25 +205,65 @@ class TeacherRatingViewSet(viewsets.ModelViewSet):
         from teachers.models import Teacher
         from django.db.models import Avg, Count
         
-        teachers = Teacher.objects.annotate(
+        # Minimum number of ratings required for a teacher's rating to have full weight
+        # Teachers with fewer ratings will be pulled toward the global average
+        MIN_RATINGS_FOR_CONFIDENCE = 15
+        
+        # Get all teachers with their average rating and count
+        teachers_with_stats = Teacher.objects.annotate(
             avg_rating=Avg('ratings__overall_rating'),
             total_ratings=Count('ratings')
-        ).order_by('-avg_rating')
+        )
+        
+        # Calculate global average rating across all teachers
+        global_stats = teachers_with_stats.aggregate(
+            global_avg=Avg('avg_rating'),
+            total_teachers=Count('id')
+        )
+        global_average = global_stats['global_avg'] or 3.0  # Default to 3.0 if no ratings
+        
+        # Calculate weighted average using Bayesian approach
+        # weighted_rating = (avg_rating * n + global_avg * m) / (n + m)
+        # where n = number of ratings, m = minimum ratings threshold
+        teachers_with_weighted = []
+        for teacher in teachers_with_stats:
+            avg = teacher.avg_rating or 0
+            n = teacher.total_ratings or 0
+            
+            if n == 0:
+                weighted_rating = 0
+            else:
+                weighted_rating = ((avg * n) + (global_average * MIN_RATINGS_FOR_CONFIDENCE)) / (n + MIN_RATINGS_FOR_CONFIDENCE)
+            
+            teachers_with_weighted.append({
+                'teacher': teacher,
+                'avg_rating': avg,
+                'total_ratings': n,
+                'weighted_rating': weighted_rating
+            })
+        
+        # Sort by weighted rating (descending)
+        teachers_with_weighted.sort(key=lambda x: x['weighted_rating'], reverse=True)
         
         ranking_data = []
-        for rank, teacher in enumerate(teachers, 1):
+        for rank, data in enumerate(teachers_with_weighted, 1):
+            teacher = data['teacher']
             ranking_data.append({
                 'rank': rank,
                 'teacher_id': str(teacher.id),
                 'teacher_name': teacher.user.full_name,
                 'subject': teacher.subject.name if teacher.subject else 'N/A',
-                'average_rating': round(teacher.avg_rating or 0, 2),
-                'total_ratings': teacher.total_ratings,
+                'average_rating': round(data['avg_rating'], 2),
+                'weighted_rating': round(data['weighted_rating'], 2),
+                'total_ratings': data['total_ratings'],
             })
         
         return Response({
             'rankings': ranking_data,
-            'total_teachers': len(ranking_data)
+            'total_teachers': len(ranking_data),
+            'method': 'weighted_bayesian_average',
+            'min_ratings_threshold': MIN_RATINGS_FOR_CONFIDENCE,
+            'global_average': round(global_average, 2)
         })
 
 class TeacherRatingByParentView(viewsets.ViewSet):

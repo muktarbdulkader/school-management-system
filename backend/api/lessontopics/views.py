@@ -2203,10 +2203,10 @@ class ReportCardViewSet(viewsets.ModelViewSet):
             if student:
                 queryset = queryset.filter(student=student)
         elif is_parent(user):
-            from students.models import Parent
+            from students.models import Parent, ParentStudent
             parent = Parent.objects.filter(user=user).first()
             if parent:
-                student_ids = parent.students.values_list('id', flat=True)
+                student_ids = ParentStudent.objects.filter(parent=parent).values_list('student_id', flat=True)
                 queryset = queryset.filter(student_id__in=student_ids)
         elif is_teacher(user):
             teacher = Teacher.objects.filter(user=user).first()
@@ -2485,7 +2485,7 @@ class ReportCardSubjectViewSet(viewsets.ModelViewSet):
                         student=student,
                         term=term,
                         defaults={
-                            'class_fk': student.class_fk,
+                            'class_fk': student.grade,
                             'section': student.section,
                         }
                     )

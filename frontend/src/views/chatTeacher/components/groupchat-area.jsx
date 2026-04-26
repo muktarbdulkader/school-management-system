@@ -86,7 +86,7 @@ export function GroupChatArea({ group, onMessageSend, onBack }) {
     setLoading(true);
     try {
       const token = await GetToken();
-      const Api = `${Backend.auth}${Backend.groupChatsMessageConversation}${groupId}`;
+      const Api = `${Backend.auth}${Backend.groupChatMessages}?group=${groupId}`;
       const header = {
         Authorization: `Bearer ${token}`,
         accept: 'application/json',
@@ -182,9 +182,9 @@ export function GroupChatArea({ group, onMessageSend, onBack }) {
         prev.map((msg) =>
           msg.id === tempMessage.id
             ? {
-                ...responseData.data,
-                status: 'sent',
-              }
+              ...responseData.data,
+              status: 'sent',
+            }
             : msg,
         ),
       );
@@ -364,6 +364,89 @@ export function GroupChatArea({ group, onMessageSend, onBack }) {
         <Typography variant="h6" color="text.secondary">
           Select a group to start chatting
         </Typography>
+      </Box>
+    );
+  }
+
+  // Subject groups are virtual groups for bulk messaging - show compose UI
+  if (group.is_subject_group) {
+    return (
+      <Box
+        sx={{
+          flexGrow: 1,
+          display: 'flex',
+          flexDirection: 'column',
+          bgcolor: 'background.paper',
+          height: '80vh',
+        }}
+      >
+        {/* Header */}
+        <Box
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            p: 2,
+            borderBottom: 1,
+            borderColor: 'divider',
+            bgcolor: 'background.default',
+          }}
+        >
+          <IconButton
+            onClick={onBack}
+            size="large"
+            sx={{
+              mr: 1,
+              display: { xs: 'inline-flex', md: 'none' },
+            }}
+          >
+            <ArrowBackIosNewIcon />
+          </IconButton>
+
+          <Avatar sx={{ width: 40, height: 40, mr: 2 }}>
+            {group.name?.charAt(0) || 'G'}
+          </Avatar>
+
+          <Box sx={{ flexGrow: 1 }}>
+            <Typography variant="h6" noWrap>
+              {group.name}
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              Subject Group - Message all students
+            </Typography>
+          </Box>
+        </Box>
+
+        {/* Info Area */}
+        <Box
+          sx={{
+            flexGrow: 1,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            p: 4,
+            textAlign: 'center',
+          }}
+        >
+          <Typography variant="h5" sx={{ mb: 2 }}>
+            Send Message to All Students
+          </Typography>
+          <Typography variant="body1" color="text.secondary" sx={{ mb: 4 }}>
+            Click the button below to compose a new message to all students in {group.name}
+          </Typography>
+          <Button
+            variant="contained"
+            size="large"
+            onClick={() => {
+              // Store the selected subject in localStorage for the compose modal
+              localStorage.setItem('preselected_subject', group.subject_id || '');
+              // Trigger the new message modal
+              window.dispatchEvent(new CustomEvent('openNewMessageModal'));
+            }}
+          >
+            Compose Message
+          </Button>
+        </Box>
       </Box>
     );
   }

@@ -1560,15 +1560,19 @@ class ParentStudentViewSet(viewsets.ModelViewSet):
             }
         }
 
-        # Subjects with teachers and unit-based progress
-        from lessontopics.models import ClassUnitProgress, ClassSubunitProgress, ObjectiveUnits, ObjectiveSubunits
+        # Subjects with teachers and unit-based progress (synced with LessonPlans)
+        from .parent_views import calculate_subject_progress
+        from schedule.models import ClassScheduleSlot
 
         student_subjects = StudentSubject.objects.filter(student=student).select_related('subject')
         subjects_data = []
+
         for ss in student_subjects:
             subject = ss.subject
             if not subject:
                 continue  # Skip if subject is None
+
+            # Get teacher name
             schedule_slot = ClassScheduleSlot.objects.filter(
                 class_fk=student.grade,
                 section=student.section,
@@ -1579,45 +1583,8 @@ class ParentStudentViewSet(viewsets.ModelViewSet):
                 teacher_assignment = schedule_slot.teacher_assignment
                 teacher_name = teacher_assignment.teacher.user.full_name if teacher_assignment and teacher_assignment.teacher and teacher_assignment.teacher.user else "Not assigned"
 
-            # Calculate progress from unit/subunit completion
-            subject_progress = 0
-            try:
-                # Get all units for this subject
-                units = ObjectiveUnits.objects.filter(category__subject=subject)
-                total_subunits = 0
-                completed_subunits = 0
-
-                for unit in units:
-                    subunits = ObjectiveSubunits.objects.filter(unit=unit)
-                    for sub in subunits:
-                        total_subunits += 1
-                        sub_prog = ClassSubunitProgress.objects.filter(
-                            class_fk=student.grade,
-                            section=student.section,
-                            subject=subject,
-                            subunit=sub
-                        ).first()
-                        if sub_prog and sub_prog.is_completed:
-                            completed_subunits += 1
-
-                # Calculate percentage
-                if total_subunits > 0:
-                    subject_progress = int((completed_subunits / total_subunits) * 100)
-                else:
-                    # Fallback: check if any units are marked completed
-                    unit_progress = ClassUnitProgress.objects.filter(
-                        class_fk=student.grade,
-                        section=student.section,
-                        subject=subject,
-                        is_completed=True
-                    )
-                    total_units = units.count()
-                    completed_units = unit_progress.count()
-                    if total_units > 0:
-                        subject_progress = int((completed_units / total_units) * 100)
-            except Exception as e:
-                print(f"Error calculating progress for subject {subject.name}: {e}")
-                subject_progress = 0
+            # Use shared helper function for progress calculation
+            subject_progress, total_units, completed_units, in_progress_units = calculate_subject_progress(student, subject)
 
             subjects_data.append({
                 'id': str(ss.id),
@@ -1625,6 +1592,9 @@ class ParentStudentViewSet(viewsets.ModelViewSet):
                 'subject_name': subject.name or "Unknown Subject",
                 'teacher_name': teacher_name or "Not assigned",
                 'progress': subject_progress,
+                'total_units': total_units,
+                'completed_units': completed_units,
+                'in_progress_units': in_progress_units,
                 'enrolled_on': ss.enrolled_on.isoformat() if ss.enrolled_on else None
             })
 
@@ -1749,11 +1719,14 @@ class ParentStudentViewSet(viewsets.ModelViewSet):
     def parent_subject_objectives(self, request, student_id=None, subject_id=None):
         """
         Get units and learning objectives for a specific subject for a student, from a parent perspective.
+        Synced with LessonPlans for progress calculation.
         """
         from academics.models import Subject
         from teachers.models import TeacherAssignment
         from schedule.models import ClassScheduleSlot
-        from lessontopics.models import ObjectiveUnits, ObjectiveSubunits, ClassUnitProgress, ClassSubunitProgress, LearningObjectives
+        from lessontopics.models import ObjectiveUnits, ObjectiveSubunits, ClassUnitProgress, ClassSubunitProgress, LearningObjectives, LessonPlans
+        from datetime import date
+        from django.db import models
 
         try:
             student = Student.objects.get(id=student_id)
@@ -1782,9 +1755,21 @@ class ParentStudentViewSet(viewsets.ModelViewSet):
 
         class_obj = student.grade
         section_obj = student.section
+        # Progress is class-wide (not section-specific), but teacher lookup uses section
+        today = date.today()
 
-        # Get units for this subject
-        units = ObjectiveUnits.objects.filter(category__subject=subject).select_related('category')
+        # Get units for this subject (through curriculum mapping or lesson plans)
+        units = ObjectiveUnits.objects.filter(
+            curriculummapping__subject=subject,
+            curriculummapping__class_fk=class_obj
+        ).distinct()
+        
+        # Fallback: get units from lesson plans if no curriculum mapping
+        if units.count() == 0:
+            units = ObjectiveUnits.objects.filter(
+                lesson_plans__class_fk=class_obj,
+                lesson_plans__subject=subject
+            ).distinct()
 
         completed_units = []
         current_units = []
@@ -1795,20 +1780,68 @@ class ParentStudentViewSet(viewsets.ModelViewSet):
 
         for unit in units:
             unit_prog = ClassUnitProgress.objects.filter(
-                class_fk=class_obj, section=section_obj, subject=subject, unit=unit
+                class_fk=class_obj, subject=subject, unit=unit
             ).first()
 
             is_completed = unit_prog.is_completed if unit_prog else False
             is_current = unit_prog.is_current if unit_prog else False
+            
+            # Fallback: Check LessonPlans if no ClassUnitProgress
+            if not is_completed and not is_current:
+                subunits = ObjectiveSubunits.objects.filter(unit=unit)
+                subunit_ids = list(subunits.values_list('id', flat=True))
+                
+                lesson_plans = LessonPlans.objects.filter(
+                    class_fk=class_obj,
+                    subject=subject
+                ).filter(
+                    models.Q(unit=unit) | models.Q(subunit__in=subunit_ids)
+                )
+                
+                if lesson_plans.exists():
+                    # Use lesson_date if available, otherwise fall back to created_at
+                    past_lessons = lesson_plans.filter(
+                        models.Q(lesson_date__lt=today) | 
+                        models.Q(lesson_date__isnull=True, created_at__date__lt=today)
+                    )
+                    today_lessons = lesson_plans.filter(
+                        models.Q(lesson_date=today) | 
+                        models.Q(lesson_date__isnull=True, created_at__date=today)
+                    )
+                    future_lessons = lesson_plans.filter(lesson_date__gt=today)
+                    
+                    if past_lessons.exists():
+                        is_completed = True
+                    elif today_lessons.exists():
+                        is_current = True
+                    elif future_lessons.exists():
+                        # Keep as upcoming (default)
+                        pass
 
             subunits = ObjectiveSubunits.objects.filter(unit=unit)
             subunits_data = []
+            subunits_completed_count = 0
 
             for sub in subunits:
                 sub_prog = ClassSubunitProgress.objects.filter(
-                    class_fk=class_obj, section=section_obj, subject=subject, subunit=sub
+                    class_fk=class_obj, subject=subject, subunit=sub
                 ).first()
                 sub_completed = sub_prog.is_completed if sub_prog else False
+                
+                # Fallback: Check LessonPlans for this subunit if no ClassSubunitProgress
+                if not sub_completed:
+                    subunit_lessons = LessonPlans.objects.filter(
+                        class_fk=class_obj,
+                        subject=subject,
+                        subunit=sub
+                    )
+                    if subunit_lessons.exists():
+                        # If any lesson plan exists for this subunit, mark as completed
+                        # (since lessons are created when content is covered)
+                        sub_completed = True
+                
+                if sub_completed:
+                    subunits_completed_count += 1
 
                 subunits_data.append({
                     'id': str(sub.id),
@@ -1816,12 +1849,11 @@ class ParentStudentViewSet(viewsets.ModelViewSet):
                     'is_completed': sub_completed
                 })
 
-            # Calculate objective counts for this unit
-            unit_objectives = LearningObjectives.objects.filter(unit=unit)
-            u_total = unit_objectives.count()
-            # For student perspective, we equate unit completion to progress?
-            # Or use explicit progress tracking if available. Using unit completion for now.
-            u_completed = u_total if is_completed else 0
+            # Calculate objective/subunit counts for this unit
+            total_subunits = subunits.count()
+            # Use subunit completion as objectives (each subunit is an objective)
+            u_total = total_subunits if total_subunits > 0 else (1 if is_completed else 0)
+            u_completed = subunits_completed_count if total_subunits > 0 else (1 if is_completed else 0)
 
             total_objs += u_total
             completed_objs += u_completed
@@ -1861,13 +1893,19 @@ class ParentStudentViewSet(viewsets.ModelViewSet):
                 teacher_assignment = schedule_slot.teacher_assignment
                 teacher_name = teacher_assignment.teacher.user.full_name if teacher_assignment and teacher_assignment.teacher and teacher_assignment.teacher.user else "Not assigned"
 
+        # Subject info - use unit-based completion percentage (consistent with summary)
+        total_units_count = len(units)
+        completed_units_count = len(completed_units)
+        unit_based_percentage = int((completed_units_count / total_units_count * 100)) if total_units_count > 0 else 0
+        
         response_data = {
             'subject': {
+                'id': str(subject.id),
                 'name': subject.name,
-                'teacher_name': teacher_name or "Not assigned",
-                'completion_percentage': int((completed_objs / total_objs * 100)) if total_objs > 0 else 0,
-                'completed_objectives': completed_objs,
-                'total_objectives': total_objs
+                'completion_percentage': unit_based_percentage,
+                'teacher_name': teacher_name,
+                'total_units': total_units_count,
+                'completed_units': completed_units_count,
             },
             'class': {'grade': class_obj.grade if class_obj else 'N/A'},
             'summary': {
@@ -2017,8 +2055,27 @@ class ParentStudentViewSet(viewsets.ModelViewSet):
         if branch_id and not has_model_permission(user, 'parentstudent', 'view_parentstudent', branch_id):
             raise PermissionDenied("You do not have permission to view teachers for this student.")
 
+        from django.core.exceptions import ValidationError
+        
+        # Handle special case "all" - return empty list or all teachers based on permissions
+        if student_id == 'all':
+            return Response({
+                'success': True,
+                'message': 'All teachers endpoint - please specify a student ID',
+                'status': 200,
+                'data': {
+                    'teachers': [],
+                    'student_id': 'all'
+                }
+            })
+        
         try:
-            student = Student.objects.select_related('user', 'section').get(id=student_id)
+            # First try to find by Student.id
+            try:
+                student = Student.objects.select_related('user', 'section').get(id=student_id)
+            except (Student.DoesNotExist, ValidationError):
+                # If that fails, try to find by Student.user_id
+                student = Student.objects.select_related('user', 'section').get(user_id=student_id)
 
             # Check permissions: allow students, parents, teachers, and admins
             is_own_profile = student.user == user
@@ -2029,7 +2086,7 @@ class ParentStudentViewSet(viewsets.ModelViewSet):
             if not (is_own_profile or is_parent or is_teacher_user or is_admin):
                 raise PermissionDenied("You do not have permission to view teachers for this student.")
 
-        except Student.DoesNotExist:
+        except (Student.DoesNotExist, ValidationError):
             return Response({
                 'success': False,
                 'message': 'Student not found',

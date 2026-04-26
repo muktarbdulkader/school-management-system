@@ -22,6 +22,7 @@ export default function Chat() {
   };
 
   const handleSelectGroup = (group) => {
+    console.log('DEBUG: handleSelectGroup called with:', group);
     setSelectedGroup(group);
     setSelectedConversation(null);
     if (isMobile) setShowSidebar(false);
@@ -75,7 +76,7 @@ export default function Chat() {
             selectedGroup ? (
               <GroupChatArea
                 group={selectedGroup}
-                onMessageSend={() => {}}
+                onMessageSend={() => { }}
                 onBack={isMobile ? handleBackToSidebar : null}
               />
             ) : (

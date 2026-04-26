@@ -12,6 +12,7 @@ import {
   CircularProgress,
   Typography,
   IconButton,
+  Divider,
 } from '@mui/material';
 import { toast } from 'react-toastify';
 import DrogaFormModal from 'ui-component/modal/DrogaFormModal';
@@ -29,26 +30,20 @@ const CreateMessageForm = ({ open, onClose, onSubmit, fetchMessages }) => {
   const [file, setFile] = useState(null);
   const [fileName, setFileName] = useState('');
   const [branches, setBranches] = useState([]);
-  const [users, setUsers] = useState([]);
-  const [message, setMessage] = useState([]);
+  const [students, setStudents] = useState([]);
+  const [teachers, setTeachers] = useState([]);
+  const [subjects, setSubjects] = useState([]);
   const [loadingBranches, setLoadingBranches] = useState(false);
   const [loadingUser, setLoadingUser] = useState(false);
-  const [loading, setLoading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [pagination, setPagination] = useState({
-    page: 0,
-    per_page: 10,
-    total: 0,
-    last_page: 1,
-  });
   const [error, setError] = useState(false);
-  const [search, setSearch] = useState('');
+  const [selectedSubject, setSelectedSubject] = useState('');
   const user = JSON.parse(localStorage.getItem('user'));
 
   useEffect(() => {
     if (open) {
       fetchBranches();
-      fetchUsers();
+      fetchRoleBasedContacts();
     }
   }, [open]);
 
@@ -56,7 +51,7 @@ const CreateMessageForm = ({ open, onClose, onSubmit, fetchMessages }) => {
     setLoadingBranches(true);
     const token = await GetToken();
     const branchId = user?.branch_id;
-    const Api = `${Backend.auth || '/api/'}${Backend.branches || 'branches/'}?page=${pagination.page + 1}&per_page=${pagination.per_page}&search=${search}${branchId ? `&branch_id=${branchId}` : ''}`;
+    const Api = `${Backend.auth}${Backend.branches}?branch_id=${branchId || ''}`;
     const header = {
       Authorization: `Bearer ${token}`,
       accept: 'application/json',
@@ -72,12 +67,7 @@ const CreateMessageForm = ({ open, onClose, onSubmit, fetchMessages }) => {
       }
 
       if (responseData.success) {
-        setBranches(responseData.data);
-        setPagination({
-          ...pagination,
-          last_page: responseData.last_page || 1,
-          total: responseData.total || responseData.data.length,
-        });
+        setBranches(responseData.data || []);
         setError(false);
       } else {
         toast.warning(responseData.message);
@@ -90,11 +80,11 @@ const CreateMessageForm = ({ open, onClose, onSubmit, fetchMessages }) => {
     }
   };
 
-  const fetchUsers = async () => {
+  const fetchRoleBasedContacts = async () => {
     setLoadingUser(true);
     const token = await GetToken();
     const branchId = user?.branch_id;
-    const Api = `${Backend.auth || '/api/'}${Backend.users || 'users/'}?page=${pagination.page + 1}&per_page=${pagination.per_page}&search=${search}${branchId ? `&branch_id=${branchId}` : ''}`;
+    const Api = `${Backend.auth}${Backend.communicationChatsTeacherStudentsContacts}?branch_id=${branchId || ''}${selectedSubject ? `&subject_id=${selectedSubject}` : ''}`;
     const header = {
       Authorization: `Bearer ${token}`,
       accept: 'application/json',
@@ -106,16 +96,14 @@ const CreateMessageForm = ({ open, onClose, onSubmit, fetchMessages }) => {
       const responseData = await response.json();
 
       if (!response.ok) {
-        throw new Error(responseData.message || 'Failed to fetch users');
+        throw new Error(responseData.message || 'Failed to fetch contacts');
       }
 
       if (responseData.success) {
-        setUsers(responseData.data);
-        setPagination({
-          ...pagination,
-          last_page: responseData.last_page || 1,
-          total: responseData.total || responseData.data.length,
-        });
+        const data = responseData.data;
+        setStudents(data.students || []);
+        setTeachers(data.teachers || []);
+        setSubjects(data.subjects || []);
         setError(false);
       } else {
         toast.warning(responseData.message);
@@ -128,46 +116,16 @@ const CreateMessageForm = ({ open, onClose, onSubmit, fetchMessages }) => {
     }
   };
 
-  const handleFetchingMessages = async () => {
-    setLoading(true);
-    const token = await GetToken();
-    const Api = `${Backend.auth}${Backend.communicationChats}`;
-    const header = {
-      Authorization: `Bearer ${token}`,
-      accept: 'application/json',
-      'Content-Type': 'application/json',
-    };
-
-    try {
-      const response = await fetch(Api, { method: 'GET', headers: header });
-      const responseData = await response.json();
-
-      if (!response.ok) {
-        throw new Error(responseData.message || 'Failed to fetch messages');
-      }
-
-      if (responseData.success) {
-        setMessage(responseData.data);
-        setPagination({
-          ...pagination,
-          last_page: responseData.last_page || 1,
-          total: responseData.total || responseData.data.length,
-        });
-        setError(false);
-      } else {
-        toast.warning(responseData.message);
-      }
-    } catch (error) {
-      toast.error(error.message);
-      setError(true);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handleChange = (event) => {
     const { name, value } = event.target;
     setMessageDetails((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const handleSubjectChange = (event) => {
+    const value = event.target.value;
+    setSelectedSubject(value);
+    // Refetch contacts when subject changes
+    fetchRoleBasedContacts();
   };
 
   const handleFileChange = (event) => {
@@ -185,7 +143,6 @@ const CreateMessageForm = ({ open, onClose, onSubmit, fetchMessages }) => {
 
   const handleSubmit = async (event) => {
     event.preventDefault();
-    // handleFetchingMessages(); // REMOVED - why fetch BEFORE submitting?
 
     if (!messageDetails.message || !messageDetails.receiver) {
       toast.error('Please fill all required fields.');
@@ -229,10 +186,9 @@ const CreateMessageForm = ({ open, onClose, onSubmit, fetchMessages }) => {
       if (data.success) {
         toast.success('Message sent successfully');
 
-        if (onSubmit) onSubmit(data.data); // Notify parent with data
+        if (onSubmit) onSubmit(data.data);
         onClose();
 
-        console.log('fetchMessages called after submission');
         // Reset form
         setMessageDetails({
           message: '',
@@ -262,35 +218,96 @@ const CreateMessageForm = ({ open, onClose, onSubmit, fetchMessages }) => {
       submitting={isSubmitting}
     >
       <Grid container spacing={2}>
-        <Grid item xs={12}>
-          <FormControl fullWidth margin="normal">
-            <InputLabel id="user-select-label">Receiver User</InputLabel>
-            <Select
-              labelId="user-select-label"
-              id="user-select"
-              name="receiver"
-              value={messageDetails.receiver}
-              label="Receiver User"
-              onChange={handleChange}
-              disabled={loadingUser}
-            >
-              <MenuItem value="">
-                <em>Select a user</em>
-              </MenuItem>
-              {users.map((user) => (
-                <MenuItem key={user.id} value={user.id}>
-                  {user.full_name}
+        {/* Subject Filter (for teachers) */}
+        {subjects && subjects.length > 0 && (
+          <Grid item xs={12}>
+            <FormControl fullWidth margin="normal">
+              <InputLabel id="subject-select-label">Filter by Subject (Optional)</InputLabel>
+              <Select
+                labelId="subject-select-label"
+                id="subject-select"
+                value={selectedSubject}
+                label="Filter by Subject"
+                onChange={handleSubjectChange}
+                disabled={loadingUser}
+              >
+                <MenuItem value="">
+                  <em>All Subjects</em>
                 </MenuItem>
-              ))}
-            </Select>
-            {loadingUser && (
-              <CircularProgress
-                size={24}
-                sx={{ position: 'absolute', right: 40, top: 20 }}
-              />
-            )}
-          </FormControl>
-        </Grid>
+                {subjects.map((subject) => (
+                  <MenuItem key={subject.id} value={subject.id}>
+                    {subject.name}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          </Grid>
+        )}
+
+        {/* Students Section */}
+        {students && students.length > 0 && (
+          <Grid item xs={12}>
+            <FormControl fullWidth margin="normal">
+              <InputLabel id="student-select-label">Send to Student</InputLabel>
+              <Select
+                labelId="student-select-label"
+                id="student-select"
+                name="receiver"
+                value={messageDetails.receiver}
+                label="Send to Student"
+                onChange={handleChange}
+                disabled={loadingUser}
+              >
+                <MenuItem value="">
+                  <em>Select a student</em>
+                </MenuItem>
+                {students.filter(s => !s.is_group).map((student) => (
+                  <MenuItem key={student.user_id || student.id} value={student.user_id || student.id}>
+                    {student.full_name} {student.student_code ? `(${student.student_code})` : ''} {student.class ? `- ${student.class}` : ''} {student.section ? student.section : ''}
+                  </MenuItem>
+                ))}
+                {/* Bulk messaging option for teachers */}
+                {selectedSubject && students.some(s => s.is_group) && (
+                  <>
+                    <Divider />
+                    {students.filter(s => s.is_group).map((group) => (
+                      <MenuItem key={group.id} value={group.id} sx={{ fontWeight: 'bold', backgroundColor: 'action.hover' }}>
+                        📢 {group.student_details?.user_details?.full_name || group.full_name}
+                      </MenuItem>
+                    ))}
+                  </>
+                )}
+              </Select>
+            </FormControl>
+          </Grid>
+        )}
+
+        {/* Teachers Section */}
+        {teachers && teachers.length > 0 && (
+          <Grid item xs={12}>
+            <FormControl fullWidth margin="normal">
+              <InputLabel id="teacher-select-label">Send to Teacher</InputLabel>
+              <Select
+                labelId="teacher-select-label"
+                id="teacher-select"
+                name="receiver"
+                value={messageDetails.receiver}
+                label="Send to Teacher"
+                onChange={handleChange}
+                disabled={loadingUser}
+              >
+                <MenuItem value="">
+                  <em>Select a teacher</em>
+                </MenuItem>
+                {teachers.map((teacher) => (
+                  <MenuItem key={teacher.user_id || teacher.id} value={teacher.user_id || teacher.id}>
+                    {teacher.full_name} {teacher.branch_name ? `- ${teacher.branch_name}` : ''} {teacher.subjects && teacher.subjects.length > 0 ? `(${teacher.subjects.join(', ')})` : ''}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          </Grid>
+        )}
 
         <Grid item xs={12}>
           <FormControl fullWidth margin="normal">

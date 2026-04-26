@@ -14,9 +14,6 @@ import {
   Typography,
   IconButton,
   Chip,
-  Autocomplete,
-  Tabs,
-  Tab,
 } from '@mui/material';
 import { toast } from 'react-toastify';
 import DrogaFormModal from 'ui-component/modal/DrogaFormModal';
@@ -41,14 +38,16 @@ const CreateMessageForm = ({ open, onClose, onSubmit }) => {
   const [file, setFile] = useState(null);
   const [fileName, setFileName] = useState('');
   const [students, setStudents] = useState([]);
-  const [teachers, setTeachers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadingStudents, setLoadingStudents] = useState(false);
-  const [loadingTeachers, setLoadingTeachers] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
   const [selectedSubjectList, setSelectedSubjectList] = useState('');
   const [subjectBody, setSubjectBody] = useState([]);
+  const [classes, setClasses] = useState([]);
+  const [selectedClass, setSelectedClass] = useState('');
+  const [classSubjects, setClassSubjects] = useState([]);
+  const [loadingClasses, setLoadingClasses] = useState(false);
   const [pagination, setPagination] = useState({
     page: 0,
     per_page: 10,
@@ -58,7 +57,6 @@ const CreateMessageForm = ({ open, onClose, onSubmit }) => {
 
   const [error, setError] = useState(false);
   const [search, setSearch] = useState('');
-  const [recipientType, setRecipientType] = useState('student'); // 'student' or 'teacher'
 
   // Filter states
   const [filters, setFilters] = useState({
@@ -67,6 +65,13 @@ const CreateMessageForm = ({ open, onClose, onSubmit }) => {
     grade: '',
     section: '',
   });
+
+  // Fetch classes on component mount
+  useEffect(() => {
+    if (open) {
+      fetchClasses();
+    }
+  }, [open]);
 
   const [availableFilters, setAvailableFilters] = useState({
     branches: [],
@@ -81,17 +86,26 @@ const CreateMessageForm = ({ open, onClose, onSubmit }) => {
     if (open) {
       const allDrafts = JSON.parse(localStorage.getItem(MULTI_DRAFT_KEY)) || [];
       const latestDraft = allDrafts[0];
+
+      // Check for preselected subject from group click
+      const preselectedSubject = localStorage.getItem('preselected_subject');
+      if (preselectedSubject) {
+        // Clear it after reading
+        localStorage.removeItem('preselected_subject');
+        // Will be set after classes load
+        setTimeout(() => {
+          setSelectedSubjectList(preselectedSubject);
+        }, 500);
+      }
+
       if (latestDraft) {
         setMessageDetails({
           message: latestDraft.message,
           receiver: latestDraft.receiver,
           student_id: latestDraft.student_id || '',
-          teacher_id: latestDraft.teacher_id || '',
           branch_id: latestDraft.branch_id || '',
         });
       }
-      fetchStudents();
-      fetchTeachers();
     }
   }, [open]);
 
@@ -100,25 +114,16 @@ const CreateMessageForm = ({ open, onClose, onSubmit }) => {
     const debounce = setTimeout(() => {
       const allDrafts = JSON.parse(localStorage.getItem(MULTI_DRAFT_KEY)) || [];
 
-      let selectedName = '';
-      if (recipientType === 'student') {
-        const selectedStudent = students.find(
-          (student) => student.student_id === messageDetails.student_id,
-        );
-        selectedName = selectedStudent?.student_name || '';
-      } else {
-        const selectedTeacher = teachers.find(
-          (teacher) => teacher.teacher_id === messageDetails.teacher_id,
-        );
-        selectedName = selectedTeacher?.teacher_name || '';
-      }
+      const selectedStudent = students.find(
+        (student) => student.student_id === messageDetails.student_id,
+      );
+      const selectedName = selectedStudent?.student_name || '';
 
       const newDraft = {
         id: uuidv4(),
         message: messageDetails.message,
         receiver: messageDetails.receiver,
         student_id: messageDetails.student_id,
-        teacher_id: messageDetails.teacher_id,
         recipientName: selectedName,
         branch_id: messageDetails.branch_id,
         created_at: new Date().toISOString(),
@@ -132,9 +137,9 @@ const CreateMessageForm = ({ open, onClose, onSubmit }) => {
     }, 1000);
 
     return () => clearTimeout(debounce);
-  }, [messageDetails, students, teachers, recipientType]);
+  }, [messageDetails, students]);
 
-  const fetchStudents = async (overrideSubjectId = null) => {
+  const fetchStudents = async (overrideSubjectId = null, classId = null) => {
     setLoadingStudents(true);
     const token = await GetToken();
 
@@ -148,7 +153,9 @@ const CreateMessageForm = ({ open, onClose, onSubmit }) => {
     // Use overrideSubjectId if provided (from subject dropdown), otherwise use filter
     const subjectId = overrideSubjectId !== null ? overrideSubjectId : filters.subject_id;
     if (subjectId) params.append('subject_id', subjectId);
-    if (filters.grade) params.append('grade', filters.grade);
+    // Use classId if provided, otherwise use filter
+    const classIdValue = classId !== null ? classId : filters.grade;
+    if (classIdValue) params.append('class_id', classIdValue);
     if (filters.section) params.append('section', filters.section);
 
     const Api = `${Backend.auth}${Backend.communicationChatsTeacherStudentsContacts}?${params.toString()}`;
@@ -235,9 +242,7 @@ const CreateMessageForm = ({ open, onClose, onSubmit }) => {
 
   const applyFilters = () => {
     setPagination((prev) => ({ ...prev, page: 0 })); // Reset to first page
-    if (recipientType === 'student') {
-      fetchStudents();
-    }
+    fetchStudents();
   };
 
   const clearFilters = () => {
@@ -285,15 +290,6 @@ const CreateMessageForm = ({ open, onClose, onSubmit }) => {
     }
   };
 
-  const handleTeacherChange = (e) => {
-    const teacherId = e.target.value;
-    setMessageDetails((prev) => ({
-      ...prev,
-      teacher_id: teacherId,
-      student_id: '', // Clear student selection
-      receiver: teacherId, // For teachers, receiver is the teacher themselves
-    }));
-  };
 
   const handleFileChange = (e) => {
     const selectedFile = e.target.files[0];
@@ -308,33 +304,18 @@ const CreateMessageForm = ({ open, onClose, onSubmit }) => {
     setFileName('');
   };
 
-  const handleRecipientTypeChange = (event, newValue) => {
-    setRecipientType(newValue);
-    // Reset selections when changing recipient type
-    setMessageDetails({
-      ...messageDetails,
-      student_id: '',
-      teacher_id: '',
-      receiver: '',
-    });
-  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    // Validate based on recipient type
+    // Validate required fields
     if (!messageDetails.message || !messageDetails.receiver) {
       toast.error('Please fill all required fields.');
       return;
     }
 
-    if (recipientType === 'student' && !messageDetails.student_id) {
+    if (!messageDetails.student_id) {
       toast.error('Please select a student.');
-      return;
-    }
-
-    if (recipientType === 'teacher' && !messageDetails.teacher_id) {
-      toast.error('Please select a teacher.');
       return;
     }
 
@@ -349,12 +330,7 @@ const CreateMessageForm = ({ open, onClose, onSubmit }) => {
       formData.append('message', messageDetails.message);
       formData.append('receiver', messageDetails.receiver);
 
-      // Add appropriate ID based on recipient type
-      if (recipientType === 'student') {
-        formData.append('student_id', messageDetails.student_id);
-      } else {
-        formData.append('teacher_id', messageDetails.teacher_id);
-      }
+      formData.append('student_id', messageDetails.student_id);
 
       if (messageDetails.branch_id) {
         formData.append('branch_id', messageDetails.branch_id);
@@ -394,7 +370,6 @@ const CreateMessageForm = ({ open, onClose, onSubmit }) => {
           message: '',
           receiver: '',
           student_id: '',
-          teacher_id: '',
           branch_id: '',
         });
         setFile(null);
@@ -420,11 +395,11 @@ const CreateMessageForm = ({ open, onClose, onSubmit }) => {
     return gradeData?.sections || [];
   };
 
-  const fetchSubject = async () => {
-    setLoading(true);
+  const fetchClasses = async () => {
+    setLoadingClasses(true);
     try {
       const token = await GetToken();
-      const Api = `${Backend.auth}${Backend.subjects}`;
+      const Api = `${Backend.auth}${Backend.classes}`;
       const header = {
         Authorization: `Bearer ${token}`,
         accept: 'application/json',
@@ -435,13 +410,49 @@ const CreateMessageForm = ({ open, onClose, onSubmit }) => {
       const responseData = await response.json();
 
       if (!response.ok) {
-        throw new Error(
-          responseData.message || 'Failed to fetch conversations',
-        );
+        throw new Error(responseData.message || 'Failed to fetch classes');
       }
 
       if (responseData.success) {
-        setSubjectBody(responseData.data);
+        setClasses(responseData.data || []);
+        setError(false);
+      } else {
+        toast.warning(responseData.message);
+      }
+    } catch (error) {
+      toast.error(error.message);
+      setError(true);
+    } finally {
+      setLoadingClasses(false);
+    }
+  };
+
+  // Fetch subjects for selected class
+  const fetchSubjectsByClass = async (classId) => {
+    if (!classId) {
+      setClassSubjects([]);
+      return;
+    }
+    setLoading(true);
+    try {
+      const token = await GetToken();
+      // Use the class subjects endpoint or filter subjects by class
+      const Api = `${Backend.auth}${Backend.subjects}?class_id=${classId}`;
+      const header = {
+        Authorization: `Bearer ${token}`,
+        accept: 'application/json',
+        'Content-Type': 'application/json',
+      };
+
+      const response = await fetch(Api, { method: 'GET', headers: header });
+      const responseData = await response.json();
+
+      if (!response.ok) {
+        throw new Error(responseData.message || 'Failed to fetch subjects');
+      }
+
+      if (responseData.success) {
+        setClassSubjects(responseData.data || []);
         setError(false);
       } else {
         toast.warning(responseData.message);
@@ -454,22 +465,49 @@ const CreateMessageForm = ({ open, onClose, onSubmit }) => {
     }
   };
 
-  useEffect(() => {
-    fetchSubject();
-  }, []);
+  // Handle class selection change
+  const handleClassChange = (e) => {
+    const classId = e.target.value;
+    setSelectedClass(classId);
+    setSelectedSubjectList(''); // Reset subject when class changes
+    setMessageDetails((prev) => ({
+      ...prev,
+      student_id: '',
+      receiver: '',
+    }));
+    setStudents([]); // Clear students when class changes
+    if (classId) {
+      fetchSubjectsByClass(classId);
+    } else {
+      setClassSubjects([]);
+    }
+  };
 
-  // Refetch students when selected subject changes
+  // Handle subject selection change
+  const handleSubjectChange = (e) => {
+    const subjectId = e.target.value;
+    setSelectedSubjectList(subjectId);
+    // Reset student selection when subject changes
+    setMessageDetails((prev) => ({
+      ...prev,
+      student_id: '',
+      receiver: '',
+    }));
+  };
+
+  // Refetch students when selected subject changes (and class is selected)
   useEffect(() => {
-    if (open && recipientType === 'student') {
+    if (open && selectedClass && selectedSubjectList) {
       // Update filters state for UI consistency
       setFilters((prev) => ({
         ...prev,
         subject_id: selectedSubjectList,
+        grade: classes.find(c => c.id === selectedClass)?.grade || '',
       }));
-      // Fetch students immediately with the selected subject
-      fetchStudents(selectedSubjectList);
+      // Fetch students immediately with the selected class and subject
+      fetchStudents(selectedSubjectList, selectedClass);
     }
-  }, [selectedSubjectList, open, recipientType]);
+  }, [selectedSubjectList, selectedClass, open]);
 
   return (
     <DrogaFormModal
@@ -482,162 +520,182 @@ const CreateMessageForm = ({ open, onClose, onSubmit }) => {
       maxWidth="md"
     >
       <Grid container spacing={2}>
-        {/* Recipient Type Selection */}
+        {/* Search and Filters Section */}
         <Grid item xs={12}>
-          <Tabs value={recipientType} onChange={handleRecipientTypeChange}>
-            <Tab label="Message Student's Parent" value="student" />
-            <Tab label="Message Teacher" value="teacher" />
-          </Tabs>
+          <Box sx={{ display: 'flex', gap: 1, mb: 2, alignItems: 'center' }}>
+            <Button
+              variant="outlined"
+              startIcon={<FilterListIcon />}
+              onClick={() => setShowFilters(!showFilters)}
+            >
+              Filters
+            </Button>
+            <Button variant="outlined" onClick={applyFilters}>
+              Apply
+            </Button>
+            <Button variant="outlined" onClick={clearFilters}>
+              Clear
+            </Button>
+          </Box>
+
+          {showFilters && (
+            <Grid container spacing={2} sx={{ mb: 2 }}>
+              <Grid item xs={12} sm={6} md={3}>
+                <FormControl fullWidth size="small">
+                  <InputLabel>Branch</InputLabel>
+                  <Select
+                    value={filters.branch_id}
+                    label="Branch"
+                    onChange={(e) =>
+                      handleFilterChange('branch_id', e.target.value)
+                    }
+                  >
+                    <MenuItem value="">All Branches</MenuItem>
+                    {availableFilters.branches.map((branch) => (
+                      <MenuItem key={branch.id} value={branch.id}>
+                        {branch.name}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Grid>
+
+              <Grid item xs={12} sm={6} md={3}>
+                <FormControl fullWidth size="small">
+                  <InputLabel>Subject</InputLabel>
+                  <Select
+                    value={filters.subject_id}
+                    label="Subject"
+                    onChange={(e) =>
+                      handleFilterChange('subject_id', e.target.value)
+                    }
+                  >
+                    <MenuItem value="">All Subjects</MenuItem>
+                    {availableFilters.subjects.map((subject) => (
+                      <MenuItem key={subject.id} value={subject.id}>
+                        {subject.name}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Grid>
+
+              <Grid item xs={12} sm={6} md={3}>
+                <FormControl fullWidth size="small">
+                  <InputLabel>Grade</InputLabel>
+                  <Select
+                    value={filters.grade}
+                    label="Grade"
+                    onChange={(e) =>
+                      handleFilterChange('grade', e.target.value)
+                    }
+                  >
+                    <MenuItem value="">All Grades</MenuItem>
+                    {availableFilters.grades.map((grade) => (
+                      <MenuItem key={grade} value={grade}>
+                        {grade}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Grid>
+
+              <Grid item xs={12} sm={6} md={3}>
+                <FormControl fullWidth size="small" disabled={!filters.grade}>
+                  <InputLabel>Section</InputLabel>
+                  <Select
+                    value={filters.section}
+                    label="Section"
+                    onChange={(e) =>
+                      handleFilterChange('section', e.target.value)
+                    }
+                  >
+                    <MenuItem value="">All Sections</MenuItem>
+                    {getSectionsForGrade(filters.grade).map((section) => (
+                      <MenuItem
+                        key={section.id || section}
+                        value={section.id || section}
+                      >
+                        {section.name || section}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Grid>
+            </Grid>
+          )}
+
+          {/* Active filters display */}
+          {Object.values(filters).some((filter) => filter) && (
+            <Box sx={{ mb: 2 }}>
+              <Typography variant="body2" sx={{ mb: 1 }}>
+                Active Filters:
+              </Typography>
+              <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                {filters.branch_id && (
+                  <Chip
+                    label={`Branch: ${availableFilters.branches.find((b) => b.id === filters.branch_id)?.name}`}
+                    onDelete={() => handleFilterChange('branch_id', '')}
+                    size="small"
+                  />
+                )}
+                {filters.subject_id && (
+                  <Chip
+                    label={`Subject: ${availableFilters.subjects.find((s) => s.id === filters.subject_id)?.name}`}
+                    onDelete={() => handleFilterChange('subject_id', '')}
+                    size="small"
+                  />
+                )}
+                {filters.grade && (
+                  <Chip
+                    label={`Grade: ${filters.grade}`}
+                    onDelete={() => handleFilterChange('grade', '')}
+                    size="small"
+                  />
+                )}
+                {filters.section && (
+                  <Chip
+                    label={`Section: ${filters.section}`}
+                    onDelete={() => handleFilterChange('section', '')}
+                    size="small"
+                  />
+                )}
+              </Box>
+            </Box>
+          )}
         </Grid>
 
-        {/* Search and Filters Section - Only for students */}
-        {recipientType === 'student' && (
-          <Grid item xs={12}>
-            <Box sx={{ display: 'flex', gap: 1, mb: 2, alignItems: 'center' }}>
-              <Button
-                variant="outlined"
-                startIcon={<FilterListIcon />}
-                onClick={() => setShowFilters(!showFilters)}
-              >
-                Filters
-              </Button>
-              <Button variant="outlined" onClick={applyFilters}>
-                Apply
-              </Button>
-              <Button variant="outlined" onClick={clearFilters}>
-                Clear
-              </Button>
-            </Box>
-
-            {showFilters && (
-              <Grid container spacing={2} sx={{ mb: 2 }}>
-                <Grid item xs={12} sm={6} md={3}>
-                  <FormControl fullWidth size="small">
-                    <InputLabel>Branch</InputLabel>
-                    <Select
-                      value={filters.branch_id}
-                      label="Branch"
-                      onChange={(e) =>
-                        handleFilterChange('branch_id', e.target.value)
-                      }
-                    >
-                      <MenuItem value="">All Branches</MenuItem>
-                      {availableFilters.branches.map((branch) => (
-                        <MenuItem key={branch.id} value={branch.id}>
-                          {branch.name}
-                        </MenuItem>
-                      ))}
-                    </Select>
-                  </FormControl>
-                </Grid>
-
-                <Grid item xs={12} sm={6} md={3}>
-                  <FormControl fullWidth size="small">
-                    <InputLabel>Subject</InputLabel>
-                    <Select
-                      value={filters.subject_id}
-                      label="Subject"
-                      onChange={(e) =>
-                        handleFilterChange('subject_id', e.target.value)
-                      }
-                    >
-                      <MenuItem value="">All Subjects</MenuItem>
-                      {availableFilters.subjects.map((subject) => (
-                        <MenuItem key={subject.id} value={subject.id}>
-                          {subject.name}
-                        </MenuItem>
-                      ))}
-                    </Select>
-                  </FormControl>
-                </Grid>
-
-                <Grid item xs={12} sm={6} md={3}>
-                  <FormControl fullWidth size="small">
-                    <InputLabel>Grade</InputLabel>
-                    <Select
-                      value={filters.grade}
-                      label="Grade"
-                      onChange={(e) =>
-                        handleFilterChange('grade', e.target.value)
-                      }
-                    >
-                      <MenuItem value="">All Grades</MenuItem>
-                      {availableFilters.grades.map((grade) => (
-                        <MenuItem key={grade} value={grade}>
-                          {grade}
-                        </MenuItem>
-                      ))}
-                    </Select>
-                  </FormControl>
-                </Grid>
-
-                <Grid item xs={12} sm={6} md={3}>
-                  <FormControl fullWidth size="small" disabled={!filters.grade}>
-                    <InputLabel>Section</InputLabel>
-                    <Select
-                      value={filters.section}
-                      label="Section"
-                      onChange={(e) =>
-                        handleFilterChange('section', e.target.value)
-                      }
-                    >
-                      <MenuItem value="">All Sections</MenuItem>
-                      {getSectionsForGrade(filters.grade).map((section) => (
-                        <MenuItem
-                          key={section.id || section}
-                          value={section.id || section}
-                        >
-                          {section.name || section}
-                        </MenuItem>
-                      ))}
-                    </Select>
-                  </FormControl>
-                </Grid>
-              </Grid>
+        {/* Class Selection */}
+        <Grid item xs={12}>
+          <FormControl fullWidth margin="normal">
+            <InputLabel id="Class-select-label">Select Class</InputLabel>
+            <Select
+              labelId="Class-select-label"
+              id="Class-select"
+              value={selectedClass}
+              label="Select Class"
+              onChange={handleClassChange}
+              disabled={loadingClasses}
+            >
+              <MenuItem value="">
+                <em>Select a class</em>
+              </MenuItem>
+              {classes.map((cls) => (
+                <MenuItem key={cls.id} value={cls.id}>
+                  {cls.grade || cls.name}
+                </MenuItem>
+              ))}
+            </Select>
+            {loadingClasses && (
+              <CircularProgress
+                size={24}
+                sx={{ position: 'absolute', right: 40, top: 20 }}
+              />
             )}
+          </FormControl>
+        </Grid>
 
-            {/* Active filters display */}
-            {Object.values(filters).some((filter) => filter) && (
-              <Box sx={{ mb: 2 }}>
-                <Typography variant="body2" sx={{ mb: 1 }}>
-                  Active Filters:
-                </Typography>
-                <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-                  {filters.branch_id && (
-                    <Chip
-                      label={`Branch: ${availableFilters.branches.find((b) => b.id === filters.branch_id)?.name}`}
-                      onDelete={() => handleFilterChange('branch_id', '')}
-                      size="small"
-                    />
-                  )}
-                  {filters.subject_id && (
-                    <Chip
-                      label={`Subject: ${availableFilters.subjects.find((s) => s.id === filters.subject_id)?.name}`}
-                      onDelete={() => handleFilterChange('subject_id', '')}
-                      size="small"
-                    />
-                  )}
-                  {filters.grade && (
-                    <Chip
-                      label={`Grade: ${filters.grade}`}
-                      onDelete={() => handleFilterChange('grade', '')}
-                      size="small"
-                    />
-                  )}
-                  {filters.section && (
-                    <Chip
-                      label={`Section: ${filters.section}`}
-                      onDelete={() => handleFilterChange('section', '')}
-                      size="small"
-                    />
-                  )}
-                </Box>
-              </Box>
-            )}
-          </Grid>
-        )}
-
-        {/* Subject Selection */}
+        {/* Subject Selection - Filtered by Class */}
         <Grid item xs={12}>
           <FormControl fullWidth margin="normal">
             <InputLabel id="Subject-select-label">Select Subject</InputLabel>
@@ -647,15 +705,15 @@ const CreateMessageForm = ({ open, onClose, onSubmit }) => {
               name="subject_id"
               value={selectedSubjectList}
               label="Select Subject"
-              onChange={(e) => setSelectedSubjectList(e.target.value)}
-              disabled={loading}
+              onChange={handleSubjectChange}
+              disabled={!selectedClass || loading}
             >
               <MenuItem value="">
-                <em>Select a subject</em>
+                <em>{selectedClass ? 'Select a subject' : 'First select a class'}</em>
               </MenuItem>
-              {subjectBody.map((subject) => (
+              {classSubjects.map((subject) => (
                 <MenuItem key={subject.id} value={subject.id}>
-                  {subject.name}
+                  {subject.name || subject.global_subject_details?.name || subject.global_subject?.name || 'Unknown Subject'}
                 </MenuItem>
               ))}
             </Select>
@@ -668,75 +726,50 @@ const CreateMessageForm = ({ open, onClose, onSubmit }) => {
           </FormControl>
         </Grid>
 
-        {/* Recipient Selection based on type */}
+        {/* Student Selection */}
         <Grid item xs={12}>
           <FormControl fullWidth margin="normal">
-            <InputLabel id="recipient-select-label">
-              {recipientType === 'student'
-                ? 'Select Student'
-                : 'Select Teacher'}
-            </InputLabel>
+            <InputLabel id="recipient-select-label">Select Student</InputLabel>
             <Select
               labelId="recipient-select-label"
               id="recipient-select"
-              name={recipientType === 'student' ? 'student_id' : 'teacher_id'}
-              value={
-                recipientType === 'student'
-                  ? messageDetails.student_id
-                  : messageDetails.teacher_id
-              }
-              label={
-                recipientType === 'student'
-                  ? 'Select Student'
-                  : 'Select Teacher'
-              }
-              onChange={
-                recipientType === 'student'
-                  ? handleStudentChange
-                  : handleTeacherChange
-              }
-              disabled={
-                recipientType === 'student' ? loadingStudents : loadingTeachers
-              }
+              name="student_id"
+              value={messageDetails.student_id}
+              label="Select Student"
+              onChange={handleStudentChange}
+              disabled={!selectedClass || !selectedSubjectList || loadingStudents}
             >
               <MenuItem value="">
-                <em>Select a {recipientType}</em>
+                <em>
+                  {selectedClass && selectedSubjectList
+                    ? 'Select a student'
+                    : selectedClass
+                      ? 'First select a subject'
+                      : 'First select a class'}
+                </em>
               </MenuItem>
-              {recipientType === 'student'
-                ? students.map((student) => (
-                  <MenuItem
-                    key={student.student_details?.id || student.id}
-                    value={student.student_details?.id || student.id}
-                  >
-                    {student.student_details?.user_details?.full_name || student.full_name || 'Unknown'}
-                    {student.student_details?.section_details?.class_details?.grade &&
-                      ` (${student.student_details.section_details.class_details.grade}`}
-                    {student.student_details?.section_details?.name &&
-                      student.student_details.section_details.name !== 'All' &&
-                      ` - ${student.student_details.section_details.name})`}
-                    {!student.student_details && student.student_code && ` - ${student.student_code}`}
-                    {student.is_group && ' (Group Message)'}
-                  </MenuItem>
-                ))
-                : teachers.map((teacher) => (
-                  <MenuItem
-                    key={teacher.teacher_id}
-                    value={teacher.teacher_id}
-                  >
-                    {teacher.teacher_name} - {teacher.branch_name}
-                    {teacher.subjects?.length > 0 &&
-                      ` (Subjects: ${teacher.subjects.map((s) => s.name).join(', ')})`}
-                  </MenuItem>
-                ))}
+              {students.map((student) => (
+                <MenuItem
+                  key={student.student_details?.id || student.id}
+                  value={student.student_details?.id || student.id}
+                >
+                  {student.student_details?.user_details?.full_name || student.full_name || 'Unknown'}
+                  {student.student_details?.section_details?.class_details?.grade &&
+                    ` (${student.student_details.section_details.class_details.grade}`}
+                  {student.student_details?.section_details?.name &&
+                    student.student_details.section_details.name !== 'All' &&
+                    ` - ${student.student_details.section_details.name})`}
+                  {!student.student_details && student.student_code && ` - ${student.student_code}`}
+                  {student.is_group && ' (Group Message)'}
+                </MenuItem>
+              ))}
             </Select>
-            {(recipientType === 'student'
-              ? loadingStudents
-              : loadingTeachers) && (
-                <CircularProgress
-                  size={24}
-                  sx={{ position: 'absolute', right: 40, top: 20 }}
-                />
-              )}
+            {loadingStudents && (
+              <CircularProgress
+                size={24}
+                sx={{ position: 'absolute', right: 40, top: 20 }}
+              />
+            )}
           </FormControl>
         </Grid>
 

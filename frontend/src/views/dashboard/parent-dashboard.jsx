@@ -22,6 +22,11 @@ import {
   DialogActions,
   TextField,
   MenuItem,
+  List,
+  ListItem,
+  ListItemAvatar,
+  ListItemText,
+  Chip,
 } from '@mui/material';
 import { Warning, CalendarToday, Close, Star } from '@mui/icons-material';
 import { createTheme } from '@mui/material/styles';
@@ -118,6 +123,7 @@ export default function ParentDashboard() {
   const [exams, setExams] = useState([]);
   const [examResults, setExamResults] = useState([]);
   const [assignmentGrades, setAssignmentGrades] = useState([]);
+  const [recentMessages, setRecentMessages] = useState([]);
   const [announcements, setAnnouncements] = useState([]);
   const [announcementModalOpen, setAnnouncementModalOpen] = useState(false);
   const [announcementDetails, setAnnouncementDetails] = useState(null);
@@ -175,6 +181,12 @@ export default function ParentDashboard() {
     fetchNotifications();
     fetchTeachersForRating();
   }, []);
+
+  useEffect(() => {
+    if (studentId) {
+      fetchRecentMessages();
+    }
+  }, [studentId, relationshipId]);
   // build calendar grid and specialDates (array per day)
   useEffect(() => {
     // build month grid for currentMonth/currentYear
@@ -655,6 +667,26 @@ export default function ParentDashboard() {
     }
   };
 
+  const fetchRecentMessages = async () => {
+    try {
+      const token = await GetToken();
+      const student = students.find((s) => s.id === relationshipId);
+      if (!student || !student.student_details) return;
+
+      const studentDetailsId = student.student_details.id;
+      const res = await fetch(`${Backend.auth}${Backend.chatsConversations}${studentDetailsId}/`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const responseData = await res.json();
+        const data = responseData.data || [];
+        setRecentMessages(data.slice(0, 5)); // Show last 5 messages
+      }
+    } catch (err) {
+      console.error('Error fetching recent messages:', err);
+    }
+  };
+
   const markNotificationRead = async (id) => {
     try {
       const token = await GetToken();
@@ -815,6 +847,70 @@ export default function ParentDashboard() {
 
             <Box sx={{ mb: 3 }}>
               <QuickActions />
+            </Box>
+
+            {/* Recent Messages */}
+            <Box sx={{ mb: 3 }}>
+              <Card>
+                <CardContent>
+                  <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
+                    <Box>
+                      <Typography variant="h6" fontWeight={600}>Recent Messages</Typography>
+                      <Typography variant="body2" color="text.secondary">Latest conversations with teachers</Typography>
+                    </Box>
+                    <Button size="small" onClick={() => navigate('/messages')}>View All</Button>
+                  </Stack>
+                  {recentMessages.length === 0 ? (
+                    <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 2 }}>
+                      No messages yet
+                    </Typography>
+                  ) : (
+                    <List disablePadding>
+                      {recentMessages.map((message) => (
+                        <ListItem
+                          key={message.id}
+                          button
+                          onClick={() => navigate('/messages')}
+                          sx={{
+                            py: 1.5,
+                            px: 0,
+                            borderBottom: '1px solid',
+                            borderColor: 'divider',
+                            '&:last-child': { borderBottom: 'none' },
+                          }}
+                        >
+                          <ListItemAvatar>
+                            <Avatar sx={{ bgcolor: '#2196f3' }}>
+                              {(message.other_user?.full_name || 'T')[0]}
+                            </Avatar>
+                          </ListItemAvatar>
+                          <ListItemText
+                            primary={message.other_user?.full_name || 'Unknown'}
+                            secondary={
+                              <Box>
+                                <Typography variant="body2" color="text.secondary" noWrap>
+                                  {message.latest_message || 'No message'}
+                                </Typography>
+                                <Typography variant="caption" color="text.secondary">
+                                  {message.last_timestamp ? new Date(message.last_timestamp).toLocaleString() : ''}
+                                </Typography>
+                              </Box>
+                            }
+                          />
+                          {message.unread_count > 0 && (
+                            <Chip
+                              label={message.unread_count}
+                              size="small"
+                              color="primary"
+                              sx={{ ml: 1 }}
+                            />
+                          )}
+                        </ListItem>
+                      ))}
+                    </List>
+                  )}
+                </CardContent>
+              </Card>
             </Box>
 
             <Box sx={{ mb: 3 }}>

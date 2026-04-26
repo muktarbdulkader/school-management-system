@@ -47,7 +47,7 @@ class TeacherSerializer(serializers.ModelSerializer):
 
     def get_rating_stats(self, obj):
         from django.db.models import Avg, Count
-        from teachers.models import EvaluationPeriodSettings
+        from teachers.models import EvaluationPeriodSettings, Teacher
         
         # Get evaluation period settings from database
         eval_settings_obj = EvaluationPeriodSettings.get_settings()
@@ -57,6 +57,7 @@ class TeacherSerializer(serializers.ModelSerializer):
         if not eval_settings_obj.start_date:
             return {
                 'overall_avg': 0,
+                'weighted_avg': 0,
                 'total_count': 0,
                 'categories': {}
             }
@@ -70,6 +71,20 @@ class TeacherSerializer(serializers.ModelSerializer):
         
         overall_avg = ratings.aggregate(Avg('rating'))['rating__avg'] or 0
         total_count = ratings.count()
+        
+        # Calculate weighted average using Bayesian approach
+        # This prevents teachers with few ratings from unfairly ranking higher
+        MIN_RATINGS_FOR_CONFIDENCE = 15
+        
+        # Get global average for comparison
+        all_teachers_avg = Teacher.objects.aggregate(
+            global_avg=Avg('performance_ratings__rating')
+        )['global_avg'] or 3.0
+        
+        if total_count == 0:
+            weighted_avg = 0
+        else:
+            weighted_avg = ((overall_avg * total_count) + (all_teachers_avg * MIN_RATINGS_FOR_CONFIDENCE)) / (total_count + MIN_RATINGS_FOR_CONFIDENCE)
 
         # Breakdown by category
         categories = ratings.values('category').annotate(
@@ -79,6 +94,7 @@ class TeacherSerializer(serializers.ModelSerializer):
 
         return {
             'overall_avg': round(float(overall_avg), 1),
+            'weighted_avg': round(float(weighted_avg), 1),
             'total_count': total_count,
             'categories': {c['category']: round(float(c['avg_rating']), 1) for c in categories}
         }

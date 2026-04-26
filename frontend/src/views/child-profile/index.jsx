@@ -118,6 +118,7 @@ export default function ChildProfilePage() {
             attendance: data.data.attendance,
             attendance_percentage: data.data.attendance?.summary?.percentage || 0,
             // Other data
+            subjects: data.data.subjects || [],
             schedule: data.data.schedule || [],
             assignments: data.data.assignments || [],
             announcements: data.data.announcements || [],

@@ -11,6 +11,7 @@ import {
   Divider,
 } from '@mui/material';
 import React, { useEffect, useState } from 'react';
+import { useSelector } from 'react-redux';
 import { format } from 'date-fns';
 import GetToken from 'utils/auth-token';
 import Backend from 'services/backend';
@@ -18,6 +19,7 @@ import { toast } from 'react-toastify';
 import PropTypes from 'prop-types';
 
 const MessageAll = ({ fetchMessages, onMessageSelect, selectedMessageId }) => {
+  console.log('DEBUG MessageAll: COMPONENT MOUNTED/RENDERED');
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
@@ -27,10 +29,15 @@ const MessageAll = ({ fetchMessages, onMessageSelect, selectedMessageId }) => {
     total: 0,
   });
 
+  // Get role from Redux
+  const user = useSelector((state) => state.auth?.user);
+  const role = user?.roles?.[0] || null;
+  console.log('DEBUG MessageAll: Role from Redux:', role, 'User:', user);
+
   const getMessages = async () => {
     setLoading(true);
     const token = await GetToken();
-    const Api = `${Backend.auth}${Backend.communicationChats}`;
+    const Api = `${Backend.auth}${Backend.chatsConversations}`;
     const header = {
       Authorization: `Bearer ${token}`,
       accept: 'application/json',
@@ -42,12 +49,12 @@ const MessageAll = ({ fetchMessages, onMessageSelect, selectedMessageId }) => {
       const responseData = await response.json();
 
       if (!response.ok) {
-        throw new Error(responseData.message || 'Failed to fetch triage rooms');
+        throw new Error(responseData.message || 'Failed to fetch conversations');
       }
 
       if (responseData.success) {
         setMessages(responseData.data);
-        console.log('Updated messages:', responseData.data);
+        console.log('Updated conversations:', responseData.data);
         setPagination({
           ...pagination,
           last_page: responseData.last_page || 1,
@@ -73,6 +80,15 @@ const MessageAll = ({ fetchMessages, onMessageSelect, selectedMessageId }) => {
     getMessages();
   }, [fetchMessages]);
 
+  // Auto-fetch for students and teachers on mount
+  useEffect(() => {
+    console.log('DEBUG MessageAll: Auto-fetch check, role =', role);
+    if (role === 'student' || role === 'teacher') {
+      console.log('DEBUG MessageAll: Auto-fetching conversations for', role);
+      getMessages();
+    }
+  }, [role]);
+
   if (loading)
     return (
       <Box display="flex" justifyContent="center" p={4}>
@@ -97,7 +113,7 @@ const MessageAll = ({ fetchMessages, onMessageSelect, selectedMessageId }) => {
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
         {messages.map((msg) => (
           <Card
-            key={msg.id}
+            key={msg.other_user?.id || msg.id}
             sx={{
               borderTop: '1px solid',
               borderBottom: '1px solid',
@@ -105,7 +121,7 @@ const MessageAll = ({ fetchMessages, onMessageSelect, selectedMessageId }) => {
               borderRadius: 0,
               cursor: 'pointer',
               backgroundColor:
-                selectedMessageId === msg.id
+                selectedMessageId === (msg.other_user?.id || msg.id)
                   ? 'action.selected'
                   : 'background.paper',
               '&:hover': {
@@ -118,7 +134,7 @@ const MessageAll = ({ fetchMessages, onMessageSelect, selectedMessageId }) => {
               <ListItem sx={{ p: 0 }}>
                 <ListItemAvatar>
                   <Avatar sx={{ bgcolor: 'primary.main' }}>
-                    {msg.sender?.charAt(0) || 'A'}
+                    {msg.other_user?.full_name?.charAt(0) || msg.sender?.charAt(0) || 'A'}
                   </Avatar>
                 </ListItemAvatar>
                 <ListItemText
@@ -134,11 +150,11 @@ const MessageAll = ({ fetchMessages, onMessageSelect, selectedMessageId }) => {
                         variant="subtitle1"
                         sx={{ fontWeight: 600, mr: 1 }}
                       >
-                        {msg.sender || 'Unknown'}
+                        {msg.other_user?.full_name || msg.sender || 'Unknown'}
                       </Typography>
                       <Typography variant="caption">
-                        {msg.timestamp
-                          ? format(new Date(msg.timestamp), 'h:mm a')
+                        {msg.last_timestamp || msg.timestamp
+                          ? format(new Date(msg.last_timestamp || msg.timestamp), 'h:mm a')
                           : ''}
                       </Typography>
                     </Box>
@@ -152,7 +168,7 @@ const MessageAll = ({ fetchMessages, onMessageSelect, selectedMessageId }) => {
                         wordBreak: 'break-word',
                       }}
                     >
-                      {msg.message || 'No message content'}
+                      {msg.latest_message || msg.message || 'No message content'}
                     </Typography>
                   }
                   secondaryTypographyProps={{ component: 'div' }}

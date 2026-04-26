@@ -74,7 +74,7 @@ export default function ChatTeacher() {
             selectedGroup ? (
               <GroupChatArea
                 group={selectedGroup}
-                onMessageSend={() => {}}
+                onMessageSend={() => { }}
                 onBack={isMobile ? handleBackToSidebar : null}
               />
             ) : (
@@ -94,7 +94,7 @@ export default function ChatTeacher() {
               conversation={selectedConversation}
               onBack={isMobile ? handleBackToSidebar : null}
               studentContext={selectedConversation.student_context}
-              onMessageAddition={() => {}} // Add this empty function
+              onMessageAddition={() => { }} // Add this empty function
             />
           ) : (
             <Box
