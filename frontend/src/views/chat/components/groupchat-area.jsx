@@ -37,9 +37,9 @@ import DoneIcon from '@mui/icons-material/Done';
 import ScheduleIcon from '@mui/icons-material/Schedule';
 import ErrorIcon from '@mui/icons-material/Error';
 import { useState, useEffect } from 'react';
+import Backend from '../../../services/backend';
 import GetToken from 'utils/auth-token';
 import { toast } from 'react-toastify';
-import Backend from 'services/backend';
 import { useSelector } from 'react-redux';
 
 export function GroupChatArea({ group, onMessageSend, onBack }) {
@@ -52,6 +52,7 @@ export function GroupChatArea({ group, onMessageSend, onBack }) {
   const [isUploading, setIsUploading] = useState(false);
   const [contextMenu, setContextMenu] = useState(null);
   const [editingMessage, setEditingMessage] = useState(null);
+  const [editingText, setEditingText] = useState('');
   const [addMembersOpen, setAddMembersOpen] = useState(false);
   const [availableUsers, setAvailableUsers] = useState([]);
   const [selectedUsers, setSelectedUsers] = useState([]);
@@ -104,6 +105,39 @@ export function GroupChatArea({ group, onMessageSend, onBack }) {
     }
   };
 
+  const markGroupMessagesAsRead = async (groupId) => {
+    try {
+      const token = await GetToken();
+      const baseUrl = Backend.groupChatConversation.replace('{group_id}', groupId).replace(/\/$/, '');
+      const Api = `${Backend.auth}${baseUrl}/mark-read/`;
+      const response = await fetch(Api, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+      if (response.ok) {
+        // Update local message statuses to 'read' for other users' messages
+        setMessages((prev) =>
+          prev.map((msg) => ({
+            ...msg,
+            status: msg.isUser ? msg.status : 'read',
+          }))
+        );
+      }
+    } catch (error) {
+      console.error('Error marking group messages as read:', error);
+      // Still update local state even if backend fails
+      setMessages((prev) =>
+        prev.map((msg) => ({
+          ...msg,
+          status: msg.isUser ? msg.status : 'read',
+        }))
+      );
+    }
+  };
+
   const fetchGroupMessages = async (groupId) => {
     setLoading(true);
     try {
@@ -131,6 +165,9 @@ export function GroupChatArea({ group, onMessageSend, onBack }) {
         }));
         setMessages(messagesWithStatus.reverse());
         setError(false);
+
+        // Mark messages as read
+        await markGroupMessagesAsRead(groupId);
       } else {
         toast.warning(responseData.message);
       }
@@ -144,6 +181,7 @@ export function GroupChatArea({ group, onMessageSend, onBack }) {
   };
 
   const handleMessageAddition = async () => {
+    console.log('DEBUG handleMessageAddition START: Backend=', Backend, 'Backend?.groupChatMessages=', Backend?.groupChatMessages);
     if (editingMessage) {
       handleEditMessageSubmit();
       return;
@@ -171,7 +209,18 @@ export function GroupChatArea({ group, onMessageSend, onBack }) {
 
     try {
       const token = await GetToken();
+      console.log('DEBUG Backend object:', Backend);
+      console.log('DEBUG Backend.groupChatMessages:', Backend.groupChatMessages);
+
+      // Safety check
+      if (!Backend || !Backend.groupChatMessages) {
+        console.error('ERROR: Backend or Backend.groupChatMessages is undefined!');
+        toast.error('Configuration error: Cannot send message');
+        return;
+      }
+
       const Api = `${Backend.auth}${Backend.groupChatMessages}`;
+      console.log('DEBUG API URL:', Api);
 
       // Use FormData for file uploads
       const formData = new FormData();
@@ -234,7 +283,7 @@ export function GroupChatArea({ group, onMessageSend, onBack }) {
 
     try {
       const token = await GetToken();
-      const Api = `${Backend.auth}${Backend.groupChatsMessage}${editingMessage.id}/`;
+      const Api = `${Backend.auth}${Backend.groupChatMessages}${editingMessage.id}/`;
 
       const response = await fetch(Api, {
         method: 'PUT',
@@ -281,7 +330,7 @@ export function GroupChatArea({ group, onMessageSend, onBack }) {
   const handleDeleteMessage = async (messageId) => {
     try {
       const token = await GetToken();
-      const Api = `${Backend.auth}${Backend.groupChatsMessage}${messageId}/`;
+      const Api = `${Backend.auth}${Backend.groupChatMessages}${messageId}/`;
 
       const response = await fetch(Api, {
         method: 'DELETE',
@@ -346,28 +395,44 @@ export function GroupChatArea({ group, onMessageSend, onBack }) {
       return;
     }
 
+    console.log('DEBUG handleAddMembers: group.id=', group?.id, 'selectedUsers=', selectedUsers);
+
     try {
       const token = await GetToken();
-      const promises = selectedUsers.map(userId =>
-        fetch(`${Backend.auth}${Backend.groupChatMembers}/`, {
+      const promises = selectedUsers.map(async (userId) => {
+        const body = {
+          group_chat: group.id,
+          user: userId
+        };
+        console.log('DEBUG: Sending POST to', `${Backend.auth}${Backend.groupChatMembers}`, 'body=', body);
+
+        const response = await fetch(`${Backend.auth}${Backend.groupChatMembers}`, {
           method: 'POST',
           headers: {
             Authorization: `Bearer ${token}`,
             'Content-Type': 'application/json'
           },
-          body: JSON.stringify({
-            group_chat: group.id,
-            user: userId
-          })
-        })
-      );
+          body: JSON.stringify(body)
+        });
+
+        const data = await response.json();
+        console.log('DEBUG: Response status=', response.status, 'data=', data);
+
+        if (!response.ok) {
+          throw new Error(data.message || `Failed to add member ${userId}`);
+        }
+        return data;
+      });
 
       await Promise.all(promises);
       toast.success(`${selectedUsers.length} members added successfully`);
       setAddMembersOpen(false);
       setSelectedUsers([]);
+      // Refresh messages to show updated members
+      fetchMessages();
     } catch (error) {
-      toast.error('Failed to add members');
+      console.error('DEBUG: Error adding members:', error);
+      toast.error('Failed to add members: ' + error.message);
     }
   };
 
@@ -415,20 +480,56 @@ export function GroupChatArea({ group, onMessageSend, onBack }) {
   };
 
   const renderStatusIcon = (status) => {
+    const singleCheckStyle = { ml: 0.5 };
+    const doubleCheckStyle = { display: 'flex', alignItems: 'center', ml: 0.5 };
     switch (status) {
       case 'sending':
-        return <ScheduleIcon fontSize="small" />;
+        return <ScheduleIcon fontSize="small" sx={singleCheckStyle} />;
       case 'sent':
-        return <DoneIcon fontSize="small" />;
+        return <DoneIcon fontSize="small" color="primary" sx={singleCheckStyle} />;
       case 'delivered':
-        return <DoneAllIcon fontSize="small" />;
+        return (
+          <Box sx={doubleCheckStyle}>
+            <DoneIcon fontSize="small" color="primary" />
+            <DoneIcon fontSize="small" color="primary" sx={{ ml: -1.2, mr: -0.3 }} />
+          </Box>
+        );
       case 'read':
-        return <DoneAllIcon fontSize="small" color="primary" />;
+        return (
+          <Box sx={doubleCheckStyle}>
+            <DoneIcon fontSize="small" color="primary" />
+            <DoneIcon fontSize="small" color="primary" sx={{ ml: -1.2, mr: -0.3 }} />
+          </Box>
+        );
       case 'failed':
-        return <ErrorIcon fontSize="small" color="error" />;
+        return <ErrorIcon fontSize="small" color="error" sx={singleCheckStyle} />;
       default:
-        return null;
+        return <DoneIcon fontSize="small" color="primary" sx={singleCheckStyle} />;
     }
+  };
+
+  // Shared function to render message status with timestamp
+  const renderMessageStatus = (message) => {
+    if (message.status === 'sending') {
+      return <CircularProgress size={14} sx={{ mr: 1 }} />;
+    }
+    if (message.status === 'failed') {
+      return (
+        <Typography variant="caption" color="error">
+          Failed to send
+        </Typography>
+      );
+    }
+    return (
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.8 }}>
+        {message.timestamp && (
+          <Typography variant="caption" color="text.secondary">
+            {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+          </Typography>
+        )}
+        {renderStatusIcon(message.status || 'sent')}
+      </Box>
+    );
   };
 
   if (!group) {
@@ -614,17 +715,12 @@ export function GroupChatArea({ group, onMessageSend, onBack }) {
                             sx={{
                               display: 'flex',
                               alignItems: 'center',
+                              justifyContent: 'flex-end',
                               mt: 0.5,
+                              gap: 0.5,
                             }}
                           >
-                            {message.status === 'sending' && (
-                              <CircularProgress size={14} sx={{ mr: 1 }} />
-                            )}
-                            {message.status === 'failed' && (
-                              <Typography variant="caption" color="error">
-                                Failed to send
-                              </Typography>
-                            )}
+                            {renderMessageStatus(message)}
                           </Box>
                         )}
 

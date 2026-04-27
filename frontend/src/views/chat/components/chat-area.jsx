@@ -53,16 +53,22 @@ export function ChatArea({
   const isStudent = userRoles.some(role =>
     typeof role === 'string' ? role.toLowerCase() === 'student' : role?.name?.toLowerCase() === 'student'
   );
+  const isSuperAdmin = currentUser?.is_superuser || userRoles.some(role =>
+    typeof role === 'string' ? role.toLowerCase() === 'super_admin' || role.toLowerCase() === 'super_admin' : role?.name?.toLowerCase() === 'super_admin' || role?.name?.toLowerCase() === 'super_admin'
+  );
+  const isTeacher = userRoles.some(role =>
+    typeof role === 'string' ? role.toLowerCase() === 'teacher' : role?.name?.toLowerCase() === 'teacher'
+  );
   const currentStudentId = isStudent ? (currentUser?.student_id || currentUser?.id) : null;
 
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   useEffect(() => {
-    // Fetch messages if we have conversation and either studentContext (for parents) or direct student login
-    if (conversation && (studentContext?.student_id || currentStudentId)) {
+    // Fetch messages if we have conversation and either studentContext (for parents), direct student login, or super admin/teacher
+    if (conversation && (studentContext?.student_id || currentStudentId || isSuperAdmin || isTeacher)) {
       fetchConversationMessages(conversation.other_user.id);
     }
-  }, [conversation, studentContext, currentStudentId]);
+  }, [conversation, studentContext, currentStudentId, isSuperAdmin, isTeacher]);
   const handleLongPressStart = (e, message) => {
     if (isMobile && message.isUser) {
       longPressTimeout.current = setTimeout(() => {
@@ -89,6 +95,38 @@ export function ChatArea({
       });
     }
   }, [messages]);
+
+  const markMessagesAsRead = async (userId) => {
+    try {
+      const token = await GetToken();
+      const Api = `${Backend.auth}${Backend.chatsConversation}${userId}/mark-read/`;
+      const response = await fetch(Api, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+      if (response.ok) {
+        // Update local message statuses to 'read' for other users' messages
+        setMessages((prev) =>
+          prev.map((msg) => ({
+            ...msg,
+            status: msg.isUser ? msg.status : 'read',
+          }))
+        );
+      }
+    } catch (error) {
+      console.error('Error marking messages as read:', error);
+      // Still update local state even if backend fails
+      setMessages((prev) =>
+        prev.map((msg) => ({
+          ...msg,
+          status: msg.isUser ? msg.status : 'read',
+        }))
+      );
+    }
+  };
 
   const fetchConversationMessages = async (userId) => {
     setLoading(true);
@@ -118,6 +156,9 @@ export function ChatArea({
 
         setMessages(formattedMessages.reverse());
         setError(false);
+
+        // Mark messages as read
+        await markMessagesAsRead(userId);
       } else {
         toast.warning(responseData.message);
       }
@@ -282,18 +323,20 @@ export function ChatArea({
         },
       });
 
-      const responseData = await response.json();
+      // Handle empty response (204 No Content) or JSON response
+      let responseData;
+      const contentType = response.headers.get('content-type');
+      if (contentType && contentType.includes('application/json')) {
+        responseData = await response.json();
+      }
 
       if (!response.ok) {
-        throw new Error(responseData.message || 'Failed to delete message');
+        throw new Error(responseData?.message || 'Failed to delete message');
       }
 
-      if (responseData.success) {
-        setMessages((prev) => prev.filter((msg) => msg.id !== messageId));
-        toast.success('Message deleted');
-      } else {
-        toast.warning(responseData.message);
-      }
+      // If response is OK, delete succeeded (either 200 with JSON or 204 with empty body)
+      setMessages((prev) => prev.filter((msg) => msg.id !== messageId));
+      toast.success('Message deleted');
     } catch (error) {
       console.error('Error deleting message:', error);
       toast.error(error.message);
@@ -341,20 +384,56 @@ export function ChatArea({
   };
 
   const renderStatusIcon = (status) => {
+    const singleCheckStyle = { ml: 0.5 };
+    const doubleCheckStyle = { display: 'flex', alignItems: 'center', ml: 0.5 };
     switch (status) {
       case 'sending':
-        return <ScheduleIcon fontSize="small" />;
+        return <ScheduleIcon fontSize="small" sx={singleCheckStyle} />;
       case 'sent':
-        return <DoneIcon fontSize="small" />;
+        return <DoneIcon fontSize="small" color="primary" sx={singleCheckStyle} />;
       case 'delivered':
-        return <DoneAllIcon fontSize="small" />;
+        return (
+          <Box sx={doubleCheckStyle}>
+            <DoneIcon fontSize="small" color="primary" />
+            <DoneIcon fontSize="small" color="primary" sx={{ ml: -1.2, mr: -0.3 }} />
+          </Box>
+        );
       case 'read':
-        return <DoneAllIcon fontSize="small" color="primary" />;
+        return (
+          <Box sx={doubleCheckStyle}>
+            <DoneIcon fontSize="small" color="primary" />
+            <DoneIcon fontSize="small" color="primary" sx={{ ml: -1.2, mr: -0.3 }} />
+          </Box>
+        );
       case 'failed':
-        return <ErrorIcon fontSize="small" color="error" />;
+        return <ErrorIcon fontSize="small" color="error" sx={singleCheckStyle} />;
       default:
-        return null;
+        return <DoneIcon fontSize="small" color="primary" sx={singleCheckStyle} />;
     }
+  };
+
+  // Shared function to render message status with timestamp
+  const renderMessageStatus = (message) => {
+    if (message.status === 'sending') {
+      return <CircularProgress size={14} sx={{ mr: 1 }} />;
+    }
+    if (message.status === 'failed') {
+      return (
+        <Typography variant="caption" color="error">
+          Failed to send
+        </Typography>
+      );
+    }
+    return (
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.8 }}>
+        {message.timestamp && (
+          <Typography variant="caption" color="text.secondary">
+            {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+          </Typography>
+        )}
+        {renderStatusIcon(message.status || 'sent')}
+      </Box>
+    );
   };
 
   if (!conversation) {
@@ -531,17 +610,12 @@ export function ChatArea({
                           sx={{
                             display: 'flex',
                             alignItems: 'center',
+                            justifyContent: 'flex-end',
                             mt: 0.5,
+                            gap: 0.5,
                           }}
                         >
-                          {message.status === 'sending' && (
-                            <CircularProgress size={14} sx={{ mr: 1 }} />
-                          )}
-                          {message.status === 'failed' && (
-                            <Typography variant="caption" color="error">
-                              Failed to send
-                            </Typography>
-                          )}
+                          {renderMessageStatus(message)}
                         </Box>
                       )}
                       {message.attachment && (

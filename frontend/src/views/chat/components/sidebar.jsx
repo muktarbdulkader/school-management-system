@@ -209,9 +209,10 @@ export function Sidebar({
         return;
       }
 
-      if (role === 'student' || role === 'teacher') {
-        // For students and teachers, skip student selection and fetch conversations directly
+      if (role === 'student' || role === 'teacher' || role === 'super_admin' || role === 'Super_Admin' || reduxUser?.is_superuser) {
+        // For students, teachers, and super admins, skip student selection and fetch conversations directly
         setStudents([]);
+
         setIsInitializing(false);
         // Fetch conversations after initialization
         console.log('DEBUG SIDEBAR INIT: Calling fetchStudentConversationsForCurrentUser for', role);
@@ -226,12 +227,14 @@ export function Sidebar({
     initializeData();
   }, [role, retryCount]);
 
-  // For students and teachers - fetch conversations once initialization is complete
+  // For students, teachers, and super_admins - fetch conversations once initialization is complete
   useEffect(() => {
-    if (!isInitializing && (role === 'student' || role === 'teacher') && tabValue === 0) {
+    if (!isInitializing && (role === 'student' || role === 'teacher' || role === 'super_admin' || role === 'Super_Admin' || reduxUser?.is_superuser) && tabValue === 0) {
       fetchStudentConversationsForCurrentUser();
+
+      getGroupConversations(); // Also fetch group conversations for All tab
     }
-  }, [isInitializing, role, tabValue]);
+  }, [isInitializing, role, tabValue, reduxUser?.is_superuser]);
 
   // Fetch available teachers when student ID changes (only for parents)
   // DISABLED: This endpoint causes 404 errors and is not needed for messaging
@@ -255,7 +258,7 @@ export function Sidebar({
 
   // For direct student login - fetch conversations when no actualStudentId (student is logged in directly)
   useEffect(() => {
-    if (!isInitializing && !actualStudentId && role === 'student' && tabValue === 0) {
+    if (!isInitializing && !actualStudentId && (role === 'student' || role === 'super_admin' || role === 'Super_Admin') && tabValue === 0) {
       fetchStudentConversationsForCurrentUser();
     }
   }, [isInitializing, actualStudentId, tabValue]);
@@ -476,6 +479,8 @@ export function Sidebar({
       const responseData = await response.json();
 
       console.log('DEBUG: fetchStudentConversationsForCurrentUser response:', responseData);
+      console.log('DEBUG: responseData.data:', responseData.data);
+      console.log('DEBUG: responseData.data?.data:', responseData.data?.data);
 
       if (!response.ok) {
         throw new Error(
@@ -486,6 +491,7 @@ export function Sidebar({
       if (responseData.success) {
         // Handle nested data structure
         const conversationsData = responseData.data?.data || responseData.data || [];
+        console.log('DEBUG: conversationsData:', conversationsData, 'length:', conversationsData.length);
         setStudentConversations(conversationsData);
         if (responseData.student_context) {
           setStudentContext(responseData.student_context);
@@ -518,13 +524,16 @@ export function Sidebar({
     }
 
     if (newValue === 0) {
+      // For 'All' tab, fetch both individual and group conversations
       if (studentConversations.length === 0) {
-        if (role === 'student' || role === 'teacher') {
+        if (role === 'student' || role === 'teacher' || role === 'super_admin' || role === 'Super_Admin' || reduxUser?.is_superuser) {
           fetchStudentConversationsForCurrentUser();
         } else if (actualStudentId) {
           fetchStudentConversations(actualStudentId);
         }
       }
+      // Always fetch group conversations for 'All' tab
+      getGroupConversations();
     } else if (newValue === 2) {
       getGroupConversations();
     }
@@ -574,8 +583,12 @@ export function Sidebar({
   const handleMessageAddition = async (newMessageData) => {
     if (newMessageData) {
       try {
-        if (role === 'student' || role === 'teacher') {
+        if (role === 'student' || role === 'teacher' || role === 'super_admin' || role === 'Super_Admin' || reduxUser?.is_superuser) {
           await fetchStudentConversationsForCurrentUser();
+          // Also refresh group conversations if on All or Groups tab
+          if (tabValue === 0 || tabValue === 2) {
+            await getGroupConversations();
+          }
         } else if (actualStudentId) {
           await fetchStudentConversations(
             actualStudentId,
@@ -601,10 +614,11 @@ export function Sidebar({
   }, [tabValue]);
 
   const renderTabContent = () => {
+    console.log('DEBUG renderTabContent: tabValue=', tabValue, 'studentConversations.length=', studentConversations.length, 'groupConversations.length=', groupConversations.length);
     switch (tabValue) {
       case 0:
         return (
-          <>
+          <Box sx={{ p: 0 }}>
             {availableTeachers.length > 0 && (
               <FormControl fullWidth sx={{ mb: 2 }}>
                 <InputLabel id="teacher-filter-label">
@@ -667,9 +681,10 @@ export function Sidebar({
             )}
 
             <List disablePadding sx={{ py: 1 }}>
+              {/* Combine individual and group conversations for 'All' tab */}
               {studentConversations.map((conversation) => (
                 <ConversationItem
-                  key={conversation.id}
+                  key={`individual-${conversation.id}`}
                   name={conversation.display_name}
                   message={conversation.latest_message}
                   timestamp={conversation.last_timestamp}
@@ -678,8 +693,19 @@ export function Sidebar({
                   isSelected={selectedConversation?.id === conversation.id}
                 />
               ))}
+              {/* Also show group chats in 'All' tab */}
+              {groupConversations.map((group) => (
+                <GroupChats
+                  key={`group-${group.id}`}
+                  name={group.name}
+                  message={group.latest_message || 'No messages yet'}
+                  timestamp={group.created_at}
+                  onClick={() => onSelectGroup(group)}
+                  isSelected={selectedGroup?.id === group.id}
+                />
+              ))}
             </List>
-          </>
+          </Box>
         );
 
       case 1:
@@ -892,6 +918,7 @@ export function Sidebar({
           flexGrow: 1,
           overflowY: 'auto',
           p: 2,
+          height: 0,
         }}
       >
         {loading || isInitializing ? (
@@ -913,8 +940,9 @@ export function Sidebar({
             <Button
               variant="outlined"
               onClick={() => {
-                if (role === 'student' || role === 'teacher') {
+                if (role === 'student' || role === 'teacher' || role === 'super_admin' || role === 'Super_Admin' || reduxUser?.is_superuser) {
                   fetchStudentConversationsForCurrentUser();
+                  getGroupConversations();
                 } else if (actualStudentId) {
                   fetchStudentConversations(actualStudentId);
                 }
@@ -946,25 +974,33 @@ export function Sidebar({
           ) : (
             renderTabContent()
           )
-        ) : studentConversations.length === 0 ? (
+        ) : (studentConversations.length === 0 && groupConversations.length === 0) ? (
           <Box
             sx={{
               p: 3,
               textAlign: 'center',
-              bgcolor: 'background.paper',
               borderRadius: 2,
-              boxShadow: '0 2px 8px rgba(0,0,0,0.05)',
+              backgroundColor: 'background.paper',
+              boxShadow: 1,
+              mx: 2,
             }}
           >
-            <Typography color="text.secondary" gutterBottom>
+            <Typography variant="body1" color="text.secondary" gutterBottom>
               No conversations found
             </Typography>
             <Button
               variant="contained"
-              onClick={handleAddMessageClick}
-              sx={{ borderRadius: 3, mt: 1 }}
+              onClick={() => {
+                if (role === 'student' || role === 'teacher' || role === 'super_admin' || role === 'Super_Admin' || reduxUser?.is_superuser) {
+                  fetchStudentConversationsForCurrentUser();
+                  getGroupConversations();
+                } else if (actualStudentId) {
+                  fetchStudentConversations(actualStudentId);
+                }
+              }}
+              sx={{ mt: 1, borderRadius: 3 }}
             >
-              Start a conversation
+              Start A Conversation
             </Button>
           </Box>
         ) : (

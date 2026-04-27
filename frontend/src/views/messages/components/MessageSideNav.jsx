@@ -45,6 +45,10 @@ import EmptyStateStarted from './EmptyStateStarted';
 
 const MessageSideNav = () => {
   console.log('DEBUG MessageSideNav: Component mounted');
+  const { user } = useSelector((state) => state.user);
+  const userRole = user?.role?.toLowerCase() || '';
+  const isStudent = userRole.includes('student');
+
   const [activeTabIndex, setActiveTabIndex] = useState(0);
   const [data, setData] = useState([]);
   const navigate = useNavigate();
@@ -263,14 +267,16 @@ const MessageSideNav = () => {
                 >
                   New Message
                 </Button>
-                <Button
-                  variant="outlined"
-                  color="primary"
-                  sx={{ borderRadius: 2 }}
-                  onClick={() => navigate('/meeting-history')}
-                >
-                  Request Meeting
-                </Button>
+                {!isStudent && (
+                  <Button
+                    variant="outlined"
+                    color="primary"
+                    sx={{ borderRadius: 2 }}
+                    onClick={() => navigate('/meeting-history')}
+                  >
+                    Request Meeting
+                  </Button>
+                )}
               </Box>
             </Box>
 

@@ -5,10 +5,15 @@ import Backend from 'services/backend';
 import GetToken from 'utils/auth-token';
 import { toast } from 'react-toastify';
 import { CircularProgress, Box, Typography } from '@mui/material';
+import { useSelector } from 'react-redux';
 import MeetingSideNav from './components/MeetingSideNav';
 import RequestMeetingModal from './components/RequestMeetingModal';
 
 const MeetingHistory = () => {
+  const { user } = useSelector((state) => state.user);
+  const userRole = user?.role?.toLowerCase() || '';
+  const isStudent = userRole.includes('student');
+
   const [isRequestModalOpen, setIsRequestModalOpen] = useState(false);
   const [meetings, setMeetings] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -88,25 +93,29 @@ const MeetingHistory = () => {
         <Typography sx={{ fontWeight: '600', fontSize: '23px', padding: 1 }}>
           Meeting History
         </Typography>
-        <Button
-          variant="contained"
-          color="primary"
-          onClick={() => setIsRequestModalOpen(true)}
-          sx={{
-            ml: 'auto',
-            textTransform: 'none',
-            borderRadius: '6px',
-          }}
-        >
-          Request Meeting
-        </Button>
+        {!isStudent && (
+          <Button
+            variant="contained"
+            color="primary"
+            onClick={() => setIsRequestModalOpen(true)}
+            sx={{
+              ml: 'auto',
+              textTransform: 'none',
+              borderRadius: '6px',
+            }}
+          >
+            Request Meeting
+          </Button>
+        )}
       </Box>
       <MeetingSideNav meetings={meetings} fetchMeetings={fetchMeetings} />
-      <RequestMeetingModal
-        open={isRequestModalOpen}
-        onClose={() => setIsRequestModalOpen(false)}
-        onSuccess={fetchMeetings}
-      />
+      {!isStudent && (
+        <RequestMeetingModal
+          open={isRequestModalOpen}
+          onClose={() => setIsRequestModalOpen(false)}
+          onSuccess={fetchMeetings}
+        />
+      )}
     </Box>
   );
 };

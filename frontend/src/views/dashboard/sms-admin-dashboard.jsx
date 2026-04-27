@@ -153,28 +153,114 @@ const QuickCard = ({ label, icon: Icon, color, onClick }) => (
 
 // ── Group Chat Dialog ───────────────────────────────────────────────────────
 const GroupChatDialog = ({ open, onClose }) => {
-  const [form, setForm] = useState({ name: '', description: '', target: 'teachers' });
+  const [form, setForm] = useState({ name: '', description: '', target: 'teachers', class_id: '', section_id: '' });
   const [saving, setSaving] = useState(false);
+  const [classes, setClasses] = useState([]);
+  const [sections, setSections] = useState([]);
+  const [loadingClasses, setLoadingClasses] = useState(false);
+
+  // Fetch classes when dialog opens
+  useEffect(() => {
+    if (open) {
+      fetchClasses();
+    }
+  }, [open]);
+
+  // Fetch sections when class is selected
+  useEffect(() => {
+    if (form.class_id) {
+      fetchSections(form.class_id);
+    } else {
+      setSections([]);
+      setForm(prev => ({ ...prev, section_id: '' }));
+    }
+  }, [form.class_id]);
+
+  const fetchClasses = async () => {
+    setLoadingClasses(true);
+    try {
+      const token = await GetToken();
+      const res = await fetch(`${Backend.api}${Backend.classes}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setClasses(data.data || []);
+      }
+    } catch (e) {
+      console.error('Error fetching classes:', e);
+    } finally {
+      setLoadingClasses(false);
+    }
+  };
+
+  const fetchSections = async (classId) => {
+    try {
+      const token = await GetToken();
+      // Use query parameter to filter sections by class_id
+      const res = await fetch(`${Backend.api}${Backend.sections}?class_id=${classId}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setSections(data.data || []);
+      }
+    } catch (e) {
+      console.error('Error fetching sections:', e);
+    }
+  };
+
+  const handleTargetChange = (e) => {
+    const newTarget = e.target.value;
+    setForm(prev => ({
+      ...prev,
+      target: newTarget,
+      // Reset class/section when target is not students
+      class_id: newTarget === 'students' ? prev.class_id : '',
+      section_id: newTarget === 'students' ? prev.section_id : ''
+    }));
+  };
 
   const handleCreate = async () => {
     if (!form.name.trim()) { toast.error('Group name is required'); return; }
+
+    // Validate class and section are required for student groups
+    if (form.target === 'students') {
+      if (!form.class_id) { toast.error('Class is required for student group chats'); return; }
+      if (!form.section_id) { toast.error('Section is required for student group chats'); return; }
+    }
+
     setSaving(true);
     try {
       const token = await GetToken();
+      const payload = {
+        name: form.name,
+        description: form.description,
+        target: form.target
+      };
+      // Include class_id and section_id when target is students
+      if (form.target === 'students') {
+        payload.class_id = form.class_id;
+        payload.section_id = form.section_id;
+      }
       const res = await fetch(`${Backend.api}${Backend.groupChats}`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: form.name, description: form.description, target: form.target })
+        body: JSON.stringify(payload)
       });
       const data = await res.json();
       if (res.ok) {
         toast.success(`Group chat created with ${form.target} members`);
+        // Reset form
+        setForm({ name: '', description: '', target: 'teachers', class_id: '', section_id: '' });
         onClose();
       }
       else toast.error(data.message || 'Failed to create group chat');
     } catch { toast.error('Error creating group chat'); }
     finally { setSaving(false); }
   };
+
+  const isStudentsTarget = form.target === 'students';
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
@@ -183,13 +269,66 @@ const GroupChatDialog = ({ open, onClose }) => {
         <Stack spacing={2} sx={{ mt: 1 }}>
           <TextField label="Group Name *" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} fullWidth />
           <TextField label="Description" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} fullWidth multiline rows={2} />
-          <TextField select label="Target Audience" value={form.target} onChange={e => setForm({ ...form, target: e.target.value })} fullWidth>
+          <TextField select label="Target Audience" value={form.target} onChange={handleTargetChange} fullWidth>
             <MenuItem value="teachers">Teachers</MenuItem>
             <MenuItem value="students">Students</MenuItem>
             <MenuItem value="admins">Admins</MenuItem>
             <MenuItem value="parents">Parents</MenuItem>
             <MenuItem value="all">All Staff</MenuItem>
           </TextField>
+
+          {/* Show Class and Section dropdowns when Students is selected */}
+          {isStudentsTarget && (
+            <>
+              <TextField
+                select
+                label="Select Class *"
+                value={form.class_id}
+                onChange={e => setForm({ ...form, class_id: e.target.value })}
+                fullWidth
+                disabled={loadingClasses}
+                required
+                error={!form.class_id}
+                helperText={!form.class_id ? 'Class is required for student groups' : ''}
+              >
+                <MenuItem value="">
+                  <em>Select a Class</em>
+                </MenuItem>
+                {classes.map((cls) => (
+                  <MenuItem key={cls.id} value={cls.id}>
+                    {cls.grade}
+                  </MenuItem>
+                ))}
+              </TextField>
+
+              <TextField
+                select
+                label="Select Section *"
+                value={form.section_id}
+                onChange={e => setForm({ ...form, section_id: e.target.value })}
+                fullWidth
+                disabled={!form.class_id}
+                required
+                error={form.class_id && !form.section_id}
+                helperText={form.class_id && !form.section_id ? 'Section is required for student groups' : !form.class_id ? 'Select a class first' : ''}
+              >
+                <MenuItem value="">
+                  <em>Select a Section</em>
+                </MenuItem>
+                {sections.map((section) => (
+                  <MenuItem key={section.id} value={section.id}>
+                    {section.name}
+                  </MenuItem>
+                ))}
+              </TextField>
+
+              {form.class_id && form.section_id && (
+                <Typography variant="caption" color="info.main" sx={{ mt: 1 }}>
+                  This group will include students from the selected class and section.
+                </Typography>
+              )}
+            </>
+          )}
         </Stack>
       </DialogContent>
       <DialogActions>

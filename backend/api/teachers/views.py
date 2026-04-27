@@ -360,8 +360,8 @@ class TeacherViewSet(viewsets.ModelViewSet):
 
                 # Calculate average attendance rate
                 total_attendance_records = attendance_records.count()
-                present_count = attendance_records.filter(status='present').count()
-                late_count = attendance_records.filter(status='late').count()
+                present_count = attendance_records.filter(status='Present').count()
+                late_count = attendance_records.filter(status='Late').count()
 
                 if total_attendance_records > 0:
                     # Count late as 0.5 present
@@ -634,7 +634,7 @@ class TeacherViewSet(viewsets.ModelViewSet):
         today_late_count = today_attendance_records.filter(status='Late').count()
         today_absent_count = today_attendance_records.filter(status='Absent').count()
         today_permission_count = today_attendance_records.filter(status='Excused').count()
-        today_no_permission_count = today_attendance_records.filter(status='no permission').count()
+        today_no_permission_count = today_attendance_records.filter(status='No permission').count()
         today_not_marked_count = total_students - (today_present_count + today_late_count + today_absent_count + today_permission_count + today_no_permission_count)
 
         # Calculate attendance stats based on last 7 days for the rate

@@ -168,6 +168,43 @@ class ChatViewSet(viewsets.ModelViewSet):
             'data': serializer.data
         })
 
+    @action(detail=False, methods=['post'], url_path='conversation/(?P<with_user_id>[^/.]+)/mark-read')
+    def mark_conversation_read(self, request, with_user_id=None):
+        from .models import Chat
+        user = request.user
+        branch_id = request.query_params.get('branch_id')
+        
+        print(f"DEBUG MARK READ: user={user.id}, marking messages from user={with_user_id} as read")
+
+        if branch_id and not has_model_permission(user, 'chat', 'change_chat', branch_id):
+            raise PermissionDenied("You do not have permission to mark chats as read in this branch.")
+
+        try:
+            other_user = User.objects.get(id=with_user_id)
+        except User.DoesNotExist:
+            return Response({
+                'success': False,
+                'message': 'User not found',
+                'status': 404,
+            }, status=status.HTTP_404_NOT_FOUND)
+
+        # Mark all messages FROM other_user TO current user as read
+        # (messages sent by the other person to the current user)
+        updated_count = Chat.objects.filter(
+            sender=other_user,
+            receiver=user,
+            is_read=False
+        ).update(is_read=True)
+        
+        print(f"DEBUG MARK READ: Updated {updated_count} messages to read")
+
+        return Response({
+            'success': True,
+            'message': f'{updated_count} messages marked as read',
+            'status': 200,
+            'data': {'marked_as_read': updated_count}
+        })
+
     def list(self, request, *args, **kwargs):
         queryset = self.get_queryset()
         # Use the serializer directly without summarization to show all chats
@@ -1192,15 +1229,16 @@ class GroupChatViewSet(viewsets.ModelViewSet):
     def create(self, request, *args, **kwargs):
         from users.models import UserRole
         from django.db.models import Q
-        
+        from students.models import Student
+
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         self.perform_create(serializer)
-        
+
         # Add creator as a member of the group
         group = serializer.instance
         GroupChatMember.objects.get_or_create(group_chat=group, user=request.user)
-        
+
         # Add members based on target audience
         target = request.data.get('target', 'all')
         if target and target != 'all':
@@ -1212,16 +1250,62 @@ class GroupChatViewSet(viewsets.ModelViewSet):
                 'parents': 'parent',
             }
             role_name = role_map.get(target, target)
-            
-            # Find users with this role
-            users_with_role = User.objects.filter(
-                userrole__role__name__iexact=role_name
-            ).distinct()
-            
+
+            # For students, class_id and section_id are REQUIRED
+            if target == 'students':
+                class_id = request.data.get('class_id')
+                section_id = request.data.get('section_id')
+
+                # Validate that class and section are provided for student groups
+                if not class_id:
+                    return Response({
+                        'success': False,
+                        'message': 'Class is required when creating a student group chat.',
+                        'status': 400,
+                        'data': None
+                    }, status=status.HTTP_400_BAD_REQUEST)
+
+                if not section_id:
+                    return Response({
+                        'success': False,
+                        'message': 'Section is required when creating a student group chat.',
+                        'status': 400,
+                        'data': None
+                    }, status=status.HTTP_400_BAD_REQUEST)
+
+                # Both class_id and section_id are required - filter students
+                student_query = Q(grade_id=class_id, section_id=section_id)
+
+                # Find students matching criteria and get their users
+                student_user_ids = Student.objects.filter(student_query).values_list('user_id', flat=True)
+                users_with_role = User.objects.filter(
+                    id__in=student_user_ids,
+                    userrole__role__name__iexact=role_name
+                ).distinct()
+            else:
+                # For non-student targets, use original logic
+                users_with_role = User.objects.filter(
+                    userrole__role__name__iexact=role_name
+                ).distinct()
+
             # Add them as members (exclude creator who is already added)
+            added_count = 0
             for user in users_with_role:
                 if user.id != request.user.id:
                     GroupChatMember.objects.get_or_create(group_chat=group, user=user)
+                    added_count += 1
+
+            # Update message based on filtering
+            if target == 'students' and added_count > 0:
+                class_id = request.data.get('class_id')
+                section_id = request.data.get('section_id')
+                if class_id or section_id:
+                    response_msg = f'Group chat created with {added_count} students'
+                else:
+                    response_msg = f'Group chat created with {added_count} students (all classes)'
+            else:
+                response_msg = 'OK'
+
         elif target == 'all':
             # Add all staff (teachers, admins)
             staff_users = User.objects.filter(
@@ -1229,14 +1313,17 @@ class GroupChatViewSet(viewsets.ModelViewSet):
                 Q(userrole__role__name__iexact='admin') |
                 Q(userrole__role__name__iexact='super_admin')
             ).distinct()
-            
+
             for user in staff_users:
                 if user.id != request.user.id:
                     GroupChatMember.objects.get_or_create(group_chat=group, user=user)
-        
+            response_msg = 'OK'
+        else:
+            response_msg = 'OK'
+
         response_data = {
             'success': True,
-            'message': 'OK',
+            'message': response_msg,
             'status': 201,
             'data': serializer.data
         }
@@ -1459,6 +1546,45 @@ class GroupChatMessageViewSet(viewsets.ModelViewSet):
             'message': 'OK',
             'status': 200,
             'data': serializer.data
+        })
+
+    @action(detail=False, methods=['post'], url_path='conversation/(?P<group_id>[^/.]+)/mark-read')
+    def mark_conversation_read(self, request, group_id=None):
+        from .models import GroupChatMessage, GroupChat, GroupChatMember
+        user = request.user
+        branch_id = request.query_params.get('branch_id')
+        
+        print(f"DEBUG MARK READ: user={user.id}, marking group messages as read for group={group_id}")
+
+        if branch_id and not has_model_permission(user, 'groupchatmessage', 'change_groupchatmessage', branch_id):
+            raise PermissionDenied("You do not have permission to mark group chat messages as read in this branch.")
+
+        try:
+            group = GroupChat.objects.get(id=group_id)
+            if not GroupChatMember.objects.filter(group_chat=group, user=user).exists():
+                raise PermissionDenied("You are not a member of this group.")
+        except GroupChat.DoesNotExist:
+            return Response({
+                'success': False,
+                'message': 'Group not found',
+                'status': 404,
+                'data': []
+            }, status=status.HTTP_404_NOT_FOUND)
+
+        # Mark all unread messages in the group as read for this user
+        # (messages NOT sent by the current user that are unread)
+        updated_count = GroupChatMessage.objects.filter(
+            group=group,
+            is_read=False
+        ).exclude(sender=user).update(is_read=True)
+        
+        print(f"DEBUG MARK READ: Updated {updated_count} group messages to read")
+
+        return Response({
+            'success': True,
+            'message': f'{updated_count} messages marked as read',
+            'status': 200,
+            'data': {'marked_as_read': updated_count}
         })
 
     def list(self, request, *args, **kwargs):

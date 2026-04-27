@@ -225,11 +225,11 @@ class StudentHealthRecordsSerializer(serializers.ModelSerializer):
 
     def get_student_details(self, obj):
         return {
-            'id': obj.student_id.id,
-            'user_id': obj.student_id.user.id,
-            'full_name': obj.student_id.user.full_name,
-            'name': obj.student_id.user.full_name,
-            'student_id': obj.student_id.student_id
+            'id': obj.student.id,
+            'user_id': obj.student.user.id,
+            'full_name': obj.student.user.full_name,
+            'name': obj.student.user.full_name,
+            'student_id': obj.student.student_id
         }
     recorded_by = serializers.PrimaryKeyRelatedField(
         queryset=User.objects.all(),

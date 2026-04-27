@@ -48,7 +48,7 @@ export default function Chat() {
         sx={{
           display: 'flex',
           flexDirection: { xs: 'column', md: 'row' },
-          height: '80vh',
+          height: 'calc(100vh - 100px)',
           width: '100%',
           bgcolor: '#ffff',
           p: 1,
@@ -60,8 +60,9 @@ export default function Chat() {
             sx={{
               width: { xs: '100%', md: 400 },
               flexShrink: 0,
-              height: { xs: 'auto', md: '100%' },
-              borderRight: { xs: 'none' },
+              height: { xs: '400px', md: '100%' },
+              borderRight: { xs: 'none', md: 1 },
+              borderColor: { xs: 'transparent', md: 'divider' },
               mb: { xs: 1, md: 0 },
             }}
           >

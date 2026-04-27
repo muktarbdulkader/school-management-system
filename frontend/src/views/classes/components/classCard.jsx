@@ -215,54 +215,6 @@ const ClassCard = ({
           >
             {isMobile ? 'View' : 'View Details'}
           </Button>
-          <Button
-            variant="outlined"
-            startIcon={!isMobile && <PeopleIcon />}
-            onClick={() => {
-              handleClassCardClick(classItem, 2); // 2 = Attendance tab
-            }}
-            size="small"
-            sx={{
-              textTransform: 'none',
-              borderRadius: 2,
-              px: 2,
-              flexGrow: { xs: 1, sm: 0 },
-            }}
-          >
-            {isMobile ? 'Attendance' : 'Attendance'}
-          </Button>
-          <Button
-            variant="outlined"
-            startIcon={!isMobile && <AssignmentIcon />}
-            onClick={() => {
-              handleClassCardClick(classItem, 3); // 3 = Assignments tab
-            }}
-            size="small"
-            sx={{
-              textTransform: 'none',
-              borderRadius: 2,
-              px: 2,
-              flexGrow: { xs: 1, sm: 0 },
-            }}
-          >
-            {isMobile ? 'Assignments' : 'Assignments'}
-          </Button>
-          <Button
-            variant="outlined"
-            onClick={() => {
-              handleClassCardClick(classItem, 5); // 5 = Objectives tab
-            }}
-            startIcon={!isMobile && <ClassIcon />}
-            size="small"
-            sx={{
-              textTransform: 'none',
-              borderRadius: 2,
-              px: 2,
-              flexGrow: { xs: 1, sm: 0 },
-            }}
-          >
-            {isMobile ? 'Objective' : 'Objective'}
-          </Button>
           {isAdmin && (
             <Button
               variant="contained"
