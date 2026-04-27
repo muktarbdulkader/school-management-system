@@ -18,12 +18,9 @@ from .serializers import BehaviorIncidentsSerializer, BehaviorRatingsSerializer,
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.exceptions import PermissionDenied
 
-from users.models import UserBranchAccess
 
-class ParentViewSet(viewsets.ModelViewSet):
-    queryset = Parent.objects.all()
-    serializer_class = ParentSerializer
-    permission_classes = [IsAuthenticated]
+class AdministrativeUserMixin:
+    """Mixin providing helper method to check for admin roles."""
 
     def is_administrative_user(self, user):
         """Helper to check if user has admin, super_admin, or staff roles"""
@@ -32,6 +29,34 @@ class ParentViewSet(viewsets.ModelViewSet):
         user_roles = list(user.userrole_set.values_list('role__name', flat=True))
         admin_roles = ['admin', 'super_admin', 'superadmin', 'staff', 'head_admin', 'ceo']
         return any(role.lower() in admin_roles for role in user_roles)
+
+
+class TeacherCheckMixin:
+    """Mixin providing helper method to check if user is a teacher of a student."""
+
+    def _is_teacher_of_student(self, user, student):
+        """Helper to check if a user is a teacher assigned to this student's class/section"""
+        if user.is_superuser:
+            return True
+        from teachers.models import Teacher, TeacherAssignment
+        try:
+            teacher = Teacher.objects.get(user=user)
+            cst_query = TeacherAssignment.objects.filter(
+                teacher=teacher,
+                class_fk=student.grade
+            )
+            if student.section:
+                from django.db.models import Q
+                cst_query = cst_query.filter(Q(section=student.section) | Q(section__isnull=True))
+            return cst_query.exists()
+        except Exception:
+            return False
+
+
+class ParentViewSet(AdministrativeUserMixin, viewsets.ModelViewSet):
+    queryset = Parent.objects.all()
+    serializer_class = ParentSerializer
+    permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
         user = self.request.user
@@ -90,9 +115,13 @@ class ParentViewSet(viewsets.ModelViewSet):
         return Response(response_data)
 
     def perform_create(self, serializer):
-        branch_id = self.request.data.get('branch_id')
-        if branch_id and not has_model_permission(self.request.user, 'parent', 'add_parent', branch_id):
-            raise PermissionDenied("You do not have permission to create parents in this branch.")
+        user = self.request.user
+        # Parents are often created alongside students.
+        # For direct creation, we check if the user has access to any branch.
+        if not user.is_superuser:
+            from users.models import UserBranchAccess
+            if not UserBranchAccess.objects.filter(user=user).exists():
+                raise PermissionDenied("You do not have permission to create parents.")
         serializer.save()
 
     def create(self, request, *args, **kwargs):
@@ -132,30 +161,6 @@ class ParentViewSet(viewsets.ModelViewSet):
         serializer.save()
 
     def update(self, request, *args, **kwargs):
-        partial = kwargs.pop('partial', False)
-        instance = self.get_object()
-        serializer = self.get_serializer(instance, data=request.data, partial=partial)
-        serializer.is_valid(raise_exception=True)
-        self.perform_update(serializer)
-        response_data = {
-            'success': True,
-            'message': 'OK',
-            'status': 200,
-            'data': serializer.data
-        }
-        return Response(response_data)
-
-    def perform_create(self, serializer):
-        user = self.request.user
-        # Parents are often created alongside students.
-        # For direct creation, we check if the user has access to any branch.
-        if not user.is_superuser:
-            from users.models import UserBranchAccess
-            if not UserBranchAccess.objects.filter(user=user).exists():
-                raise PermissionDenied("You do not have permission to create parents.")
-        serializer.save()
-
-    def update(self, request, *args, **kwargs):
         user = request.user
         instance = self.get_object()
 
@@ -184,7 +189,7 @@ class ParentViewSet(viewsets.ModelViewSet):
         instance.delete()
         return Response({'success': True, 'message': 'OK', 'status': 204, 'data': []}, status=204)
 
-class StudentViewSet(viewsets.ModelViewSet):
+class StudentViewSet(TeacherCheckMixin, viewsets.ModelViewSet):
     queryset = Student.objects.all()
     serializer_class = StudentSerializer
     permission_classes = [IsAuthenticated]
@@ -658,23 +663,6 @@ class StudentViewSet(viewsets.ModelViewSet):
             }
         })
 
-    def _is_teacher_of_student(self, user, student):
-        """Helper to check if a user is a teacher assigned to this student's class/section"""
-        if user.is_superuser: return True
-        try:
-            from teachers.models import Teacher, TeacherAssignment
-            teacher = Teacher.objects.get(user=user)
-            cst_query = TeacherAssignment.objects.filter(
-                teacher=teacher,
-                class_fk=student.grade
-            )
-            if student.section:
-                from django.db.models import Q
-                cst_query = cst_query.filter(Q(section=student.section) | Q(section__isnull=True))
-            return cst_query.exists()
-        except Exception:
-            return False
-
 
 class ParentRelationShipViewSet(viewsets.ModelViewSet):
     queryset = ParentRelationship.objects.all()
@@ -766,37 +754,10 @@ class ParentRelationShipViewSet(viewsets.ModelViewSet):
             'data': []
         }
         return Response(response_data, status=204)
-class ParentStudentViewSet(viewsets.ModelViewSet):
+class ParentStudentViewSet(AdministrativeUserMixin, TeacherCheckMixin, viewsets.ModelViewSet):
     queryset = ParentStudent.objects.all()
     serializer_class = ParentStudentSerializer
     permission_classes = [IsAuthenticated]
-
-    def is_administrative_user(self, user):
-        """Helper to check if user has admin, super_admin, or staff roles"""
-        if user.is_superuser:
-            return True
-        user_roles = list(user.userrole_set.values_list('role__name', flat=True))
-        admin_roles = ['admin', 'super_admin', 'superadmin', 'staff', 'head_admin', 'ceo']
-        return any(role.lower() in admin_roles for role in user_roles)
-
-    def _is_teacher_of_student(self, user, student):
-        """Helper to check if a user is a teacher assigned to this student's class/section"""
-        from teachers.models import Teacher, TeacherAssignment
-        try:
-            teacher = Teacher.objects.get(user=user)
-            # A teacher teaches a student if they have a TeacherAssignment record for that class
-            # and (optionally) the same section, or no section specified (all sections)
-            cst_query = TeacherAssignment.objects.filter(
-                teacher=teacher,
-                class_fk=student.grade
-            )
-            if student.section:
-                from django.db.models import Q
-                cst_query = cst_query.filter(Q(section=student.section) | Q(section__isnull=True))
-
-            return cst_query.exists()
-        except Teacher.DoesNotExist:
-            return False
 
     def get_queryset(self):
         user = self.request.user
@@ -1198,42 +1159,6 @@ class ParentStudentViewSet(viewsets.ModelViewSet):
                 'enrolled_subjects_count': enrolled_subjects_count
             }
         })
-
-        calendar_events = [
-            {
-                'date': ann.event_date,
-                'title': ann.title,
-                'urgency': ann.urgency,
-            } for ann in announcements
-        ]
-
-        response_data = {
-            'success': True,
-            'message': 'OK',
-            'status': 200,
-            'data': {
-                'profile': {
-                    'id': student_profile.id,
-                    'full_name': student_profile.user.full_name,
-                    'grade': student_profile.grade.grade if student_profile.grade else None,
-                    'section': student_profile.section.name if student_profile.section else None,
-                },
-                'schedule': schedule_list,
-                'upcoming_assignments': upcoming_assignments_data,
-                'health': {
-                    'date': health_record.date if health_record else today,
-                    'incident': health_incident,
-                    'history': health_history,
-                    'condition': health_record.condition.name if health_record and health_record.condition else None
-                },
-                'behavior_ratings': behavior_ratings_dict,
-                'attendance': {
-                    'average_attendance': average_attendance
-                },
-                'calendar': calendar_events
-            }
-        }
-        return Response(response_data)
 
     @action(detail=False, methods=['get'], url_path='profile_dashboard/(?P<student_id>[^/.]+)/?')
     def profile_dashboard(self, request, student_id=None):
@@ -1754,8 +1679,7 @@ class ParentStudentViewSet(viewsets.ModelViewSet):
             raise PermissionDenied("You do not have permission to view objectives for this student.")
 
         class_obj = student.grade
-        section_obj = student.section
-        # Progress is class-wide (not section-specific), but teacher lookup uses section
+        # Section removed - progress is class-wide (not section-specific)
         today = date.today()
 
         # Get units for this subject (through curriculum mapping or lesson plans)

@@ -735,6 +735,114 @@ class ClassesViewSet(viewsets.ModelViewSet):
             'data': serializer.data
         })
 
+    @action(detail=False, methods=['post'], url_path='enroll_student_all_subjects/(?P<class_id>[^/.]+)')
+    def enroll_student_all_subjects(self, request, class_id=None):
+        """Enroll a single student in all subjects for a class"""
+        user = request.user
+        student_id = request.data.get('student_id')
+
+        if not student_id:
+            return Response({
+                'success': False,
+                'message': 'Student ID is required',
+                'status': 400,
+                'data': {}
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            class_obj = Class.objects.get(id=class_id)
+        except Class.DoesNotExist:
+            return Response({
+                'success': False,
+                'message': f'Class with ID {class_id} does not exist',
+                'status': 404,
+                'data': {}
+            }, status=status.HTTP_404_NOT_FOUND)
+
+        try:
+            student = Student.objects.get(id=student_id)
+        except Student.DoesNotExist:
+            return Response({
+                'success': False,
+                'message': f'Student with ID {student_id} does not exist',
+                'status': 404,
+                'data': {}
+            }, status=status.HTTP_404_NOT_FOUND)
+
+        # Check permission
+        if not has_model_permission(user, 'studentsubject', 'add_studentsubject', class_obj.branch_id):
+            raise PermissionDenied("You do not have permission to enroll subjects in this branch.")
+
+        # Get all subjects assigned to this class via TeacherAssignment or ClassSubject
+        from teachers.models import TeacherAssignment
+        assigned_subjects_ids = TeacherAssignment.objects.filter(
+            class_fk=class_obj
+        ).values_list('subject', flat=True).distinct()
+
+        # Also include subjects linked via ClassSubject
+        # Get subjects from legacy subject field
+        class_subject_ids_legacy = ClassSubject.objects.filter(
+            class_fk=class_obj,
+            subject__isnull=False
+        ).values_list('subject', flat=True).distinct()
+
+        # Get subjects linked via global_subject (new way) - follow GlobalSubject -> Subject relationship
+        class_subject_ids_via_global = Subject.objects.filter(
+            global_subject__class_assignments__class_fk=class_obj,
+            global_subject__class_assignments__is_active=True
+        ).values_list('id', flat=True).distinct()
+
+        # Combine both sources
+        all_subject_ids = list(set(list(assigned_subjects_ids) + list(class_subject_ids_legacy) + list(class_subject_ids_via_global)))
+        assigned_subjects = Subject.objects.filter(id__in=all_subject_ids)
+
+        if not assigned_subjects.exists():
+            return Response({
+                'success': False,
+                'message': f'No subjects are currently assigned to class {class_obj.grade}',
+                'status': 400,
+                'data': {}
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        # Assign section if missing
+        section_assigned = False
+        if not student.section:
+            default_section = Section.objects.filter(class_fk=class_obj).first()
+            if default_section:
+                student.section = default_section
+                student.save()
+                section_assigned = True
+
+        # Enroll in all subjects
+        enrolled_count = 0
+        already_enrolled = 0
+
+        with transaction.atomic():
+            for subject in assigned_subjects:
+                if not StudentSubject.objects.filter(student=student, subject=subject).exists():
+                    StudentSubject.objects.create(
+                        student=student,
+                        subject=subject
+                    )
+                    enrolled_count += 1
+                else:
+                    already_enrolled += 1
+
+        return Response({
+            'success': True,
+            'message': f'Enrolled {student.user.full_name} in {enrolled_count} subjects. '
+                       f'{already_enrolled} already enrolled.',
+            'status': 200,
+            'data': {
+                'student_id': str(student.id),
+                'student_name': student.user.full_name,
+                'new_enrollments': enrolled_count,
+                'existing_enrollments': already_enrolled,
+                'section_assigned': section_assigned,
+                'subjects_processed': assigned_subjects.count()
+            }
+        })
+
 class SectionsViewSet(viewsets.ModelViewSet):
     serializer_class = SectionsSerializer
     permission_classes = [IsAuthenticated]
@@ -1292,114 +1400,6 @@ class SubjectsViewSet(viewsets.ModelViewSet):
             'data': {}
         }, status=status.HTTP_204_NO_CONTENT)
 
-
-    @action(detail=False, methods=['post'], url_path='enroll_student_all_subjects/(?P<class_id>[^/.]+)')
-    def enroll_student_all_subjects(self, request, class_id=None):
-        """Enroll a single student in all subjects for a class"""
-        user = request.user
-        student_id = request.data.get('student_id')
-        
-        if not student_id:
-            return Response({
-                'success': False,
-                'message': 'Student ID is required',
-                'status': 400,
-                'data': {}
-            }, status=status.HTTP_400_BAD_REQUEST)
-
-        try:
-            class_obj = Class.objects.get(id=class_id)
-        except Class.DoesNotExist:
-            return Response({
-                'success': False,
-                'message': f'Class with ID {class_id} does not exist',
-                'status': 404,
-                'data': {}
-            }, status=status.HTTP_404_NOT_FOUND)
-
-        try:
-            student = Student.objects.get(id=student_id)
-        except Student.DoesNotExist:
-            return Response({
-                'success': False,
-                'message': f'Student with ID {student_id} does not exist',
-                'status': 404,
-                'data': {}
-            }, status=status.HTTP_404_NOT_FOUND)
-
-        # Check permission
-        if not has_model_permission(user, 'studentsubject', 'add_studentsubject', class_obj.branch_id):
-            raise PermissionDenied("You do not have permission to enroll subjects in this branch.")
-
-        # Get all subjects assigned to this class via TeacherAssignment or ClassSubject
-        from teachers.models import TeacherAssignment
-        assigned_subjects_ids = TeacherAssignment.objects.filter(
-            class_fk=class_obj
-        ).values_list('subject', flat=True).distinct()
-        
-        # Also include subjects linked via ClassSubject
-        # Get subjects from legacy subject field
-        class_subject_ids_legacy = ClassSubject.objects.filter(
-            class_fk=class_obj,
-            subject__isnull=False
-        ).values_list('subject', flat=True).distinct()
-
-        # Get subjects linked via global_subject (new way) - follow GlobalSubject -> Subject relationship
-        class_subject_ids_via_global = Subject.objects.filter(
-            global_subject__class_assignments__class_fk=class_obj,
-            global_subject__class_assignments__is_active=True
-        ).values_list('id', flat=True).distinct()
-
-        # Combine both sources
-        all_subject_ids = list(set(list(assigned_subjects_ids) + list(class_subject_ids_legacy) + list(class_subject_ids_via_global)))
-        assigned_subjects = Subject.objects.filter(id__in=all_subject_ids)
-        
-        if not assigned_subjects.exists():
-            return Response({
-                'success': False,
-                'message': f'No subjects are currently assigned to class {class_obj.grade}',
-                'status': 400,
-                'data': {}
-            }, status=status.HTTP_400_BAD_REQUEST)
-
-        # Assign section if missing
-        section_assigned = False
-        if not student.section:
-            default_section = Section.objects.filter(class_fk=class_obj).first()
-            if default_section:
-                student.section = default_section
-                student.save()
-                section_assigned = True
-
-        # Enroll in all subjects
-        enrolled_count = 0
-        already_enrolled = 0
-        
-        with transaction.atomic():
-            for subject in assigned_subjects:
-                if not StudentSubject.objects.filter(student=student, subject=subject).exists():
-                    StudentSubject.objects.create(
-                        student=student,
-                        subject=subject
-                    )
-                    enrolled_count += 1
-                else:
-                    already_enrolled += 1
-
-        return Response({
-            'success': True,
-            'message': f'Enrolled {student.user.get_full_name()} in {enrolled_count} subjects. '
-                       f'{already_enrolled} already enrolled.',
-            'status': 200,
-            'data': {
-                'student_id': str(student.id),
-                'student_name': student.user.get_full_name(),
-                'new_enrollments': enrolled_count,
-                'existing_enrollments': already_enrolled,
-                'section_assigned': section_assigned,
-                'subjects_processed': assigned_subjects.count()
-            }
-        })
 
     @action(detail=False, methods=['post'], url_path='enroll_core_subjects/(?P<class_id>[^/.]+)')
     def enroll_core_subjects(self, request, class_fk=None):

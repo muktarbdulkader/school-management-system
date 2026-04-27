@@ -83,17 +83,11 @@ class TeacherTask(models.Model):
 
 
 class TeacherPerformanceRating(models.Model):
-    """Star ratings and comments from admins/heads"""
-    CATEGORY_CHOICES = [
-        ('teaching_quality', 'Teaching Quality'),
-        ('punctuality', 'Punctuality'),
-        ('communication', 'Communication'),
-        ('classroom_management', 'Classroom Management'),
-        ('student_engagement', 'Student Engagement'),
-        ('professionalism', 'Professionalism'),
-        ('collaboration', 'Collaboration'),
-        ('innovation', 'Innovation'),
-    ]
+    """Star ratings and comments from students, parents, and admins.
+    
+    The category field matches the code from PerformanceMeasurementCriteria
+    to allow dynamic criteria to be rated.
+    """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     teacher = models.ForeignKey('teachers.Teacher', on_delete=models.CASCADE, related_name='performance_ratings')
@@ -102,7 +96,10 @@ class TeacherPerformanceRating(models.Model):
         validators=[MinValueValidator(1), MaxValueValidator(5)],
         help_text="Rating from 1 to 5 stars"
     )
-    category = models.CharField(max_length=50, choices=CATEGORY_CHOICES)
+    category = models.CharField(
+        max_length=50,
+        help_text="Criteria code matching PerformanceMeasurementCriteria.code (e.g., teaching_quality, how_to_teach2)"
+    )
     comment = models.TextField(blank=True, null=True)
     rating_date = models.DateField(auto_now_add=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -440,6 +437,18 @@ class TeacherPerformanceEvaluation(models.Model):
     reviewed_at = models.DateTimeField(null=True, blank=True)
     approved_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='evaluations_approved')
     approved_at = models.DateTimeField(null=True, blank=True)
+    
+    # Evaluation period tracking - to identify if this is current or previous period evaluation
+    evaluation_period_id = models.CharField(
+        max_length=100, 
+        null=True, 
+        blank=True,
+        help_text="ID of the evaluation period when this evaluation was created"
+    )
+    is_previous_period = models.BooleanField(
+        default=False,
+        help_text="True if this evaluation was from a closed/previous evaluation period"
+    )
     
     class Meta:
         db_table = 'teacher_performance_evaluations'

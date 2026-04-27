@@ -73,10 +73,11 @@ class ClassesSerializer(serializers.ModelSerializer):
     branch_details = BranchSerializer(source = 'branch', read_only=True)
     student_count = serializers.SerializerMethodField()
     sections_count = serializers.SerializerMethodField()
+    attendance_rate = serializers.SerializerMethodField()
 
     class Meta:
         model = Class
-        fields = ['id', 'grade', 'branch', 'branch_details', 'student_count', 'sections_count']
+        fields = ['id', 'grade', 'branch', 'branch_details', 'student_count', 'sections_count', 'attendance_rate', 'is_active']
 
     def get_student_count(self, obj):
         # Count all students enrolled in this class through sections
@@ -89,6 +90,41 @@ class ClassesSerializer(serializers.ModelSerializer):
     def get_sections_count(self, obj):
         # Use section_set since Section model doesn't have a related_name defined
         return obj.section_set.count()
+
+    def get_attendance_rate(self, obj):
+        # Calculate average attendance rate for this class over last 7 days
+        from students.models import Student
+        from schedule.models import Attendance
+        from django.utils import timezone
+        from datetime import timedelta
+
+        today = timezone.now().date()
+        week_ago = today - timedelta(days=7)
+
+        # Get all students in this class
+        students = Student.objects.filter(section__class_fk=obj)
+        student_ids = students.values_list('id', flat=True)
+
+        if not student_ids:
+            return 0
+
+        # Get attendance records for these students in last 7 days
+        attendance_records = Attendance.objects.filter(
+            student_id__in=student_ids,
+            date__gte=week_ago,
+            date__lte=today
+        )
+
+        total_records = attendance_records.count()
+        if total_records == 0:
+            return 0
+
+        present_count = attendance_records.filter(status='Present').count()
+        late_count = attendance_records.filter(status='Late').count()
+
+        # Count late as 0.5 present for rate calculation
+        attendance_rate = round(((present_count + (late_count * 0.5)) / total_records) * 100, 1)
+        return attendance_rate
 
 class SectionsSerializer(serializers.ModelSerializer):
     class_fk = serializers.PrimaryKeyRelatedField(queryset=Class.objects.all(), write_only=True)

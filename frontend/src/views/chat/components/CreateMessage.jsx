@@ -290,17 +290,20 @@ const CreateMessageForm = ({ open, onClose, onSubmit }) => {
 
   // Filter teachers based on selected subject
   useEffect(() => {
+    console.log('DEBUG FilterTeachers: subject_id=', filters.subject_id, 'availableTeachers count=', availableTeachers.length);
     if (!filters.subject_id) {
       setFilteredTeachers(availableTeachers);
     } else {
-      console.log('Filtering teachers for subject ID:', filters.subject_name, "and the teachers: ", availableTeachers);
-      setFilteredTeachers(
-        availableTeachers.filter((teacher) =>
-          teacher.subject_details?.some(
-            (subject) => subject.id === filters.subject_id,
-          ),
-        ),
-      );
+      console.log('DEBUG FilterTeachers: Filtering for subject ID:', filters.subject_id);
+      const filtered = availableTeachers.filter((teacher) => {
+        const hasSubject = teacher.subject_details?.some(
+          (subject) => subject.id === filters.subject_id,
+        );
+        console.log('DEBUG FilterTeachers: Teacher', teacher.name, 'has subject', filters.subject_id, '?', hasSubject);
+        return hasSubject;
+      });
+      console.log('DEBUG FilterTeachers: Filtered result:', filtered.map(t => t.name));
+      setFilteredTeachers(filtered);
     }
 
     // Reset selected teacher if it's no longer in filtered list

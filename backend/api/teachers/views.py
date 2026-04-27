@@ -2449,6 +2449,10 @@ class PerformanceMeasurementCriteriaViewSet(viewsets.ModelViewSet):
             'term_name': latest_evaluation.term.name if latest_evaluation and latest_evaluation.term else 'N/A'
         } if latest_evaluation else None
         
+        # Get evaluation period settings
+        from .models import EvaluationPeriodSettings
+        eval_settings = EvaluationPeriodSettings.get_settings()
+        
         result = {
             'teacher': {
                 'id': str(teacher.id),
@@ -2456,6 +2460,13 @@ class PerformanceMeasurementCriteriaViewSet(viewsets.ModelViewSet):
                 'full_name': teacher.user.full_name,
                 'email': teacher.user.email,
                 'branch': teacher.branch.name if teacher.branch else 'N/A'
+            },
+            'evaluation_period': {
+                'is_open': eval_settings.is_open,
+                'period_id': eval_settings.period_id,
+                'start_date': eval_settings.start_date.isoformat() if eval_settings.start_date else None,
+                'end_date': eval_settings.end_date.isoformat() if eval_settings.end_date else None,
+                'message': eval_settings.message
             },
             'summary': {
                 'total_ratings': total_ratings,
@@ -2490,9 +2501,37 @@ class PerformanceMeasurementCriteriaViewSet(viewsets.ModelViewSet):
                     'overall_score': e.overall_score,
                     'status': e.status,
                     'evaluated_by': e.evaluated_by.full_name if e.evaluated_by else None,
-                    'evaluated_at': e.evaluated_at.isoformat() if e.evaluated_at else None
+                    'evaluated_at': e.evaluated_at.isoformat() if e.evaluated_at else None,
+                    'evaluation_period_id': e.evaluation_period_id,
+                    'is_previous_period': e.is_previous_period
                 }
                 for e in evaluations.order_by('-evaluated_at')
+            ],
+            'current_period_evaluations': [
+                {
+                    'id': str(e.id),
+                    'term_name': e.term.name if e.term else 'N/A',
+                    'overall_score': e.overall_score,
+                    'status': e.status,
+                    'evaluated_by': e.evaluated_by.full_name if e.evaluated_by else None,
+                    'evaluated_at': e.evaluated_at.isoformat() if e.evaluated_at else None,
+                }
+                for e in evaluations.filter(
+                    is_previous_period=False
+                ).order_by('-evaluated_at')
+            ],
+            'previous_period_evaluations': [
+                {
+                    'id': str(e.id),
+                    'term_name': e.term.name if e.term else 'N/A',
+                    'overall_score': e.overall_score,
+                    'status': e.status,
+                    'evaluated_by': e.evaluated_by.full_name if e.evaluated_by else None,
+                    'evaluated_at': e.evaluated_at.isoformat() if e.evaluated_at else None,
+                }
+                for e in evaluations.filter(
+                    is_previous_period=True
+                ).order_by('-evaluated_at')
             ]
         }
         

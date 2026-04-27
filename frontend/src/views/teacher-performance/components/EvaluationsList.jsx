@@ -270,7 +270,7 @@ const EvaluationsList = ({ teacherId = null, open, onClose, onEdit, onCreate, ca
               onClick={() => fetchAllEvaluations(teacherId)}
               disabled={allEvaluationsLoading}
             >
-              {allEvaluationsLoading ? 'Loading...' : 'View Full Analysis'}
+              {allEvaluationsLoading ? 'Loading...' : 'View Analytics'}
             </Button>
           )}
         </Stack>
@@ -574,9 +574,29 @@ const EvaluationsList = ({ teacherId = null, open, onClose, onEdit, onCreate, ca
             <DialogTitle sx={{ fontWeight: 700, pb: 1 }}>
               <Stack direction="row" justifyContent="space-between" alignItems="center">
                 <Box>
-                  <Typography variant="h5" fontWeight={800}>
-                    Complete Evaluation Report
-                  </Typography>
+                  <Stack direction="row" alignItems="center" spacing={2}>
+                    <Typography variant="h5" fontWeight={800}>
+                      Complete Evaluation Report
+                    </Typography>
+                    {/* Evaluation Period Status Label */}
+                    {allEvaluationsData.evaluation_period?.is_open ? (
+                      <Chip
+                        label="Evaluation Open"
+                        color="success"
+                        size="small"
+                        variant="filled"
+                        sx={{ fontWeight: 600 }}
+                      />
+                    ) : (
+                      <Chip
+                        label="Evaluation Closed"
+                        color="error"
+                        size="small"
+                        variant="filled"
+                        sx={{ fontWeight: 600 }}
+                      />
+                    )}
+                  </Stack>
                   <Typography variant="body2" color="text.secondary">
                     {allEvaluationsData.teacher?.full_name || 'Unknown Teacher'} ({allEvaluationsData.teacher?.teacher_id || 'N/A'})
                   </Typography>
@@ -676,6 +696,172 @@ const EvaluationsList = ({ teacherId = null, open, onClose, onEdit, onCreate, ca
 
                 <Divider />
 
+                {/* Current Period Evaluations */}
+                {allEvaluationsData.current_period_evaluations?.length > 0 && (
+                  <Box>
+                    <Typography variant="h6" fontWeight={700} gutterBottom>
+                      🆕 Current Evaluation Period
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
+                      Active evaluation period - New ratings and evaluations are being collected
+                    </Typography>
+                    <TableContainer>
+                      <Table size="small">
+                        <TableHead>
+                          <TableRow>
+                            <TableCell sx={{ fontWeight: 700 }}>Term</TableCell>
+                            <TableCell align="center" sx={{ fontWeight: 700 }}>Status</TableCell>
+                            <TableCell align="center" sx={{ fontWeight: 700 }}>Overall Score</TableCell>
+                            <TableCell align="center" sx={{ fontWeight: 700 }}>Evaluated By</TableCell>
+                            <TableCell align="center" sx={{ fontWeight: 700 }}>Date</TableCell>
+                          </TableRow>
+                        </TableHead>
+                        <TableBody>
+                          {allEvaluationsData.current_period_evaluations.map((evalItem) => (
+                            <TableRow key={evalItem.id}>
+                              <TableCell>
+                                <Chip
+                                  label={evalItem.term_name || 'N/A'}
+                                  color="success"
+                                  size="small"
+                                  variant="outlined"
+                                  sx={{ fontWeight: 600 }}
+                                />
+                              </TableCell>
+                              <TableCell align="center">
+                                <Stack direction="row" spacing={0.5} justifyContent="center">
+                                  <Chip
+                                    label={evalItem.status}
+                                    color={STATUS_COLORS[evalItem.status] || 'default'}
+                                    size="small"
+                                  />
+                                  <Chip
+                                    label="CURRENT"
+                                    color="success"
+                                    size="small"
+                                    variant="filled"
+                                    sx={{ fontWeight: 700, fontSize: '0.7rem' }}
+                                  />
+                                </Stack>
+                              </TableCell>
+                              <TableCell align="center">
+                                <Typography fontWeight={700} color={evalItem.overall_score >= 70 ? 'success.main' : evalItem.overall_score >= 50 ? 'warning.main' : 'error.main'}>
+                                  {evalItem.overall_score ? `${evalItem.overall_score}%` : 'N/A'}
+                                </Typography>
+                              </TableCell>
+                              <TableCell align="center">
+                                <Stack alignItems="center" spacing={0.5}>
+                                  <Typography variant="body2" fontWeight={600}>
+                                    {evalItem.evaluated_by || 'System'}
+                                  </Typography>
+                                  {evalItem.evaluated_by && (
+                                    <Chip
+                                      label="Admin Evaluated"
+                                      color="info"
+                                      size="small"
+                                      variant="outlined"
+                                      sx={{ fontSize: '0.65rem', height: 20 }}
+                                    />
+                                  )}
+                                </Stack>
+                              </TableCell>
+                              <TableCell align="center">
+                                <Typography variant="caption" color="text.secondary">
+                                  {evalItem.evaluated_at ? dayjs(evalItem.evaluated_at).format('MMM D, YYYY') : 'N/A'}
+                                </Typography>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </TableContainer>
+                  </Box>
+                )}
+
+                {/* Previous Period Evaluations */}
+                {allEvaluationsData.previous_period_evaluations?.length > 0 && (
+                  <Box>
+                    <Typography variant="h6" fontWeight={700} gutterBottom>
+                      📅 Previous Evaluations by Term
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
+                      Historical performance evaluations from closed evaluation periods
+                    </Typography>
+                    <TableContainer>
+                      <Table size="small">
+                        <TableHead>
+                          <TableRow>
+                            <TableCell sx={{ fontWeight: 700 }}>Term</TableCell>
+                            <TableCell align="center" sx={{ fontWeight: 700 }}>Status</TableCell>
+                            <TableCell align="center" sx={{ fontWeight: 700 }}>Overall Score</TableCell>
+                            <TableCell align="center" sx={{ fontWeight: 700 }}>Evaluated By</TableCell>
+                            <TableCell align="center" sx={{ fontWeight: 700 }}>Date</TableCell>
+                          </TableRow>
+                        </TableHead>
+                        <TableBody>
+                          {allEvaluationsData.previous_period_evaluations.map((evalItem) => (
+                            <TableRow key={evalItem.id}>
+                              <TableCell>
+                                <Chip
+                                  label={evalItem.term_name || 'N/A'}
+                                  color="default"
+                                  size="small"
+                                  variant="outlined"
+                                  sx={{ fontWeight: 600 }}
+                                />
+                              </TableCell>
+                              <TableCell align="center">
+                                <Stack direction="row" spacing={0.5} justifyContent="center">
+                                  <Chip
+                                    label={evalItem.status}
+                                    color={STATUS_COLORS[evalItem.status] || 'default'}
+                                    size="small"
+                                  />
+                                  <Chip
+                                    label="PREVIOUS"
+                                    color="default"
+                                    size="small"
+                                    variant="outlined"
+                                    sx={{ fontSize: '0.7rem' }}
+                                  />
+                                </Stack>
+                              </TableCell>
+                              <TableCell align="center">
+                                <Typography fontWeight={700} color={evalItem.overall_score >= 70 ? 'success.main' : evalItem.overall_score >= 50 ? 'warning.main' : 'error.main'}>
+                                  {evalItem.overall_score ? `${evalItem.overall_score}%` : 'N/A'}
+                                </Typography>
+                              </TableCell>
+                              <TableCell align="center">
+                                <Stack alignItems="center" spacing={0.5}>
+                                  <Typography variant="body2" fontWeight={600}>
+                                    {evalItem.evaluated_by || 'System'}
+                                  </Typography>
+                                  {evalItem.evaluated_by && (
+                                    <Chip
+                                      label="Admin Evaluated"
+                                      color="info"
+                                      size="small"
+                                      variant="outlined"
+                                      sx={{ fontSize: '0.65rem', height: 20 }}
+                                    />
+                                  )}
+                                </Stack>
+                              </TableCell>
+                              <TableCell align="center">
+                                <Typography variant="caption" color="text.secondary">
+                                  {evalItem.evaluated_at ? dayjs(evalItem.evaluated_at).format('MMM D, YYYY') : 'N/A'}
+                                </Typography>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </TableContainer>
+                  </Box>
+                )}
+
+                <Divider />
+
                 {/* Criteria Breakdown - Aggregate Only */}
                 <Box>
                   <Typography variant="h6" fontWeight={700} gutterBottom>
@@ -703,20 +889,40 @@ const EvaluationsList = ({ teacherId = null, open, onClose, onEdit, onCreate, ca
                               </Typography>
                             </TableCell>
                             <TableCell align="center">
-                              <Rating value={criteria.average_rating} readOnly precision={0.1} size="small" />
-                              <Typography variant="caption" sx={{ display: 'block' }}>
-                                {criteria.average_rating}/5
+                              {criteria.total_ratings > 0 ? (
+                                <>
+                                  <Rating value={criteria.average_rating} readOnly precision={0.1} size="small" />
+                                  <Typography variant="caption" sx={{ display: 'block' }}>
+                                    {criteria.average_rating}/5
+                                  </Typography>
+                                </>
+                              ) : (
+                                <Typography variant="caption" color="text.secondary" sx={{ fontStyle: 'italic' }}>
+                                  -
+                                </Typography>
+                              )}
+                            </TableCell>
+                            <TableCell align="center">
+                              {criteria.total_ratings > 0 ? (
+                                <Chip
+                                  label={`${criteria.percentage}%`}
+                                  color={criteria.percentage >= 80 ? 'success' : criteria.percentage >= 60 ? 'warning' : 'error'}
+                                  size="small"
+                                />
+                              ) : (
+                                <Chip
+                                  label="N/A"
+                                  color="default"
+                                  variant="outlined"
+                                  size="small"
+                                  sx={{ fontStyle: 'italic' }}
+                                />
+                              )}
+                            </TableCell>
+                            <TableCell align="center">
+                              <Typography fontWeight={700} color={criteria.total_ratings > 0 ? 'text.primary' : 'text.secondary'}>
+                                {criteria.total_ratings > 0 ? criteria.total_ratings : '-'}
                               </Typography>
-                            </TableCell>
-                            <TableCell align="center">
-                              <Chip
-                                label={`${criteria.percentage}%`}
-                                color={criteria.percentage >= 80 ? 'success' : criteria.percentage >= 60 ? 'warning' : 'error'}
-                                size="small"
-                              />
-                            </TableCell>
-                            <TableCell align="center">
-                              <Typography fontWeight={700}>{criteria.total_ratings}</Typography>
                             </TableCell>
                           </TableRow>
                         ))}
@@ -730,7 +936,7 @@ const EvaluationsList = ({ teacherId = null, open, onClose, onEdit, onCreate, ca
                 {/* Admin/Super Admin Recommendations */}
                 <Box>
                   <Typography variant="h6" fontWeight={700} gutterBottom>
-                    � Admin Evaluation & Recommendations
+                    {allEvaluationsData.evaluation_period?.is_open ? '🆕 New Admin Evaluation & Recommendations' : '📋 Previous Admin Evaluation & Recommendations'}
                     {allEvaluationsData.admin_recommendations?.evaluated_by && (
                       <Typography variant="caption" color="text.secondary" sx={{ ml: 1 }}>
                         by {allEvaluationsData.admin_recommendations.evaluated_by} ({allEvaluationsData.admin_recommendations.term_name})
@@ -744,9 +950,17 @@ const EvaluationsList = ({ teacherId = null, open, onClose, onEdit, onCreate, ca
                       <Grid item xs={12} md={6}>
                         <Card sx={{ bgcolor: 'success.lighter', border: '1px solid', borderColor: 'success.light' }}>
                           <CardContent>
-                            <Typography variant="subtitle1" fontWeight={700} color="success.dark" gutterBottom>
-                              ✅ Strengths (Admin Assessment)
-                            </Typography>
+                            <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
+                              <Typography variant="subtitle1" fontWeight={700} color="success.dark">
+                                ✅ Strengths (Admin Assessment)
+                              </Typography>
+                              {!allEvaluationsData.evaluation_period?.is_open && (
+                                <Chip label="PREVIOUS" size="small" color="default" variant="outlined" sx={{ fontSize: '0.7rem' }} />
+                              )}
+                              {allEvaluationsData.evaluation_period?.is_open && (
+                                <Chip label="CURRENT" size="small" color="success" variant="filled" sx={{ fontSize: '0.7rem' }} />
+                              )}
+                            </Stack>
                             <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
                               {allEvaluationsData.admin_recommendations.strengths || 'No strengths documented by admin.'}
                             </Typography>
@@ -758,9 +972,17 @@ const EvaluationsList = ({ teacherId = null, open, onClose, onEdit, onCreate, ca
                       <Grid item xs={12} md={6}>
                         <Card sx={{ bgcolor: 'error.lighter', border: '1px solid', borderColor: 'error.light' }}>
                           <CardContent>
-                            <Typography variant="subtitle1" fontWeight={700} color="error.dark" gutterBottom>
-                              ⚠️ Areas for Improvement (Admin Assessment)
-                            </Typography>
+                            <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
+                              <Typography variant="subtitle1" fontWeight={700} color="error.dark">
+                                ⚠️ Areas for Improvement (Admin Assessment)
+                              </Typography>
+                              {!allEvaluationsData.evaluation_period?.is_open && (
+                                <Chip label="PREVIOUS" size="small" color="default" variant="outlined" sx={{ fontSize: '0.7rem' }} />
+                              )}
+                              {allEvaluationsData.evaluation_period?.is_open && (
+                                <Chip label="CURRENT" size="small" color="success" variant="filled" sx={{ fontSize: '0.7rem' }} />
+                              )}
+                            </Stack>
                             <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
                               {allEvaluationsData.admin_recommendations.areas_for_improvement || 'No areas for improvement documented by admin.'}
                             </Typography>
@@ -772,9 +994,17 @@ const EvaluationsList = ({ teacherId = null, open, onClose, onEdit, onCreate, ca
                       <Grid item xs={12}>
                         <Card sx={{ bgcolor: 'info.lighter', border: '1px solid', borderColor: 'info.light' }}>
                           <CardContent>
-                            <Typography variant="subtitle1" fontWeight={700} color="info.dark" gutterBottom>
-                              � Recommendations for Growth
-                            </Typography>
+                            <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
+                              <Typography variant="subtitle1" fontWeight={700} color="info.dark">
+                                💡 Recommendations for Growth
+                              </Typography>
+                              {!allEvaluationsData.evaluation_period?.is_open && (
+                                <Chip label="PREVIOUS" size="small" color="default" variant="outlined" sx={{ fontSize: '0.7rem' }} />
+                              )}
+                              {allEvaluationsData.evaluation_period?.is_open && (
+                                <Chip label="CURRENT" size="small" color="success" variant="filled" sx={{ fontSize: '0.7rem' }} />
+                              )}
+                            </Stack>
                             <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
                               {allEvaluationsData.admin_recommendations.recommendations || 'No recommendations provided by admin.'}
                             </Typography>
@@ -787,9 +1017,17 @@ const EvaluationsList = ({ teacherId = null, open, onClose, onEdit, onCreate, ca
                         <Grid item xs={12}>
                           <Card sx={{ bgcolor: 'warning.lighter', border: '1px solid', borderColor: 'warning.light' }}>
                             <CardContent>
-                              <Typography variant="subtitle1" fontWeight={700} color="warning.dark" gutterBottom>
-                                🎯 Action Items
-                              </Typography>
+                              <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
+                                <Typography variant="subtitle1" fontWeight={700} color="warning.dark">
+                                  🎯 Action Items
+                                </Typography>
+                                {!allEvaluationsData.evaluation_period?.is_open && (
+                                  <Chip label="PREVIOUS" size="small" color="default" variant="outlined" sx={{ fontSize: '0.7rem' }} />
+                                )}
+                                {allEvaluationsData.evaluation_period?.is_open && (
+                                  <Chip label="CURRENT" size="small" color="success" variant="filled" sx={{ fontSize: '0.7rem' }} />
+                                )}
+                              </Stack>
                               <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
                                 {allEvaluationsData.admin_recommendations.action_items}
                               </Typography>
@@ -799,8 +1037,10 @@ const EvaluationsList = ({ teacherId = null, open, onClose, onEdit, onCreate, ca
                       )}
                     </Grid>
                   ) : (
-                    <Alert severity="info">
-                      No formal evaluation has been created by admin yet. Create an evaluation to provide structured feedback and recommendations for this teacher.
+                    <Alert severity={allEvaluationsData.evaluation_period?.is_open ? 'info' : 'warning'}>
+                      {allEvaluationsData.evaluation_period?.is_open
+                        ? 'No formal evaluation has been created for the current period yet. Create a new evaluation to provide structured feedback and recommendations for this teacher.'
+                        : 'Evaluation period is closed. No current evaluation exists. Previous evaluations are shown above for reference.'}
                     </Alert>
                   )}
                 </Box>

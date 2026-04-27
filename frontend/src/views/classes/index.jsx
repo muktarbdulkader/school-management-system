@@ -42,6 +42,7 @@ const theme = createTheme({
 function Classes() {
   const [overview, setOverview] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [statusFilter, setStatusFilter] = useState('Active');
   const navigate = useNavigate();
 
   // Get user data from Redux store
@@ -183,10 +184,12 @@ function Classes() {
         if (isAdmin) {
           // Transform admin data to match expected format
           const classes = responseData.data || [];
+          // Calculate total active students by summing student_count from all classes
+          const totalActiveStudents = classes.reduce((sum, cls) => sum + (cls.student_count || 0), 0);
           const transformedData = {
             summary: {
               total_classes: classes.length,
-              active_students: 0, // Would need to aggregate from all classes
+              active_students: totalActiveStudents,
               assignments_due: 0 // Would need to aggregate from all classes
             },
             subjects: classes.map(cls => ({
@@ -197,7 +200,8 @@ function Classes() {
               class_section: cls.grade, // Map it here
               section_id: null,
               section_name: null,
-              student_count: 0
+              student_count: cls.student_count || 0,
+              attendance_rate: cls.attendance_rate || 0,
             }))
           };
           setOverview(transformedData);
@@ -303,19 +307,22 @@ function Classes() {
                   Add New Class
                 </Button>
               )}
-              <FormControl size="small">
-                <Select
-                  value="Active"
-                  sx={{
-                    borderRadius: 2,
-                    minWidth: 100,
-                  }}
-                >
-                  <MenuItem value="Active">Active</MenuItem>
-                  <MenuItem value="Inactive">Inactive</MenuItem>
-                  <MenuItem value="All">All</MenuItem>
-                </Select>
-              </FormControl>
+              {isAdmin && (
+                <FormControl size="small">
+                  <Select
+                    value={statusFilter}
+                    onChange={(e) => setStatusFilter(e.target.value)}
+                    sx={{
+                      borderRadius: 2,
+                      minWidth: 100,
+                    }}
+                  >
+                    <MenuItem value="Active">Active</MenuItem>
+                    <MenuItem value="Inactive">Inactive</MenuItem>
+                    <MenuItem value="All">All</MenuItem>
+                  </Select>
+                </FormControl>
+              )}
             </Box>
           </Box>
 
@@ -358,24 +365,11 @@ function Classes() {
                     color="#1976d2"
                   />
                 </Grid>
-
-                <Grid item xs={12} md={4}>
-                  <StatCard
-                    title="Assignments Due"
-                    value={overview?.summary?.assignments_due ?? 0}
-                    subtitle={
-                      overview?.summary?.assignments_due > 0
-                        ? 'Pending Assignments'
-                        : 'No Pending Assignments'
-                    }
-                    color="#f57c00"
-                  />
-                </Grid>
               </>
             )}
           </Grid>
 
-          {/* Classes Grid */}
+          {/* Classes Grid - Filtered by status */}
           <Grid container spacing={3}>
             {loading
               ? Array.from({ length: 4 }).map((_, i) => (
@@ -387,7 +381,12 @@ function Classes() {
                   />
                 </Grid>
               ))
-              : overview?.subjects?.map((classItem, index) => (
+              : overview?.subjects?.filter((classItem) => {
+                // Apply status filter for admins
+                if (!isAdmin || statusFilter === 'All') return true;
+                const isActive = classItem.is_active !== false;
+                return statusFilter === 'Active' ? isActive : !isActive;
+              }).map((classItem, index) => (
                 <Grid item xs={12} md={6} key={index}>
                   <div
                     onClick={() => handleClassCardClick(classItem)}

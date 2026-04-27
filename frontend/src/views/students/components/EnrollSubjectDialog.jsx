@@ -20,7 +20,7 @@ import { toast } from 'react-hot-toast';
 
 const EnrollSubjectDialog = ({ open, onClose, studentId, classId, className, onEnrollmentSuccess }) => {
   const [subjects, setSubjects] = useState([]);
-  const [availableClasses, setAvailableClasses] = useState([]);
+  const [studentClass, setStudentClass] = useState(null);
   const [selectedClass, setSelectedClass] = useState(classId || '');
   const [selectedSubject, setSelectedSubject] = useState('');
   const [loading, setLoading] = useState(false);
@@ -29,27 +29,29 @@ const EnrollSubjectDialog = ({ open, onClose, studentId, classId, className, onE
 
   useEffect(() => {
     if (open) {
-      fetchAvailableClasses();
-      if (selectedClass) {
-        fetchSubjectsByClass(selectedClass);
-      } else {
-        fetchSubjects();
+      // Always use student's registered class - fetch class details
+      if (classId) {
+        fetchStudentClass(classId);
       }
     }
-  }, [open, selectedClass]);
+  }, [open, classId]);
 
-  const fetchAvailableClasses = async () => {
+  const fetchStudentClass = async (classIdToFetch) => {
     try {
       const token = await GetToken();
-      const res = await fetch(`${Backend.api}classes/`, {
+      const res = await fetch(`${Backend.api}classes/${classIdToFetch}/`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res.ok) {
         const data = await res.json();
-        setAvailableClasses(data.data || data.results || []);
+        const classData = data.data || data;
+        setStudentClass(classData);
+        setSelectedClass(classIdToFetch);
+        // Automatically fetch subjects for student's class
+        fetchSubjectsByClass(classIdToFetch);
       }
     } catch (e) {
-      console.error('Error fetching classes:', e);
+      console.error('Error fetching class details:', e);
     }
   };
 
@@ -57,21 +59,19 @@ const EnrollSubjectDialog = ({ open, onClose, studentId, classId, className, onE
     setLoading(true);
     try {
       const token = await GetToken();
-      // First try to get class_subjects for this class
-      const res = await fetch(`${Backend.api}class_subjects/?class_fk=${classIdToFetch}`, {
+      // Use the classes/{id}/subjects endpoint to get subjects assigned to this specific class
+      const res = await fetch(`${Backend.api}classes/${classIdToFetch}/subjects/`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res.ok) {
         const data = await res.json();
-        const classSubjects = data.data || data.results || [];
-        // Extract subjects from class_subjects
-        const subjectsList = classSubjects.map(cs => cs.subject_details || cs.subject).filter(Boolean);
+        const subjectsList = data.data || data.results || [];
         setSubjects(subjectsList);
         if (subjectsList.length === 0) {
           toast.info('No subjects found for this class');
         }
       } else {
-        // Fallback: fetch all subjects
+        // Fallback: fetch all subjects (should not happen with proper backend)
         fetchSubjects();
       }
     } catch (e) {
@@ -176,8 +176,8 @@ const EnrollSubjectDialog = ({ open, onClose, studentId, classId, className, onE
     }
   };
 
-  const selectedClassName = availableClasses.find(c => c.id === selectedClass)?.grade ||
-    availableClasses.find(c => c.id === selectedClass)?.name ||
+  const selectedClassName = studentClass?.grade ||
+    studentClass?.name ||
     className || 'Selected Class';
 
   return (
@@ -190,25 +190,23 @@ const EnrollSubjectDialog = ({ open, onClose, studentId, classId, className, onE
       </DialogTitle>
       <DialogContent sx={{ pt: 2 }}>
         <Stack spacing={2}>
-          {/* Class Selector */}
+          {/* Student's Class - Read Only */}
           <FormControl fullWidth>
-            <InputLabel>Select Class</InputLabel>
+            <InputLabel>Student's Class</InputLabel>
             <Select
               value={selectedClass}
-              onChange={(e) => {
-                setSelectedClass(e.target.value);
-                setSelectedSubject(''); // Reset subject when class changes
-              }}
-              label="Select Class"
+              label="Student's Class"
+              disabled
             >
-              <MenuItem value="">
-                <em>Choose a class</em>
+              <MenuItem value={selectedClass}>
+                {studentClass ? (
+                  <>Grade {studentClass.grade} {studentClass.branch_details?.name ? `- ${studentClass.branch_details.name}` : ''}</>
+                ) : className ? (
+                  <>Grade {className}</>
+                ) : (
+                  <em>Loading...</em>
+                )}
               </MenuItem>
-              {availableClasses.map((cls) => (
-                <MenuItem key={cls.id} value={cls.id}>
-                  Grade {cls.grade} {cls.branch_details?.name ? `- ${cls.branch_details.name}` : ''}
-                </MenuItem>
-              ))}
             </Select>
           </FormControl>
 

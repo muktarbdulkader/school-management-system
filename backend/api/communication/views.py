@@ -81,20 +81,34 @@ class ChatViewSet(viewsets.ModelViewSet):
                 print(f"DEBUG: User {request.user.id} is not a student")
                 pass  # User is not a student, use request.user as-is
         
-        # Get chats where effective_user is sender or receiver
-        queryset = Chat.objects.filter(
-            models.Q(sender=effective_user) | models.Q(receiver=effective_user)
-        ).order_by('-timestamp')
-        print(f"DEBUG: effective_user={effective_user.id}, queryset count={queryset.count()}")
-        
+        # Build queryset: include chats where effective_user is sender/receiver
+        # AND for parents, also include chats where parent is directly sender/receiver
+        chat_filter = models.Q(sender=effective_user) | models.Q(receiver=effective_user)
+
+        # For parents viewing as student, also include direct parent messages
+        if student and effective_user != request.user:
+            chat_filter |= models.Q(sender=request.user) | models.Q(receiver=request.user)
+            print(f"DEBUG: Parent view - effective_user={effective_user.id}, parent_user={request.user.id}")
+
+        queryset = Chat.objects.filter(chat_filter).order_by('-timestamp')
+        print(f"DEBUG: queryset count={queryset.count()}")
+
         # Debug: Show all chats found
         for chat in queryset[:5]:
             print(f"DEBUG CHAT: id={chat.id}, sender={chat.sender.id} ({chat.sender.full_name}), receiver={chat.receiver.id} ({chat.receiver.full_name}), msg={chat.message[:30]}...")
-        
+
         # Group by other user and get the latest chat
         conversations = {}
         for chat in queryset:
-            other_user = chat.receiver if chat.sender == effective_user else chat.sender
+            # Determine the "other user" based on who is viewing
+            if chat.sender == effective_user:
+                other_user = chat.receiver
+            elif chat.receiver == effective_user:
+                other_user = chat.sender
+            elif chat.sender == request.user:
+                other_user = chat.receiver  # Parent sent this
+            else:
+                other_user = chat.sender  # Parent received this
             other_user_id = other_user.id
             existing_conversation = conversations.get(other_user_id)
             if not existing_conversation or chat.timestamp > existing_conversation['chat_instance'].timestamp:
@@ -231,6 +245,8 @@ class ChatViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         branch_id = self.request.data.get('branch_id')
         receiver_id = self.request.data.get('receiver')
+        student_id = self.request.data.get('student_id')
+
         if not receiver_id:
             raise PermissionDenied("Receiver ID is required.")
         if branch_id and not has_model_permission(self.request.user, 'chat', 'add_chat', branch_id):
@@ -241,7 +257,24 @@ class ChatViewSet(viewsets.ModelViewSet):
         except User.DoesNotExist:
             raise PermissionDenied("Receiver does not exist.")
 
-        serializer.save(sender=self.request.user)
+        # Determine sender: if student_id provided, use student as sender (for parents)
+        sender = self.request.user
+        if student_id:
+            from students.models import Student, ParentStudent
+            try:
+                student = Student.objects.get(id=student_id)
+                # Verify the current user is parent of this student
+                is_parent = ParentStudent.objects.filter(parent__user=self.request.user, student=student).exists()
+                if is_parent:
+                    sender = student.user  # Send as the student
+                    print(f"DEBUG: Parent {self.request.user.id} sending message as student {student.id}")
+                else:
+                    print(f"DEBUG: User {self.request.user.id} is not parent of student {student_id}")
+            except Student.DoesNotExist:
+                print(f"DEBUG: Student {student_id} not found")
+                pass  # Use request.user as sender if student not found
+
+        serializer.save(sender=sender)
 
     def create(self, request, *args, **kwargs):
         receiver_id = request.data.get('receiver')

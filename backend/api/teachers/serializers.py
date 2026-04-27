@@ -518,11 +518,12 @@ class TeacherPerformanceEvaluationSerializer(serializers.ModelSerializer):
             'strengths', 'areas_for_improvement', 'recommendations', 'action_items',
             'reviewed_by', 'reviewed_by_name', 'reviewed_at',
             'approved_by', 'approved_by_name', 'approved_at',
+            'evaluation_period_id', 'is_previous_period',
             'criteria_ratings'
         ]
         read_only_fields = [
             'id', 'evaluated_at', 'updated_at', 'overall_score', 'weighted_average',
-            'reviewed_at', 'approved_at'
+            'reviewed_at', 'approved_at', 'evaluation_period_id', 'is_previous_period'
         ]
 
     def get_term_details(self, obj):
@@ -585,6 +586,13 @@ class TeacherPerformanceEvaluationCreateSerializer(serializers.ModelSerializer):
         # Set academic_year from term if not provided
         if not validated_data.get('academic_year') and validated_data.get('term'):
             validated_data['academic_year'] = validated_data['term'].academic_year
+        
+        # Get current evaluation period settings and set period ID
+        from .models import EvaluationPeriodSettings
+        eval_settings = EvaluationPeriodSettings.get_settings()
+        if eval_settings.is_open and eval_settings.period_id:
+            validated_data['evaluation_period_id'] = eval_settings.period_id
+            validated_data['is_previous_period'] = False
         
         evaluation = TeacherPerformanceEvaluation.objects.create(**validated_data)
         

@@ -236,6 +236,15 @@ export function Sidebar({
     }
   }, [isInitializing, role, tabValue, reduxUser?.is_superuser]);
 
+  // For parents - fetch conversations when student is selected
+  useEffect(() => {
+    if (!isInitializing && actualStudentId && role !== 'student' && role !== 'teacher' && role !== 'super_admin' && role !== 'Super_Admin' && !reduxUser?.is_superuser) {
+      console.log('DEBUG: Parent - fetching conversations for student:', actualStudentId);
+      fetchStudentConversations(actualStudentId);
+      getGroupConversations(); // Also fetch group conversations
+    }
+  }, [isInitializing, actualStudentId, role, reduxUser?.is_superuser]);
+
   // Fetch available teachers when student ID changes (only for parents)
   // DISABLED: This endpoint causes 404 errors and is not needed for messaging
   useEffect(() => {
@@ -442,7 +451,10 @@ export function Sidebar({
       }
 
       if (responseData.success) {
-        setStudentConversations(responseData.data);
+        // Handle nested data structure (same as fetchStudentConversationsForCurrentUser)
+        const conversationsData = responseData.data?.data || responseData.data || [];
+        console.log('DEBUG fetchStudentConversations: conversationsData:', conversationsData, 'length:', conversationsData.length);
+        setStudentConversations(conversationsData);
         if (responseData.student_context) {
           setStudentContext(responseData.student_context);
         }
@@ -590,11 +602,12 @@ export function Sidebar({
             await getGroupConversations();
           }
         } else if (actualStudentId) {
-          await fetchStudentConversations(
-            actualStudentId,
-            selectedSubjectId,
-            selectedTeacherId,
-          );
+          // Fetch without filters to show all conversations including the new one
+          await fetchStudentConversations(actualStudentId);
+          // Also refresh group conversations if on All or Groups tab
+          if (tabValue === 0 || tabValue === 2) {
+            await getGroupConversations();
+          }
         }
       } catch (error) {
         console.error('Error refreshing conversations:', error);
