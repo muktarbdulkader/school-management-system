@@ -177,13 +177,20 @@ const ResourceRequestsPage = () => {
         setSelectedRequest(null);
         setApprovalData({ status: 'approved', rejection_reason: '', notes: '' });
 
-        // Force refresh data
-        setTimeout(async () => {
-          await fetchRequests();
-          if (isAdmin) {
-            await fetchStatistics();
-          }
-        }, 500);
+        // Immediately update the local state with the new status
+        const updatedRequest = response.data?.data;
+        if (updatedRequest) {
+          setRequests(prevRequests =>
+            prevRequests.map(req =>
+              req.id === updatedRequest.id ? updatedRequest : req
+            )
+          );
+        }
+
+        // Refresh statistics for admin
+        if (isAdmin) {
+          await fetchStatistics();
+        }
       } else {
         setError(response.data?.message || 'Failed to process request');
       }
@@ -205,7 +212,17 @@ const ResourceRequestsPage = () => {
 
       if (response.data?.success !== false) {
         setSuccess('Request marked as completed');
-        await fetchRequests();
+
+        // Immediately update the local state with the new status
+        const updatedRequest = response.data?.data;
+        if (updatedRequest) {
+          setRequests(prevRequests =>
+            prevRequests.map(req =>
+              req.id === updatedRequest.id ? updatedRequest : req
+            )
+          );
+        }
+
         await fetchStatistics();
       } else {
         setError(response.data?.message || 'Failed to complete request');
