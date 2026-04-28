@@ -24,14 +24,18 @@ const ResourceRequestForm = ({ open, onClose, request, onSuccess }) => {
     description: '',
     quantity: 1,
     priority: 'medium',
-    department: '',
-    estimated_cost: '',
+    class_fk: '',
     needed_by: '',
     notes: '',
     items: []
   });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [classes, setClasses] = useState([]);
+
+  useEffect(() => {
+    fetchClasses();
+  }, []);
 
   useEffect(() => {
     if (request) {
@@ -41,8 +45,7 @@ const ResourceRequestForm = ({ open, onClose, request, onSuccess }) => {
         description: request.description || '',
         quantity: request.quantity || 1,
         priority: request.priority || 'medium',
-        department: request.department || '',
-        estimated_cost: request.estimated_cost || '',
+        class_fk: request.class_fk || '',
         needed_by: request.needed_by || '',
         notes: request.notes || '',
         items: request.items || []
@@ -54,14 +57,23 @@ const ResourceRequestForm = ({ open, onClose, request, onSuccess }) => {
         description: '',
         quantity: 1,
         priority: 'medium',
-        department: '',
-        estimated_cost: '',
+        class_fk: '',
         needed_by: '',
         notes: '',
         items: []
       });
     }
   }, [request, open]);
+
+  const fetchClasses = async () => {
+    try {
+      const response = await api.get(`${Backend.api}${Backend.classes}`);
+      const classesData = response.data?.data || response.data?.results || response.data || [];
+      setClasses(Array.isArray(classesData) ? classesData : []);
+    } catch (error) {
+      console.error('Error fetching classes:', error);
+    }
+  };
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -73,7 +85,7 @@ const ResourceRequestForm = ({ open, onClose, request, onSuccess }) => {
       ...formData,
       items: [
         ...formData.items,
-        { item_name: '', description: '', quantity: 1, unit: '', estimated_unit_cost: '' }
+        { item_name: '', description: '', quantity: 1, unit: '' }
       ]
     });
   };
@@ -103,11 +115,9 @@ const ResourceRequestForm = ({ open, onClose, request, onSuccess }) => {
       const submitData = {
         ...formData,
         quantity: parseInt(formData.quantity) || 1,
-        estimated_cost: formData.estimated_cost ? parseFloat(formData.estimated_cost) : null,
         items: formData.items.map(item => ({
           ...item,
-          quantity: parseInt(item.quantity) || 1,
-          estimated_unit_cost: item.estimated_unit_cost ? parseFloat(item.estimated_unit_cost) : null
+          quantity: parseInt(item.quantity) || 1
         }))
       };
 
@@ -121,11 +131,11 @@ const ResourceRequestForm = ({ open, onClose, request, onSuccess }) => {
       onSuccess();
     } catch (error) {
       console.error('Error saving request:', error);
-      const errorMsg = error.response?.data?.message || 
-                       error.response?.data?.error ||
-                       JSON.stringify(error.response?.data) ||
-                       error.message ||
-                       'Failed to save request';
+      const errorMsg = error.response?.data?.message ||
+        error.response?.data?.error ||
+        JSON.stringify(error.response?.data) ||
+        error.message ||
+        'Failed to save request';
       setError(errorMsg);
     } finally {
       setLoading(false);
@@ -137,7 +147,7 @@ const ResourceRequestForm = ({ open, onClose, request, onSuccess }) => {
       <DialogTitle>{request ? 'Edit Request' : 'New Resource Request'}</DialogTitle>
       <DialogContent>
         {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
-        
+
         <Grid container spacing={2} sx={{ mt: 1 }}>
           <Grid item xs={12} sm={6}>
             <TextField
@@ -156,7 +166,7 @@ const ResourceRequestForm = ({ open, onClose, request, onSuccess }) => {
               <MenuItem value="other">Other</MenuItem>
             </TextField>
           </Grid>
-          
+
           <Grid item xs={12} sm={6}>
             <TextField
               select
@@ -210,26 +220,22 @@ const ResourceRequestForm = ({ open, onClose, request, onSuccess }) => {
             />
           </Grid>
 
-          <Grid item xs={12} sm={4}>
+          <Grid item xs={12} sm={8}>
             <TextField
+              select
               fullWidth
-              label="Department"
-              name="department"
-              value={formData.department}
+              label="Class"
+              name="class_fk"
+              value={formData.class_fk}
               onChange={handleChange}
-            />
-          </Grid>
-
-          <Grid item xs={12} sm={4}>
-            <TextField
-              fullWidth
-              type="number"
-              label="Estimated Cost"
-              name="estimated_cost"
-              value={formData.estimated_cost}
-              onChange={handleChange}
-              inputProps={{ min: 0, step: 0.01 }}
-            />
+            >
+              <MenuItem value="">Select Class</MenuItem>
+              {classes.map((cls) => (
+                <MenuItem key={cls.id} value={cls.id}>
+                  {cls.grade}
+                </MenuItem>
+              ))}
+            </TextField>
           </Grid>
 
           <Grid item xs={12} sm={6}>
@@ -294,22 +300,12 @@ const ResourceRequestForm = ({ open, onClose, request, onSuccess }) => {
                       placeholder="e.g., pcs, box"
                     />
                   </Grid>
-                  <Grid item xs={12} sm={8}>
+                  <Grid item xs={12} sm={11}>
                     <TextField
                       fullWidth
                       label="Description"
                       value={item.description}
                       onChange={(e) => handleItemChange(index, 'description', e.target.value)}
-                    />
-                  </Grid>
-                  <Grid item xs={12} sm={3}>
-                    <TextField
-                      fullWidth
-                      type="number"
-                      label="Unit Cost"
-                      value={item.estimated_unit_cost}
-                      onChange={(e) => handleItemChange(index, 'estimated_unit_cost', e.target.value)}
-                      inputProps={{ min: 0, step: 0.01 }}
                     />
                   </Grid>
                   <Grid item xs={12} sm={1}>

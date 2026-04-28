@@ -1405,8 +1405,22 @@ class GroupChatMemberViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         user = self.request.user
         branch_id = self.request.query_params.get('branch_id')
+        group_id = self.request.query_params.get('group_chat')
+
         if branch_id and not has_model_permission(user, 'groupchatmember', 'view_groupchatmember', branch_id):
             raise PermissionDenied("You do not have permission to view group chat members in this branch.")
+
+        # For single object lookups (retrieve, update, destroy), return all members
+        if self.action in ['retrieve', 'update', 'partial_update', 'destroy']:
+            return self.queryset.all()
+
+        # Super admins can see all members
+        if user.is_superuser:
+            return self.queryset.all()
+        if group_id:
+            return self.queryset.filter(group_chat_id=group_id)
+
+        # Otherwise, return groups where current user is a member
         return self.queryset.filter(user=user)
 
     def list(self, request, *args, **kwargs):

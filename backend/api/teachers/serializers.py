@@ -323,12 +323,21 @@ class TeacherPerformanceRatingSerializer(serializers.ModelSerializer):
     class Meta:
         model = TeacherPerformanceRating
         fields = '__all__'
-        read_only_fields = ['id', 'rating_date', 'created_at']
+        read_only_fields = ['id', 'rating_date', 'created_at', 'evaluation_period_id', 'is_previous_period']
 
     def validate_rating(self, value):
         if not 1 <= value <= 5:
             raise serializers.ValidationError("Rating must be between 1 and 5")
         return value
+
+    def create(self, validated_data):
+        # Get current evaluation period settings and set period ID
+        from .models import EvaluationPeriodSettings
+        eval_settings = EvaluationPeriodSettings.get_settings()
+        if eval_settings.is_open and eval_settings.period_id:
+            validated_data['evaluation_period_id'] = eval_settings.period_id
+            validated_data['is_previous_period'] = False
+        return super().create(validated_data)
 class TeacherMetricsSerializer(serializers.ModelSerializer):
     teacher = serializers.PrimaryKeyRelatedField(
         queryset=Teacher.objects.all(),

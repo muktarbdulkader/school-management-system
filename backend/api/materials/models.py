@@ -49,7 +49,8 @@ class ResourceRequest(models.Model):
 
     requested_by = models.ForeignKey('users.User', on_delete=models.CASCADE, related_name='resource_requests')
     approved_by = models.ForeignKey('users.User', on_delete=models.SET_NULL, null=True, blank=True, related_name='approved_resource_requests')
-    department = models.CharField(max_length=100, blank=True)
+    department = models.CharField(max_length=100, blank=True, help_text="Legacy field - use class_fk instead")
+    class_fk = models.ForeignKey('academics.Class', on_delete=models.SET_NULL, null=True, blank=True, related_name='resource_requests')
 
     estimated_cost = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
     actual_cost = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)

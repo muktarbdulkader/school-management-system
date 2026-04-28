@@ -52,16 +52,16 @@ const ResourceRequestsPage = () => {
   const user = useSelector((state) => state.user);
   const userRole = user?.role?.name?.toLowerCase();
   const userRoles = user?.user?.roles || [];
-  
+
   // Check if user has admin-like roles
   const isAdmin = user?.user?.is_superuser ||
-                  user?.user?.is_staff ||
-                  userRole === 'admin' || 
-                  userRole === 'administrator' || 
-                  userRoles.some(role => {
-                    const roleName = typeof role === 'string' ? role : role?.name;
-                    return roleName && ['admin', 'super_admin', 'head_admin', 'ceo', 'superadmin'].includes(roleName.toLowerCase());
-                  });
+    user?.user?.is_staff ||
+    userRole === 'admin' ||
+    userRole === 'administrator' ||
+    userRoles.some(role => {
+      const roleName = typeof role === 'string' ? role : role?.name;
+      return roleName && ['admin', 'super_admin', 'head_admin', 'ceo', 'superadmin'].includes(roleName.toLowerCase());
+    });
 
   useEffect(() => {
     fetchRequests();
@@ -72,7 +72,7 @@ const ResourceRequestsPage = () => {
     try {
       setLoading(true);
       setError('');
-      
+
       // Build query parameters
       const params = {};
       if (filters.status) params.status = filters.status;
@@ -81,9 +81,9 @@ const ResourceRequestsPage = () => {
 
       // Always use the main endpoint - backend will filter based on user permissions
       const endpoint = Backend.resourceRequests;
-      
+
       const response = await api.get(`${Backend.api}${endpoint}`, { params });
-      
+
       // Handle different response structures
       let requestsData = [];
       if (response.data?.data) {
@@ -93,14 +93,14 @@ const ResourceRequestsPage = () => {
       } else if (Array.isArray(response.data)) {
         requestsData = response.data;
       }
-      
+
       setRequests(Array.isArray(requestsData) ? requestsData : []);
     } catch (error) {
       console.error('Error fetching requests:', error);
-      const errorMsg = error.response?.data?.message || 
-                       error.response?.data?.detail ||
-                       error.message || 
-                       'Failed to load resource requests';
+      const errorMsg = error.response?.data?.message ||
+        error.response?.data?.detail ||
+        error.message ||
+        'Failed to load resource requests';
       setError(errorMsg);
       setRequests([]);
     } finally {
@@ -110,7 +110,7 @@ const ResourceRequestsPage = () => {
 
   const fetchStatistics = async () => {
     if (!isAdmin) return;
-    
+
     try {
       const response = await api.get(`${Backend.api}${Backend.resourceRequestsStatistics}`);
       const statsData = response.data?.data || response.data;
@@ -163,20 +163,20 @@ const ResourceRequestsPage = () => {
       setError('');
       setSuccess('');
       const endpoint = Backend.resourceRequestApprove.replace('{id}', selectedRequest.id);
-      
+
       console.log('Submitting approval:', approvalData);
       console.log('Endpoint:', `${Backend.api}${endpoint}`);
-      
+
       const response = await api.post(`${Backend.api}${endpoint}`, approvalData);
-      
+
       console.log('Approval response:', response.data);
-      
+
       if (response.data?.success !== false) {
         setSuccess(`Request ${approvalData.status} successfully`);
         setOpenApproval(false);
         setSelectedRequest(null);
         setApprovalData({ status: 'approved', rejection_reason: '', notes: '' });
-        
+
         // Force refresh data
         setTimeout(async () => {
           await fetchRequests();
@@ -200,9 +200,9 @@ const ResourceRequestsPage = () => {
     try {
       setError('');
       const endpoint = Backend.resourceRequestComplete.replace('{id}', id);
-      
+
       const response = await api.post(`${Backend.api}${endpoint}`);
-      
+
       if (response.data?.success !== false) {
         setSuccess('Request marked as completed');
         await fetchRequests();
@@ -368,7 +368,7 @@ const ResourceRequestsPage = () => {
                 <TableCell>Priority</TableCell>
                 <TableCell>Status</TableCell>
                 <TableCell>Requested By</TableCell>
-                <TableCell>Department</TableCell>
+                <TableCell>Class</TableCell>
                 <TableCell>Needed By</TableCell>
                 <TableCell>Actions</TableCell>
               </TableRow>
@@ -386,21 +386,21 @@ const ResourceRequestsPage = () => {
                     <TableCell>{request.title}</TableCell>
                     <TableCell>{request.request_type_display}</TableCell>
                     <TableCell>
-                      <Chip 
-                        label={request.priority_display} 
-                        color={getPriorityColor(request.priority)} 
-                        size="small" 
+                      <Chip
+                        label={request.priority_display}
+                        color={getPriorityColor(request.priority)}
+                        size="small"
                       />
                     </TableCell>
                     <TableCell>
-                      <Chip 
-                        label={request.status_display} 
-                        color={getStatusColor(request.status)} 
-                        size="small" 
+                      <Chip
+                        label={request.status_display}
+                        color={getStatusColor(request.status)}
+                        size="small"
                       />
                     </TableCell>
                     <TableCell>{request.requested_by_name}</TableCell>
-                    <TableCell>{request.department || 'N/A'}</TableCell>
+                    <TableCell>{request.class_name || request.class_grade || 'N/A'}</TableCell>
                     <TableCell>{request.needed_by || 'N/A'}</TableCell>
                     <TableCell>
                       <Box sx={{ display: 'flex', gap: 1 }}>
@@ -419,7 +419,7 @@ const ResourceRequestsPage = () => {
                             </Tooltip>
                           </>
                         )}
-                        
+
                         {/* Admin users can approve/reject pending requests */}
                         {isAdmin && request.status === 'pending' && (
                           <Tooltip title="Approve/Reject">
@@ -428,7 +428,7 @@ const ResourceRequestsPage = () => {
                             </IconButton>
                           </Tooltip>
                         )}
-                        
+
                         {/* Admin users can mark approved requests as complete */}
                         {isAdmin && request.status === 'approved' && (
                           <Tooltip title="Mark Complete">
@@ -475,7 +475,7 @@ const ResourceRequestsPage = () => {
             <MenuItem value="approved">Approve</MenuItem>
             <MenuItem value="rejected">Reject</MenuItem>
           </TextField>
-          
+
           {approvalData.status === 'rejected' && (
             <TextField
               fullWidth
@@ -487,7 +487,7 @@ const ResourceRequestsPage = () => {
               sx={{ mb: 2 }}
             />
           )}
-          
+
           <TextField
             fullWidth
             multiline

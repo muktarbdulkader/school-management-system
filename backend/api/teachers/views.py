@@ -1,5 +1,6 @@
 import logging
 
+from django.db import models
 from rest_framework import viewsets, status
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
@@ -2393,49 +2394,101 @@ class PerformanceMeasurementCriteriaViewSet(viewsets.ModelViewSet):
             }, status=404)
         
         # Get all ratings for this teacher
-        ratings = TeacherPerformanceRating.objects.filter(teacher=teacher).select_related('rated_by')
+        all_ratings = TeacherPerformanceRating.objects.filter(teacher=teacher).select_related('rated_by')
+        
+        # Get current period ratings (only those explicitly marked as current - is_previous_period=False)
+        # These are new ratings created after the evaluation period opened
+        current_period_ratings = all_ratings.filter(is_previous_period=False)
+        # Get previous period ratings (explicitly marked as previous OR existing data with NULL)
+        previous_period_ratings = all_ratings.filter(
+            models.Q(is_previous_period=True) | models.Q(is_previous_period__isnull=True)
+        )
         
         # Get evaluations
         evaluations = TeacherPerformanceEvaluation.objects.filter(teacher=teacher, status='approved')
         
-        # Calculate aggregate statistics
-        student_ratings = ratings.filter(
+        # Calculate aggregate statistics for CURRENT period
+        current_student_ratings = current_period_ratings.filter(
             rated_by__in=Student.objects.values_list('user', flat=True)
         )
-        parent_ratings = ratings.filter(
+        current_parent_ratings = current_period_ratings.filter(
             rated_by__in=ParentStudent.objects.values_list('parent__user', flat=True)
         )
-        admin_ratings = ratings.filter(
+        current_admin_ratings = current_period_ratings.filter(
             rated_by__in=User.objects.filter(is_staff=True).values_list('id', flat=True)
         )
         
-        # Calculate criteria breakdown
-        criteria_stats = {}
+        # Calculate aggregate statistics for PREVIOUS period
+        prev_student_ratings = previous_period_ratings.filter(
+            rated_by__in=Student.objects.values_list('user', flat=True)
+        )
+        prev_parent_ratings = previous_period_ratings.filter(
+            rated_by__in=ParentStudent.objects.values_list('parent__user', flat=True)
+        )
+        prev_admin_ratings = previous_period_ratings.filter(
+            rated_by__in=User.objects.filter(is_staff=True).values_list('id', flat=True)
+        )
+        
+        # Calculate criteria breakdown for CURRENT period
+        current_criteria_stats = {}
+        # Calculate criteria breakdown for PREVIOUS period
+        previous_criteria_stats = {}
         all_criteria = PerformanceMeasurementCriteria.objects.filter(is_active=True)
         
         for c in all_criteria:
-            cat_ratings = ratings.filter(category=c.code)
-            avg_rating = cat_ratings.aggregate(Avg('rating'))['rating__avg'] or 0
-            criteria_stats[c.code] = {
+            # Current period
+            current_cat_ratings = current_period_ratings.filter(category=c.code)
+            current_avg = current_cat_ratings.aggregate(Avg('rating'))['rating__avg'] or 0
+            current_criteria_stats[c.code] = {
                 'criteria_name': c.name,
                 'criteria_code': c.code,
-                'total_ratings': cat_ratings.count(),
-                'average_rating': round(avg_rating, 2),
-                'percentage': round(avg_rating / 5 * 100),
-                'student_count': cat_ratings.filter(
+                'total_ratings': current_cat_ratings.count(),
+                'average_rating': round(current_avg, 2),
+                'percentage': round(current_avg / 5 * 100),
+                'student_count': current_cat_ratings.filter(
                     rated_by__in=Student.objects.values_list('user', flat=True)
                 ).count(),
-                'parent_count': cat_ratings.filter(
+                'parent_count': current_cat_ratings.filter(
                     rated_by__in=ParentStudent.objects.values_list('parent__user', flat=True)
                 ).count(),
-                'admin_count': cat_ratings.filter(
+                'admin_count': current_cat_ratings.filter(
                     rated_by__in=User.objects.filter(is_staff=True).values_list('id', flat=True)
-                ).count()
+                ).count(),
+                'period': 'current'
+            }
+            
+            # Previous period
+            prev_cat_ratings = previous_period_ratings.filter(category=c.code)
+            prev_avg = prev_cat_ratings.aggregate(Avg('rating'))['rating__avg'] or 0
+            previous_criteria_stats[c.code] = {
+                'criteria_name': c.name,
+                'criteria_code': c.code,
+                'total_ratings': prev_cat_ratings.count(),
+                'average_rating': round(prev_avg, 2),
+                'percentage': round(prev_avg / 5 * 100),
+                'student_count': prev_cat_ratings.filter(
+                    rated_by__in=Student.objects.values_list('user', flat=True)
+                ).count(),
+                'parent_count': prev_cat_ratings.filter(
+                    rated_by__in=ParentStudent.objects.values_list('parent__user', flat=True)
+                ).count(),
+                'admin_count': prev_cat_ratings.filter(
+                    rated_by__in=User.objects.filter(is_staff=True).values_list('id', flat=True)
+                ).count(),
+                'period': 'previous'
             }
         
-        # Overall statistics
-        total_ratings = ratings.count()
-        overall_avg = ratings.aggregate(Avg('rating'))['rating__avg'] or 0
+        # Overall statistics for CURRENT period (used when evaluation is open)
+        current_total = current_period_ratings.count()
+        current_overall_avg = current_period_ratings.aggregate(Avg('rating'))['rating__avg'] or 0
+        
+        # Overall statistics for PREVIOUS period
+        prev_total = previous_period_ratings.count()
+        prev_overall_avg = previous_period_ratings.aggregate(Avg('rating'))['rating__avg'] or 0
+        
+        # Combined stats (for backward compatibility)
+        total_ratings = all_ratings.count()
+        overall_avg = all_ratings.aggregate(Avg('rating'))['rating__avg'] or 0
         
         # Get latest evaluation with admin recommendations
         latest_evaluation = evaluations.order_by('-evaluated_at').first()
@@ -2472,13 +2525,69 @@ class PerformanceMeasurementCriteriaViewSet(viewsets.ModelViewSet):
                 'total_ratings': total_ratings,
                 'overall_average': round(overall_avg, 2),
                 'overall_percentage': round(overall_avg / 5 * 100),
-                'student_ratings_count': student_ratings.count(),
-                'parent_ratings_count': parent_ratings.count(),
-                'admin_ratings_count': admin_ratings.count(),
+                'student_ratings_count': all_ratings.filter(
+                    rated_by__in=Student.objects.values_list('user', flat=True)
+                ).count(),
+                'parent_ratings_count': all_ratings.filter(
+                    rated_by__in=ParentStudent.objects.values_list('parent__user', flat=True)
+                ).count(),
+                'admin_ratings_count': all_ratings.filter(
+                    rated_by__in=User.objects.filter(is_staff=True).values_list('id', flat=True)
+                ).count(),
                 'evaluation_count': evaluations.count()
             },
+            # Current period stats (when evaluation is open)
+            'current_period': {
+                'total_ratings': current_total,
+                'overall_average': round(current_overall_avg, 2),
+                'overall_percentage': round(current_overall_avg / 5 * 100),
+                'student_ratings_count': current_student_ratings.count(),
+                'parent_ratings_count': current_parent_ratings.count(),
+                'admin_ratings_count': current_admin_ratings.count(),
+                'criteria_breakdown': current_criteria_stats,
+                'ratings': [
+                    {
+                        'id': str(r.id),
+                        'category': r.category,
+                        'rating': r.rating,
+                        'rated_by_name': r.rated_by.full_name if r.rated_by and r.rated_by.is_staff else None,
+                        'rated_by_role': 'Student' if Student.objects.filter(user=r.rated_by).exists() 
+                                         else 'Parent' if ParentStudent.objects.filter(parent__user=r.rated_by).exists()
+                                         else 'Admin' if r.rated_by.is_staff else 'Other',
+                        'rating_date': r.rating_date.isoformat(),
+                        'comment': r.comment,
+                        'is_previous_period': r.is_previous_period
+                    }
+                    for r in current_period_ratings.order_by('-rating_date')[:20]
+                ]
+            },
+            # Previous period stats (historical)
+            'previous_period': {
+                'total_ratings': prev_total,
+                'overall_average': round(prev_overall_avg, 2),
+                'overall_percentage': round(prev_overall_avg / 5 * 100),
+                'student_ratings_count': prev_student_ratings.count(),
+                'parent_ratings_count': prev_parent_ratings.count(),
+                'admin_ratings_count': prev_admin_ratings.count(),
+                'criteria_breakdown': previous_criteria_stats,
+                'ratings': [
+                    {
+                        'id': str(r.id),
+                        'category': r.category,
+                        'rating': r.rating,
+                        'rated_by_name': r.rated_by.full_name if r.rated_by and r.rated_by.is_staff else None,
+                        'rated_by_role': 'Student' if Student.objects.filter(user=r.rated_by).exists() 
+                                         else 'Parent' if ParentStudent.objects.filter(parent__user=r.rated_by).exists()
+                                         else 'Admin' if r.rated_by.is_staff else 'Other',
+                        'rating_date': r.rating_date.isoformat(),
+                        'comment': r.comment,
+                        'is_previous_period': r.is_previous_period
+                    }
+                    for r in previous_period_ratings.order_by('-rating_date')[:20]
+                ]
+            },
             'admin_recommendations': admin_recommendations,
-            'criteria_breakdown': criteria_stats,
+            'criteria_breakdown': current_criteria_stats if eval_settings.is_open else previous_criteria_stats,
             'recent_ratings': [
                 {
                     'id': str(r.id),
@@ -2490,9 +2599,10 @@ class PerformanceMeasurementCriteriaViewSet(viewsets.ModelViewSet):
                                      else 'Parent' if ParentStudent.objects.filter(parent__user=r.rated_by).exists()
                                      else 'Admin' if r.rated_by.is_staff else 'Other',
                     'rating_date': r.rating_date.isoformat(),
-                    'comment': r.comment
+                    'comment': r.comment,
+                    'is_previous_period': r.is_previous_period
                 }
-                for r in ratings.order_by('-rating_date')[:20]
+                for r in all_ratings.order_by('-rating_date')[:20]
             ],
             'evaluations': [
                 {

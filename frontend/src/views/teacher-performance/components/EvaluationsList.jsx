@@ -60,6 +60,7 @@ const EvaluationsList = ({ teacherId = null, open, onClose, onEdit, onCreate, ca
   const [allEvaluationsOpen, setAllEvaluationsOpen] = useState(false);
   const [allEvaluationsData, setAllEvaluationsData] = useState(null);
   const [allEvaluationsLoading, setAllEvaluationsLoading] = useState(false);
+  const [showPreviousPeriod, setShowPreviousPeriod] = useState(false);
 
   useEffect(() => {
     if (open) {
@@ -612,87 +613,90 @@ const EvaluationsList = ({ teacherId = null, open, onClose, onEdit, onCreate, ca
             </DialogTitle>
             <DialogContent dividers>
               <Stack spacing={3}>
-                {/* Summary Cards */}
-                <Grid container spacing={2}>
-                  <Grid item xs={12} sm={6} md={3}>
-                    <Card sx={{ bgcolor: 'primary.light', color: 'white', p: 2 }}>
-                      <Typography variant="h4" fontWeight={800} align="center">
-                        {allEvaluationsData.summary.overall_average.toFixed(1)}
-                      </Typography>
-                      <Typography variant="caption" align="center" sx={{ display: 'block' }}>
-                        Overall Average
-                      </Typography>
-                      <Typography variant="h6" fontWeight={700} align="center">
-                        {allEvaluationsData.summary.overall_percentage}%
-                      </Typography>
+                {/* Summary Cards - Show Both Current and Previous Periods */}
+                <Box>
+                  <Stack direction="row" spacing={2} sx={{ mb: 2 }}>
+                    {/* Current Period Card */}
+                    <Card sx={{ bgcolor: 'success.light', color: 'white', p: 2, flex: 1 }}>
+                      <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
+                        <Typography variant="h6" fontWeight={700}>🆕 Current Period</Typography>
+                        {allEvaluationsData.evaluation_period?.is_open && (
+                          <Chip label="ACTIVE" color="success" size="small" sx={{ bgcolor: 'white', color: 'success.dark', fontWeight: 700 }} />
+                        )}
+                      </Stack>
+                      <Grid container spacing={1}>
+                        <Grid item xs={6}>
+                          <Typography variant="h4" fontWeight={800} align="center">
+                            {(allEvaluationsData.current_period?.total_ratings || 0)}
+                          </Typography>
+                          <Typography variant="caption" align="center" sx={{ display: 'block' }}>
+                            Total Ratings
+                          </Typography>
+                        </Grid>
+                        <Grid item xs={6}>
+                          <Typography variant="h4" fontWeight={800} align="center">
+                            {(allEvaluationsData.current_period?.overall_average || 0).toFixed(1)}
+                          </Typography>
+                          <Typography variant="caption" align="center" sx={{ display: 'block' }}>
+                            Avg / {(allEvaluationsData.current_period?.overall_percentage || 0)}%
+                          </Typography>
+                        </Grid>
+                      </Grid>
                     </Card>
-                  </Grid>
-                  {/* Ratings by Rater Type */}
-                  <Grid item xs={12} sm={6} md={3}>
-                    <Card sx={{ bgcolor: 'success.light', color: 'white', p: 2 }}>
-                      <Typography variant="h4" fontWeight={800} align="center">
-                        {allEvaluationsData.summary.student_ratings_count || 0}
-                      </Typography>
-                      <Typography variant="caption" align="center" sx={{ display: 'block' }}>
-                        Student Ratings
-                      </Typography>
-                    </Card>
-                  </Grid>
-                  <Grid item xs={12} sm={6} md={3}>
-                    <Card sx={{ bgcolor: 'info.light', color: 'white', p: 2 }}>
-                      <Typography variant="h4" fontWeight={800} align="center">
-                        {allEvaluationsData.summary.parent_ratings_count || 0}
-                      </Typography>
-                      <Typography variant="caption" align="center" sx={{ display: 'block' }}>
-                        Parent Ratings
-                      </Typography>
-                    </Card>
-                  </Grid>
-                  <Grid item xs={12} sm={6} md={3}>
-                    <Card sx={{ bgcolor: 'warning.light', color: 'white', p: 2 }}>
-                      <Typography variant="h4" fontWeight={800} align="center">
-                        {allEvaluationsData.summary.admin_ratings_count || 0}
-                      </Typography>
-                      <Typography variant="caption" align="center" sx={{ display: 'block' }}>
-                        Admin Ratings
-                      </Typography>
-                    </Card>
-                  </Grid>
-                </Grid>
 
-                {/* Second Row - Totals */}
-                <Grid container spacing={2} sx={{ mt: 1 }}>
-                  <Grid item xs={12} sm={6} md={4}>
-                    <Card sx={{ bgcolor: 'secondary.light', color: 'white', p: 2 }}>
-                      <Typography variant="h4" fontWeight={800} align="center">
-                        {allEvaluationsData.summary.total_ratings}
-                      </Typography>
-                      <Typography variant="caption" align="center" sx={{ display: 'block' }}>
-                        Total Ratings Received
-                      </Typography>
+                    {/* Previous Period Card - Click to expand */}
+                    <Card
+                      sx={{
+                        bgcolor: allEvaluationsData.previous_period?.total_ratings > 0 ? 'grey.100' : 'grey.50',
+                        p: 2,
+                        flex: 1,
+                        cursor: allEvaluationsData.previous_period?.total_ratings > 0 ? 'pointer' : 'default',
+                        border: '2px solid',
+                        borderColor: allEvaluationsData.previous_period?.total_ratings > 0 ? 'grey.300' : 'grey.200'
+                      }}
+                      onClick={() => {
+                        if (allEvaluationsData.previous_period?.total_ratings > 0) {
+                          // Toggle previous period details view
+                          setShowPreviousPeriod(!showPreviousPeriod);
+                        }
+                      }}
+                    >
+                      <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
+                        <Typography variant="h6" fontWeight={700} color="text.secondary">📅 Previous Period</Typography>
+                        <Chip
+                          label="STORED"
+                          color="default"
+                          size="small"
+                          variant="outlined"
+                          sx={{ fontWeight: 600 }}
+                        />
+                        {allEvaluationsData.previous_period?.total_ratings > 0 && (
+                          <Typography variant="caption" color="text.secondary" sx={{ ml: 'auto' }}>
+                            {showPreviousPeriod ? '▼ Hide' : '▶ Click to view'}
+                          </Typography>
+                        )}
+                      </Stack>
+                      <Grid container spacing={1}>
+                        <Grid item xs={6}>
+                          <Typography variant="h4" fontWeight={800} align="center" color="text.secondary">
+                            {(allEvaluationsData.previous_period?.total_ratings || 0)}
+                          </Typography>
+                          <Typography variant="caption" align="center" sx={{ display: 'block' }} color="text.secondary">
+                            Total Ratings
+                          </Typography>
+                        </Grid>
+                        <Grid item xs={6}>
+                          <Typography variant="h4" fontWeight={800} align="center" color="text.secondary">
+                            {(allEvaluationsData.previous_period?.overall_average || 0).toFixed(1)}
+                          </Typography>
+                          <Typography variant="caption" align="center" sx={{ display: 'block' }} color="text.secondary">
+                            Avg / {(allEvaluationsData.previous_period?.overall_percentage || 0)}%
+                          </Typography>
+                        </Grid>
+                      </Grid>
                     </Card>
-                  </Grid>
-                  <Grid item xs={12} sm={6} md={4}>
-                    <Card sx={{ bgcolor: 'primary.light', color: 'white', p: 2 }}>
-                      <Typography variant="h4" fontWeight={800} align="center">
-                        {Object.keys(allEvaluationsData.criteria_breakdown).length}
-                      </Typography>
-                      <Typography variant="caption" align="center" sx={{ display: 'block' }}>
-                        Criteria Measured
-                      </Typography>
-                    </Card>
-                  </Grid>
-                  <Grid item xs={12} sm={6} md={4}>
-                    <Card sx={{ bgcolor: 'grey.500', color: 'white', p: 2 }}>
-                      <Typography variant="h4" fontWeight={800} align="center">
-                        {allEvaluationsData.summary.evaluation_count}
-                      </Typography>
-                      <Typography variant="caption" align="center" sx={{ display: 'block' }}>
-                        Formal Evaluations
-                      </Typography>
-                    </Card>
-                  </Grid>
-                </Grid>
+                  </Stack>
+                </Box>
 
                 <Divider />
 
@@ -864,11 +868,19 @@ const EvaluationsList = ({ teacherId = null, open, onClose, onEdit, onCreate, ca
 
                 {/* Criteria Breakdown - Aggregate Only */}
                 <Box>
-                  <Typography variant="h6" fontWeight={700} gutterBottom>
-                    Criteria Performance Breakdown
-                  </Typography>
+                  <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
+                    <Typography variant="h6" fontWeight={700}>
+                      Criteria Performance Breakdown
+                    </Typography>
+                    {allEvaluationsData.evaluation_period?.is_open ? (
+                      <Chip label="CURRENT PERIOD" color="success" size="small" variant="filled" sx={{ fontWeight: 600 }} />
+                    ) : (
+                      <Chip label="PREVIOUS PERIOD" color="default" size="small" variant="outlined" sx={{ fontWeight: 600 }} />
+                    )}
+                  </Stack>
                   <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
-                    Aggregate scores from all raters (Students, Parents, Admins). Individual rater breakdowns are not shown for privacy.
+                    Aggregate scores from all raters (Students, Parents, Admins) for the {allEvaluationsData.evaluation_period?.is_open ? 'current' : 'previous'} evaluation period.
+                    Individual rater breakdowns are not shown for privacy.
                   </Typography>
                   <TableContainer>
                     <Table size="small">
@@ -881,7 +893,10 @@ const EvaluationsList = ({ teacherId = null, open, onClose, onEdit, onCreate, ca
                         </TableRow>
                       </TableHead>
                       <TableBody>
-                        {Object.values(allEvaluationsData.criteria_breakdown).map((criteria) => (
+                        {Object.values(allEvaluationsData.evaluation_period?.is_open
+                          ? (allEvaluationsData.current_period?.criteria_breakdown || {})
+                          : (allEvaluationsData.previous_period?.criteria_breakdown || {})
+                        ).map((criteria) => (
                           <TableRow key={criteria.criteria_code}>
                             <TableCell>
                               <Typography variant="body2" fontWeight={600}>
@@ -933,18 +948,135 @@ const EvaluationsList = ({ teacherId = null, open, onClose, onEdit, onCreate, ca
 
                 <Divider />
 
-                {/* Admin/Super Admin Recommendations */}
-                <Box>
-                  <Typography variant="h6" fontWeight={700} gutterBottom>
-                    {allEvaluationsData.evaluation_period?.is_open ? '🆕 New Admin Evaluation & Recommendations' : '📋 Previous Admin Evaluation & Recommendations'}
-                    {allEvaluationsData.admin_recommendations?.evaluated_by && (
-                      <Typography variant="caption" color="text.secondary" sx={{ ml: 1 }}>
-                        by {allEvaluationsData.admin_recommendations.evaluated_by} ({allEvaluationsData.admin_recommendations.term_name})
+                {/* Previous Period Details - Expandable */}
+                {showPreviousPeriod && allEvaluationsData.previous_period?.total_ratings > 0 && (
+                  <Box sx={{ bgcolor: 'grey.50', p: 2, borderRadius: 2, border: '1px solid', borderColor: 'grey.300' }}>
+                    <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 2 }}>
+                      <Typography variant="h6" fontWeight={700} color="text.secondary">
+                        📅 Previous Period Details
                       </Typography>
-                    )}
-                  </Typography>
+                      <Chip label="STORED DATA" color="default" size="small" variant="outlined" />
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        sx={{ ml: 'auto' }}
+                        onClick={() => setShowPreviousPeriod(false)}
+                      >
+                        Hide
+                      </Button>
+                    </Stack>
 
-                  {allEvaluationsData.admin_recommendations ? (
+                    {/* Previous Period Stats */}
+                    <Grid container spacing={2} sx={{ mb: 2 }}>
+                      <Grid item xs={6} sm={3}>
+                        <Card sx={{ bgcolor: 'white', p: 1.5 }}>
+                          <Typography variant="h5" fontWeight={700} align="center" color="text.secondary">
+                            {(allEvaluationsData.previous_period?.overall_average || 0).toFixed(1)}
+                          </Typography>
+                          <Typography variant="caption" align="center" sx={{ display: 'block' }} color="text.secondary">
+                            Avg / {(allEvaluationsData.previous_period?.overall_percentage || 0)}%
+                          </Typography>
+                        </Card>
+                      </Grid>
+                      <Grid item xs={6} sm={3}>
+                        <Card sx={{ bgcolor: 'white', p: 1.5 }}>
+                          <Typography variant="h5" fontWeight={700} align="center" color="text.secondary">
+                            {allEvaluationsData.previous_period?.student_ratings_count || 0}
+                          </Typography>
+                          <Typography variant="caption" align="center" sx={{ display: 'block' }} color="text.secondary">
+                            Student Ratings
+                          </Typography>
+                        </Card>
+                      </Grid>
+                      <Grid item xs={6} sm={3}>
+                        <Card sx={{ bgcolor: 'white', p: 1.5 }}>
+                          <Typography variant="h5" fontWeight={700} align="center" color="text.secondary">
+                            {allEvaluationsData.previous_period?.parent_ratings_count || 0}
+                          </Typography>
+                          <Typography variant="caption" align="center" sx={{ display: 'block' }} color="text.secondary">
+                            Parent Ratings
+                          </Typography>
+                        </Card>
+                      </Grid>
+                      <Grid item xs={6} sm={3}>
+                        <Card sx={{ bgcolor: 'white', p: 1.5 }}>
+                          <Typography variant="h5" fontWeight={700} align="center" color="text.secondary">
+                            {allEvaluationsData.previous_period?.total_ratings || 0}
+                          </Typography>
+                          <Typography variant="caption" align="center" sx={{ display: 'block' }} color="text.secondary">
+                            Total Ratings
+                          </Typography>
+                        </Card>
+                      </Grid>
+                    </Grid>
+
+                    {/* Previous Period Criteria Breakdown */}
+                    <Typography variant="subtitle2" fontWeight={700} color="text.secondary" sx={{ mb: 1 }}>
+                      Previous Period Criteria Performance
+                    </Typography>
+                    <TableContainer component={Card} sx={{ bgcolor: 'white' }}>
+                      <Table size="small">
+                        <TableHead>
+                          <TableRow>
+                            <TableCell sx={{ fontWeight: 700 }}>Criteria</TableCell>
+                            <TableCell align="center" sx={{ fontWeight: 700 }}>Avg Rating</TableCell>
+                            <TableCell align="center" sx={{ fontWeight: 700 }}>Score %</TableCell>
+                            <TableCell align="center" sx={{ fontWeight: 700 }}>Total</TableCell>
+                          </TableRow>
+                        </TableHead>
+                        <TableBody>
+                          {Object.values(allEvaluationsData.previous_period?.criteria_breakdown || {}).map((criteria) => (
+                            <TableRow key={`prev-${criteria.criteria_code}`}>
+                              <TableCell>
+                                <Typography variant="body2">{criteria.criteria_name}</Typography>
+                              </TableCell>
+                              <TableCell align="center">
+                                {criteria.total_ratings > 0 ? (
+                                  <>
+                                    <Rating value={criteria.average_rating} readOnly precision={0.1} size="small" />
+                                    <Typography variant="caption" sx={{ display: 'block' }}>
+                                      {criteria.average_rating}/5
+                                    </Typography>
+                                  </>
+                                ) : (
+                                  <Typography variant="caption" color="text.secondary">-</Typography>
+                                )}
+                              </TableCell>
+                              <TableCell align="center">
+                                {criteria.total_ratings > 0 ? (
+                                  <Chip
+                                    label={`${criteria.percentage}%`}
+                                    color={criteria.percentage >= 80 ? 'success' : criteria.percentage >= 60 ? 'warning' : 'error'}
+                                    size="small"
+                                  />
+                                ) : (
+                                  <Chip label="N/A" color="default" variant="outlined" size="small" sx={{ fontStyle: 'italic' }} />
+                                )}
+                              </TableCell>
+                              <TableCell align="center">
+                                <Typography color="text.secondary">{criteria.total_ratings || '-'}</Typography>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </TableContainer>
+                    <Divider sx={{ mt: 2 }} />
+                  </Box>
+                )}
+
+                {/* Admin Recommendations - Only show if admin recommendations exist */}
+                {allEvaluationsData.admin_recommendations && (
+                  <Box>
+                    <Typography variant="h6" fontWeight={700} gutterBottom>
+                      {allEvaluationsData.evaluation_period?.is_open ? '🆕 New Admin Evaluation & Recommendations' : '📋 Previous Admin Evaluation & Recommendations'}
+                      {allEvaluationsData.admin_recommendations?.evaluated_by && (
+                        <Typography variant="caption" color="text.secondary" sx={{ ml: 1 }}>
+                          by {allEvaluationsData.admin_recommendations.evaluated_by} ({allEvaluationsData.admin_recommendations.term_name})
+                        </Typography>
+                      )}
+                    </Typography>
+
                     <Grid container spacing={2}>
                       {/* Strengths from Admin */}
                       <Grid item xs={12} md={6}>
@@ -1036,16 +1168,10 @@ const EvaluationsList = ({ teacherId = null, open, onClose, onEdit, onCreate, ca
                         </Grid>
                       )}
                     </Grid>
-                  ) : (
-                    <Alert severity={allEvaluationsData.evaluation_period?.is_open ? 'info' : 'warning'}>
-                      {allEvaluationsData.evaluation_period?.is_open
-                        ? 'No formal evaluation has been created for the current period yet. Create a new evaluation to provide structured feedback and recommendations for this teacher.'
-                        : 'Evaluation period is closed. No current evaluation exists. Previous evaluations are shown above for reference.'}
-                    </Alert>
-                  )}
-                </Box>
 
-                <Divider />
+                    <Divider />
+                  </Box>
+                )}
 
                 {/* Recent Ratings - Anonymous */}
                 <Box>
@@ -1053,7 +1179,7 @@ const EvaluationsList = ({ teacherId = null, open, onClose, onEdit, onCreate, ca
                     Recent Ratings (Anonymous - Role Only)
                   </Typography>
                   <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
-                    Student and parent names are hidden for privacy. Only their role and rating criteria are displayed.
+                    Student and parent names are hidden for privacy. Ratings are labeled by evaluation period (Current/Previous).
                   </Typography>
                   <TableContainer sx={{ maxHeight: 300 }}>
                     <Table size="small" stickyHeader>
@@ -1061,6 +1187,7 @@ const EvaluationsList = ({ teacherId = null, open, onClose, onEdit, onCreate, ca
                         <TableRow>
                           <TableCell sx={{ fontWeight: 700 }}>Date</TableCell>
                           <TableCell sx={{ fontWeight: 700 }}>Rated By</TableCell>
+                          <TableCell sx={{ fontWeight: 700 }}>Period</TableCell>
                           <TableCell sx={{ fontWeight: 700 }}>Criteria</TableCell>
                           <TableCell sx={{ fontWeight: 700 }}>Rating</TableCell>
                           <TableCell sx={{ fontWeight: 700 }}>Comment</TableCell>
@@ -1088,6 +1215,13 @@ const EvaluationsList = ({ teacherId = null, open, onClose, onEdit, onCreate, ca
                                   color={rating.rated_by_role === 'Student' ? 'success' : rating.rated_by_role === 'Parent' ? 'info' : 'warning'}
                                   variant="outlined"
                                 />
+                              )}
+                            </TableCell>
+                            <TableCell>
+                              {rating.is_previous_period ? (
+                                <Chip label="PREVIOUS" size="small" color="default" variant="outlined" sx={{ fontSize: '0.7rem' }} />
+                              ) : (
+                                <Chip label="CURRENT" size="small" color="success" variant="filled" sx={{ fontSize: '0.7rem' }} />
                               )}
                             </TableCell>
                             <TableCell>{rating.category}</TableCell>

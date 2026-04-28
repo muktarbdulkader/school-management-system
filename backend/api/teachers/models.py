@@ -103,12 +103,26 @@ class TeacherPerformanceRating(models.Model):
     comment = models.TextField(blank=True, null=True)
     rating_date = models.DateField(auto_now_add=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    
+    # Evaluation period tracking - to identify if this rating is from current or previous period
+    evaluation_period_id = models.CharField(
+        max_length=100,
+        null=True,
+        blank=True,
+        help_text="ID of the evaluation period when this rating was created"
+    )
+    is_previous_period = models.BooleanField(
+        default=False,
+        help_text="True if this rating was from a closed/previous evaluation period"
+    )
 
     class Meta:
         ordering = ['-rating_date']
         indexes = [
             models.Index(fields=['teacher', 'rating_date']),
             models.Index(fields=['category']),
+            models.Index(fields=['evaluation_period_id', 'is_previous_period']),
+            models.Index(fields=['teacher', 'is_previous_period']),
         ]
 
     def __str__(self):

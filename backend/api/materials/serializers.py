@@ -20,11 +20,18 @@ class ResourceRequestSerializer(serializers.ModelSerializer):
     request_type_display = serializers.CharField(source='get_request_type_display', read_only=True)
     priority_display = serializers.CharField(source='get_priority_display', read_only=True)
     branch_name = serializers.CharField(source='branch.name', read_only=True)
+    class_name = serializers.SerializerMethodField()
+    class_grade = serializers.CharField(source='class_fk.grade', read_only=True)
 
     class Meta:
         model = ResourceRequest
         fields = '__all__'
         read_only_fields = ['id', 'requested_by', 'approved_by', 'completed_at', 'created_at', 'updated_at']
+
+    def get_class_name(self, obj):
+        if obj.class_fk:
+            return obj.class_fk.grade
+        return None
 
 
 class ResourceRequestCreateSerializer(serializers.ModelSerializer):
@@ -32,8 +39,8 @@ class ResourceRequestCreateSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ResourceRequest
-        fields = ['request_type', 'title', 'description', 'quantity', 'priority', 
-                'department', 'estimated_cost', 'needed_by', 'notes', 'items', 'branch']
+        fields = ['request_type', 'title', 'description', 'quantity', 'priority',
+                'class_fk', 'needed_by', 'notes', 'items', 'branch']
 
     def create(self, validated_data):
         items_data = validated_data.pop('items', [])

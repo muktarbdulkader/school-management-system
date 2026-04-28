@@ -172,6 +172,7 @@ export function Sidebar({
   const [availableTeachers, setAvailableTeachers] = useState([]);
   const [loadingTeachers, setLoadingTeachers] = useState(false);
   const [isInitializing, setIsInitializing] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
 
   // Get student data from Redux
   const { studentId: actualStudentId, relationshipId } = useSelector(
@@ -626,6 +627,18 @@ export function Sidebar({
     }
   }, [tabValue]);
 
+  // Filter conversations and groups based on search query
+  const filterBySearch = (items, fields) => {
+    if (!searchQuery.trim()) return items;
+    const query = searchQuery.toLowerCase();
+    return items.filter(item =>
+      fields.some(field => {
+        const value = field.split('.').reduce((obj, key) => obj?.[key], item);
+        return value?.toString().toLowerCase().includes(query);
+      })
+    );
+  };
+
   const renderTabContent = () => {
     console.log('DEBUG renderTabContent: tabValue=', tabValue, 'studentConversations.length=', studentConversations.length, 'groupConversations.length=', groupConversations.length);
     switch (tabValue) {
@@ -695,7 +708,7 @@ export function Sidebar({
 
             <List disablePadding sx={{ py: 1 }}>
               {/* Combine individual and group conversations for 'All' tab */}
-              {studentConversations.map((conversation) => (
+              {filterBySearch(studentConversations, ['display_name', 'latest_message', 'other_user.full_name', 'other_user.email']).map((conversation) => (
                 <ConversationItem
                   key={`individual-${conversation.id}`}
                   name={conversation.display_name}
@@ -707,7 +720,7 @@ export function Sidebar({
                 />
               ))}
               {/* Also show group chats in 'All' tab */}
-              {groupConversations.map((group) => (
+              {filterBySearch(groupConversations, ['name', 'latest_message']).map((group) => (
                 <GroupChats
                   key={`group-${group.id}`}
                   name={group.name}
@@ -749,7 +762,7 @@ export function Sidebar({
       case 2:
         return (
           <List disablePadding sx={{ py: 1 }}>
-            {groupConversations.map((group) => (
+            {filterBySearch(groupConversations, ['name', 'latest_message']).map((group) => (
               <GroupChats
                 key={group.id}
                 name={group.name}
@@ -796,9 +809,11 @@ export function Sidebar({
       >
         <TextField
           fullWidth
-          placeholder="Search teachers, admins, or messages..."
+          placeholder="Search teachers, admins, groups, or messages..."
           variant="outlined"
           size="small"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
           InputProps={{
             startAdornment: (
               <InputAdornment position="start">

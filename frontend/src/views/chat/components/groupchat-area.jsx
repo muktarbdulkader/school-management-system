@@ -54,9 +54,12 @@ export function GroupChatArea({ group, onMessageSend, onBack }) {
   const [editingMessage, setEditingMessage] = useState(null);
   const [editingText, setEditingText] = useState('');
   const [addMembersOpen, setAddMembersOpen] = useState(false);
+  const [viewMembersOpen, setViewMembersOpen] = useState(false);
   const [availableUsers, setAvailableUsers] = useState([]);
+  const [currentMembers, setCurrentMembers] = useState([]);
   const [selectedUsers, setSelectedUsers] = useState([]);
   const [loadingUsers, setLoadingUsers] = useState(false);
+  const [loadingMembers, setLoadingMembers] = useState(false);
   const messagesContainerRef = useRef(null);
   const longPressTimeout = useRef(null);
 
@@ -68,15 +71,24 @@ export function GroupChatArea({ group, onMessageSend, onBack }) {
   useEffect(() => {
     if (group) {
       fetchGroupMessages(group.id);
+      fetchCurrentMembers();
     }
   }, [group]);
 
-  // Fetch users when Add Members dialog opens
+  // Fetch users and current members when Add Members dialog opens
   useEffect(() => {
     if (addMembersOpen) {
       fetchAvailableUsers();
+      fetchCurrentMembers();
     }
   }, [addMembersOpen]);
+
+  // Fetch current members when View Members dialog opens
+  useEffect(() => {
+    if (viewMembersOpen) {
+      fetchCurrentMembers();
+    }
+  }, [viewMembersOpen]);
 
   useEffect(() => {
     if (messagesContainerRef.current) {
@@ -428,12 +440,104 @@ export function GroupChatArea({ group, onMessageSend, onBack }) {
       toast.success(`${selectedUsers.length} members added successfully`);
       setAddMembersOpen(false);
       setSelectedUsers([]);
-      // Refresh messages to show updated members
-      fetchMessages();
+      // Refresh current members and messages
+      fetchCurrentMembers();
+      if (group?.id) {
+        fetchGroupMessages(group.id);
+      }
     } catch (error) {
       console.error('DEBUG: Error adding members:', error);
       toast.error('Failed to add members: ' + error.message);
     }
+  };
+
+  const fetchCurrentMembers = async () => {
+    if (!group?.id) return;
+    setLoadingMembers(true);
+    try {
+      const token = await GetToken();
+      const response = await fetch(`${Backend.auth}${Backend.groupChatMembers}?group_chat=${group.id}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await response.json();
+      if (data.success) {
+        setCurrentMembers(data.data || []);
+      }
+    } catch (error) {
+      console.error('Error fetching members:', error);
+    } finally {
+      setLoadingMembers(false);
+    }
+  };
+
+  const handleRemoveMember = async (memberId) => {
+    try {
+      const token = await GetToken();
+      const response = await fetch(`${Backend.auth}${Backend.groupChatMembers}${memberId}/`, {
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      if (response.ok) {
+        toast.success('Member removed successfully');
+        fetchCurrentMembers();
+      } else {
+        const data = await response.json();
+        toast.error(data.message || 'Failed to remove member');
+      }
+    } catch (error) {
+      console.error('Error removing member:', error);
+      toast.error('Failed to remove member');
+    }
+  };
+
+  // Helper to get user role display
+  const getUserRoleBadge = (user) => {
+    if (!user?.roles || user.roles.length === 0) return null;
+    const role = user.roles[0];
+    const roleName = typeof role === 'string' ? role : role?.name;
+    const roleColors = {
+      'Super_Admin': { bg: '#d32f2f', color: '#fff' },
+      'super_admin': { bg: '#d32f2f', color: '#fff' },
+      'Admin': { bg: '#ed6c02', color: '#fff' },
+      'admin': { bg: '#ed6c02', color: '#fff' },
+      'Teacher': { bg: '#2e7d32', color: '#fff' },
+      'teacher': { bg: '#2e7d32', color: '#fff' },
+      'Student': { bg: '#0288d1', color: '#fff' },
+      'student': { bg: '#0288d1', color: '#fff' },
+      'Parent': { bg: '#7b1fa2', color: '#fff' },
+      'parent': { bg: '#7b1fa2', color: '#fff' },
+    };
+    const colors = roleColors[roleName] || { bg: '#757575', color: '#fff' };
+    return (
+      <Chip
+        label={roleName}
+        size="small"
+        sx={{
+          backgroundColor: colors.bg,
+          color: colors.color,
+          fontWeight: 600,
+          fontSize: '0.65rem',
+          height: 20,
+          ml: 1,
+        }}
+      />
+    );
+  };
+
+  // Check if user is already a member
+  const isUserMember = (userId) => {
+    return currentMembers.some(member =>
+      member.user?.id === userId ||
+      member.user_id === userId ||
+      member.user_details?.id === userId
+    );
+  };
+
+  // Get member user data from either user or user_details field
+  const getMemberUser = (member) => {
+    return member.user || member.user_details || null;
   };
 
   const toggleUserSelection = (userId) => {
@@ -592,24 +696,31 @@ export function GroupChatArea({ group, onMessageSend, onBack }) {
           <Typography variant="h6" noWrap>
             {group.name}
           </Typography>
-          {group.memberCount !== undefined && (
-            <Typography variant="body2" color="text.secondary">
-              {group.memberCount} member{group.memberCount !== 1 ? 's' : ''}
-            </Typography>
-          )}
+          <Typography variant="body2" color="text.secondary">
+            {currentMembers.length} member{currentMembers.length !== 1 ? 's' : ''}
+          </Typography>
         </Box>
 
-        {/* Add Members Button for Super Admin */}
+        {/* Add/View Members Buttons for Super Admin */}
         {isSuperAdmin && (
-          <Button
-            variant="outlined"
-            size="small"
-            startIcon={<PersonAddIcon />}
-            onClick={() => setAddMembersOpen(true)}
-            sx={{ ml: 1 }}
-          >
-            Add Members
-          </Button>
+          <Box sx={{ display: 'flex', gap: 1 }}>
+            <Button
+              variant="outlined"
+              size="small"
+              onClick={() => setViewMembersOpen(true)}
+              sx={{ ml: 1 }}
+            >
+              View Members ({currentMembers.length})
+            </Button>
+            <Button
+              variant="contained"
+              size="small"
+              startIcon={<PersonAddIcon />}
+              onClick={() => setAddMembersOpen(true)}
+            >
+              Add Members
+            </Button>
+          </Box>
         )}
       </Box>
 
@@ -1007,45 +1118,197 @@ export function GroupChatArea({ group, onMessageSend, onBack }) {
         </MenuItem>
       </Menu>
 
-      {/* Add Members Dialog */}
+      {/* View Members Dialog */}
       <Dialog
-        open={addMembersOpen}
-        onClose={() => setAddMembersOpen(false)}
+        open={viewMembersOpen}
+        onClose={() => setViewMembersOpen(false)}
         maxWidth="sm"
         fullWidth
       >
-        <DialogTitle>Add Members to {group?.name}</DialogTitle>
+        <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Box>
+            <Typography variant="h6">Group Members</Typography>
+            <Typography variant="caption" color="text.secondary">
+              {group?.name} ({currentMembers.length} members)
+            </Typography>
+          </Box>
+          <Button size="small" onClick={() => setViewMembersOpen(false)}>Close</Button>
+        </DialogTitle>
         <DialogContent>
-          {loadingUsers ? (
+          {loadingMembers ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
+              <CircularProgress />
+            </Box>
+          ) : currentMembers.length === 0 ? (
+            <Box sx={{ textAlign: 'center', p: 3, color: 'text.secondary' }}>
+              <Typography>No members in this group yet</Typography>
+            </Box>
+          ) : (
+            <List sx={{ maxHeight: 450, overflow: 'auto' }}>
+              {currentMembers.map((member) => {
+                const memberUser = getMemberUser(member);
+                return (
+                  <ListItem
+                    key={member.id}
+                    sx={{
+                      mb: 1,
+                      border: '1px solid',
+                      borderColor: 'divider',
+                      borderRadius: 2,
+                      bgcolor: 'background.paper',
+                    }}
+                  >
+                    <ListItemAvatar>
+                      <Avatar sx={{ bgcolor: 'primary.main' }}>
+                        {memberUser?.full_name?.[0] || memberUser?.email?.[0] || 'U'}
+                      </Avatar>
+                    </ListItemAvatar>
+                    <ListItemText
+                      primary={
+                        <Box sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 0.5 }}>
+                          <Typography variant="body1" fontWeight={500}>
+                            {memberUser?.full_name || memberUser?.email || 'Unknown'}
+                          </Typography>
+                          {getUserRoleBadge(memberUser)}
+                        </Box>
+                      }
+                      secondary={memberUser?.email}
+                    />
+                    {isSuperAdmin && memberUser?.id !== currentUser?.id && (
+                      <Button
+                        size="small"
+                        color="error"
+                        variant="outlined"
+                        onClick={() => handleRemoveMember(member.id)}
+                        sx={{ minWidth: 'auto', px: 1.5 }}
+                      >
+                        Remove
+                      </Button>
+                    )}
+                  </ListItem>
+                );
+              })}
+            </List>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Add Members Dialog */}
+      <Dialog
+        open={addMembersOpen}
+        onClose={() => { setAddMembersOpen(false); setSelectedUsers([]); }}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>
+          <Box>
+            <Typography variant="h6">Add Members to {group?.name}</Typography>
+            <Typography variant="caption" color="text.secondary">
+              Select users to add to the group
+            </Typography>
+          </Box>
+        </DialogTitle>
+        <DialogContent>
+          {loadingUsers || loadingMembers ? (
             <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
               <CircularProgress />
             </Box>
           ) : (
-            <List sx={{ maxHeight: 400, overflow: 'auto' }}>
-              {availableUsers.map((user) => (
-                <ListItem
-                  key={user.id}
-                  button
-                  onClick={() => toggleUserSelection(user.id)}
-                >
-                  <Checkbox
-                    checked={selectedUsers.includes(user.id)}
-                    edge="start"
-                  />
-                  <ListItemAvatar>
-                    <Avatar>{user.full_name?.[0] || 'U'}</Avatar>
-                  </ListItemAvatar>
-                  <ListItemText
-                    primary={user.full_name || 'Unknown'}
-                    secondary={user.email}
-                  />
-                </ListItem>
-              ))}
-            </List>
+            <>
+              {/* Current Members Section */}
+              {currentMembers.length > 0 && (
+                <Box sx={{ mb: 2 }}>
+                  <Typography variant="subtitle2" sx={{ mb: 1, color: 'text.secondary' }}>
+                    Current Members ({currentMembers.length})
+                  </Typography>
+                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                    {currentMembers.slice(0, 5).map((member) => {
+                      const memberUser = getMemberUser(member);
+                      return (
+                        <Chip
+                          key={member.id}
+                          avatar={<Avatar>{memberUser?.full_name?.[0] || memberUser?.email?.[0] || 'U'}</Avatar>}
+                          label={memberUser?.full_name || memberUser?.email || 'Unknown'}
+                          size="small"
+                          sx={{
+                            bgcolor: 'success.light',
+                            color: 'success.dark',
+                            fontWeight: 500,
+                          }}
+                        />
+                      );
+                    })}
+                    {currentMembers.length > 5 && (
+                      <Chip
+                        label={`+${currentMembers.length - 5} more`}
+                        size="small"
+                        variant="outlined"
+                      />
+                    )}
+                  </Box>
+                </Box>
+              )}
+
+              <Typography variant="subtitle2" sx={{ mb: 1, color: 'text.secondary' }}>
+                Available Users
+              </Typography>
+
+              <List sx={{ maxHeight: 350, overflow: 'auto' }}>
+                {availableUsers.map((user) => {
+                  const alreadyMember = isUserMember(user.id);
+                  return (
+                    <ListItem
+                      key={user.id}
+                      button={!alreadyMember}
+                      onClick={() => !alreadyMember && toggleUserSelection(user.id)}
+                      disabled={alreadyMember}
+                      sx={{
+                        mb: 1,
+                        border: '1px solid',
+                        borderColor: alreadyMember ? 'success.light' : (selectedUsers.includes(user.id) ? 'primary.main' : 'divider'),
+                        borderRadius: 2,
+                        bgcolor: alreadyMember ? 'success.light' : (selectedUsers.includes(user.id) ? 'primary.light' : 'background.paper'),
+                        opacity: alreadyMember ? 0.8 : 1,
+                      }}
+                    >
+                      <Checkbox
+                        checked={selectedUsers.includes(user.id) || alreadyMember}
+                        edge="start"
+                        disabled={alreadyMember}
+                      />
+                      <ListItemAvatar>
+                        <Avatar sx={{ bgcolor: alreadyMember ? 'success.main' : 'primary.main' }}>
+                          {user.full_name?.[0] || 'U'}
+                        </Avatar>
+                      </ListItemAvatar>
+                      <ListItemText
+                        primary={
+                          <Box sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 0.5 }}>
+                            <Typography variant="body1" fontWeight={500}>
+                              {user.full_name || 'Unknown'}
+                            </Typography>
+                            {getUserRoleBadge(user)}
+                          </Box>
+                        }
+                        secondary={alreadyMember ? 'Already in group' : user.email}
+                      />
+                      {alreadyMember && (
+                        <Chip
+                          label="Added"
+                          size="small"
+                          color="success"
+                          sx={{ fontWeight: 600, fontSize: '0.65rem' }}
+                        />
+                      )}
+                    </ListItem>
+                  );
+                })}
+              </List>
+            </>
           )}
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setAddMembersOpen(false)}>Cancel</Button>
+          <Button onClick={() => { setAddMembersOpen(false); setSelectedUsers([]); }}>Cancel</Button>
           <Button
             variant="contained"
             onClick={handleAddMembers}
