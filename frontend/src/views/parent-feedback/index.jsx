@@ -109,7 +109,7 @@ export default function ParentFeedbackPage() {
     try {
       const token = await GetToken();
       const response = await fetch(
-        `${Backend.auth}${Backend.parentChildren}`,
+        `${Backend.api}${Backend.parentChildren}`,
         {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -121,16 +121,16 @@ export default function ParentFeedbackPage() {
       console.log('[ParentFeedback] Children data:', data);
 
       if (data.success) {
-        // Handle different data structures: data.data or data.results
         const childrenData = data.data || data.results || [];
         console.log('[ParentFeedback] Parsed children:', childrenData);
         setChildren(childrenData);
         if (childrenData.length > 0) {
-          // Try multiple possible ID locations
           const firstChild = childrenData[0];
-          const childId = firstChild.id || firstChild.student_details?.id || firstChild.student?.id || firstChild.student_id;
+          const childId = firstChild.student_details?.id || firstChild.student?.id || firstChild.student_id || firstChild.id;
           console.log('[ParentFeedback] First child ID:', childId);
           setSelectedChild(childId);
+          // Fetch teachers for first child immediately
+          fetchTeachersForChild(childId);
         }
       } else {
         console.error('[ParentFeedback] Failed to fetch children:', data.message);
@@ -140,27 +140,6 @@ export default function ParentFeedbackPage() {
       console.error('Error fetching children:', error);
       toast.error('Failed to load your children');
     }
-  };
-
-  const extractTeachersFromSchedule = (childData) => {
-    // Extract teachers from child's schedule
-    const schedule = childData.schedule || childData.student_details?.schedule || [];
-    const uniqueTeachers = [];
-    const seenTeachers = new Set();
-
-    schedule.forEach(slot => {
-      if (slot.teacher_id && !seenTeachers.has(slot.teacher_id)) {
-        seenTeachers.add(slot.teacher_id);
-        uniqueTeachers.push({
-          teacher_id: slot.teacher_id,
-          teacher_name: slot.teacher_name || 'Unknown Teacher',
-          subject: slot.subject || 'N/A',
-          student_id: childData.id || childData.student_details?.id,
-        });
-      }
-    });
-
-    return uniqueTeachers;
   };
 
   const fetchTeachersForChild = async (childId) => {
@@ -173,62 +152,27 @@ export default function ParentFeedbackPage() {
       const token = await GetToken();
       console.log('[ParentFeedback] Fetching teachers for child:', childId);
 
-      // First try: Use teacher-ratings endpoint
-      const response = await fetch(
-        `${Backend.api}teacher-ratings/`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
-      );
+      // Use the same endpoint as teacher-ratings page
+      const res = await fetch(`${Backend.api}${Backend.parentAvailableTeachers}${childId}/`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
 
-      const data = await response.json();
-      console.log('[ParentFeedback] Teachers data:', data);
-
-      if (response.ok && Array.isArray(data)) {
-        // Filter teachers for the selected child
-        const childTeachers = data.filter(t => t.student_id === childId);
-        console.log('[ParentFeedback] Filtered teachers for child:', childTeachers);
-
-        if (childTeachers.length > 0) {
-          setTeachers(childTeachers);
-          fetchFeedbacks();
-          return;
-        }
-      }
-
-      // Fallback: Get teachers from child's schedule
-      console.log('[ParentFeedback] Falling back to schedule extraction');
-      const selectedChildData = children.find(c =>
-        (c.id || c.student_details?.id || c.student?.id || c.student_id) === childId
-      );
-
-      if (selectedChildData) {
-        const scheduleTeachers = extractTeachersFromSchedule(selectedChildData);
-        console.log('[ParentFeedback] Teachers from schedule:', scheduleTeachers);
-        setTeachers(scheduleTeachers);
+      if (res.ok) {
+        const data = await res.json();
+        const list = data.data?.teachers || data.data || [];
+        console.log('[ParentFeedback] Teachers loaded:', list);
+        setTeachers(list);
       } else {
+        console.error('[ParentFeedback] Failed to load teachers:', res.status);
         setTeachers([]);
-        toast.info('No teachers found for this child');
+        toast.error('Failed to load teachers for selected child');
       }
 
       fetchFeedbacks();
     } catch (error) {
       console.error('Error fetching teachers for child:', error);
-
-      // Fallback on error
-      const selectedChildData = children.find(c =>
-        (c.id || c.student_details?.id || c.student?.id || c.student_id) === childId
-      );
-
-      if (selectedChildData) {
-        const scheduleTeachers = extractTeachersFromSchedule(selectedChildData);
-        setTeachers(scheduleTeachers);
-      } else {
-        setTeachers([]);
-      }
-
+      setTeachers([]);
+      toast.error('Failed to load teachers');
       fetchFeedbacks();
     }
   };
