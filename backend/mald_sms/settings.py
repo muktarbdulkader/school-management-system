@@ -108,7 +108,6 @@ if RENDER:
     # Memory optimizations for Render
     DATABASES['default']['OPTIONS'] = {
         'connect_timeout': 10,
-        'sslmode': 'require',
     }
 else:
     # LOCAL (SQLite)
