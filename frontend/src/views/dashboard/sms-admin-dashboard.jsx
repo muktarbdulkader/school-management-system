@@ -1058,7 +1058,7 @@ const CommunicationTab = ({ navigate }) => {
           { label: 'Messages', sub: 'Internal messaging hub', icon: IconMessage, color: '#1976d2', path: '/messages' },
           { label: 'Group Chats', sub: 'Manage group conversations', icon: IconMessages, color: '#2e7d32', path: '/messages?tab=groups' },
           { label: 'Blog / PR', sub: 'Public relations content', icon: IconFileText, color: '#f57c00', path: '/blog' },
-          { label: 'Parent Feedback', sub: 'View parent communications', icon: IconUserCheck, color: '#c62828', path: '/meeting-requests' },
+          { label: 'Parent Feedback', sub: 'View parent communications', icon: IconUserCheck, color: '#c62828', path: '/parent-feedback' },
           { label: 'Meeting Requests', sub: 'Schedule & manage meetings', icon: IconCalendar, color: '#607d8b', path: '/meeting-requests' },
         ].map((item, i) => (
           <Grid item xs={12} sm={6} md={4} key={i}>

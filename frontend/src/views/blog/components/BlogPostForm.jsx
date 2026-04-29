@@ -17,7 +17,9 @@ import {
   Chip,
   Typography,
   Divider,
+  Alert,
 } from '@mui/material';
+import SpellcheckIcon from '@mui/icons-material/Spellcheck';
 import { toast } from 'react-hot-toast';
 import Backend from 'services/backend';
 import GetToken from 'utils/auth-token';
@@ -43,6 +45,8 @@ const BlogPostForm = ({ open, onClose, onSuccess, editingPost = null }) => {
   });
   const [loading, setLoading] = useState(false);
   const [categories, setCategories] = useState([]);
+  const [checkingGrammar, setCheckingGrammar] = useState(false);
+  const [grammarResult, setGrammarResult] = useState(null);
 
   useEffect(() => {
     if (open) {
@@ -90,7 +94,22 @@ const BlogPostForm = ({ open, onClose, onSuccess, editingPost = null }) => {
   const handleChange = (e) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
+    // Clear grammar result when content changes
+    if (name === 'content') {
+      setGrammarResult(null);
+    }
   };
+
+  // Auto-check grammar after user stops typing
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (formData.content.trim().length > 10 && !grammarResult) {
+        handleCheckGrammar(true); // silent mode
+      }
+    }, 2000); // Check after 2 seconds of no typing
+
+    return () => clearTimeout(timer);
+  }, [formData.content]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -150,7 +169,61 @@ const BlogPostForm = ({ open, onClose, onSuccess, editingPost = null }) => {
       event_date: '',
       image: '',
     });
+    setGrammarResult(null);
     onClose();
+  };
+
+  const handleCheckGrammar = async (silent = false) => {
+    if (!formData.content.trim()) {
+      if (!silent) toast.error('Please enter content first');
+      return;
+    }
+
+    setCheckingGrammar(true);
+    try {
+      const token = await GetToken();
+      const response = await fetch(`${Backend.baseUrl}/api/ai/grammar-check/`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          text: formData.content,
+          language: 'en'
+        })
+      });
+
+      const data = await response.json();
+      if (data.success) {
+        setGrammarResult(data.data);
+        if (data.data.corrected_text !== formData.content) {
+          if (!silent) {
+            toast.success(`Found ${data.data.errors_found || 0} issue(s). Review and click 'Apply All Corrections'.`);
+          }
+        } else {
+          if (!silent) toast.success('No grammar issues found!');
+        }
+      } else {
+        if (!silent) toast.error(data.message || 'Grammar check failed');
+      }
+    } catch (error) {
+      console.error('Grammar check error:', error);
+      if (!silent) toast.error('Failed to check grammar');
+    } finally {
+      setCheckingGrammar(false);
+    }
+  };
+
+  const applyCorrections = () => {
+    if (grammarResult?.corrected_text) {
+      setFormData(prev => ({
+        ...prev,
+        content: grammarResult.corrected_text
+      }));
+      setGrammarResult(null);
+      toast.success('Corrections applied!');
+    }
   };
 
   const getCategoryColor = (cat) => {
@@ -195,8 +268,90 @@ const BlogPostForm = ({ open, onClose, onSuccess, editingPost = null }) => {
               rows={6}
               required
               placeholder="Write your post content here..."
+              helperText={grammarResult && grammarResult.errors_found > 0 ? `${grammarResult.errors_found} grammar issues found` : ''}
               sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
             />
+
+            {/* Grammar Check */}
+            <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center' }}>
+              <Button
+                variant="outlined"
+                size="small"
+                startIcon={<SpellcheckIcon />}
+                onClick={handleCheckGrammar}
+                disabled={checkingGrammar || !formData.content.trim()}
+              >
+                {checkingGrammar ? 'Checking...' : 'Check Grammar'}
+              </Button>
+              {grammarResult && grammarResult.corrected_text !== formData.content && (
+                <Button
+                  variant="contained"
+                  size="small"
+                  color="success"
+                  onClick={applyCorrections}
+                  startIcon={<SpellcheckIcon />}
+                >
+                  Apply All Corrections ({grammarResult.errors_found || 0})
+                </Button>
+              )}
+              {grammarResult && grammarResult.errors_found === 0 && (
+                <Chip size="small" color="success" icon={<SpellcheckIcon />} label="Grammar OK" />
+              )}
+            </Box>
+
+            {/* Grammar Issues Display */}
+            {grammarResult && grammarResult.suggestions && grammarResult.suggestions.length > 0 && (
+              <Box sx={{ mt: 2 }}>
+                <Alert severity="warning" sx={{ mb: 2 }}>
+                  <Typography variant="subtitle2" sx={{ fontWeight: 'bold', mb: 1 }}>
+                    Found {grammarResult.errors_found} issue(s) to fix:
+                  </Typography>
+                </Alert>
+
+                {grammarResult.suggestions.map((suggestion, idx) => (
+                  <Box
+                    key={idx}
+                    sx={{
+                      mb: 1.5,
+                      p: 1.5,
+                      bgcolor: 'error.50',
+                      borderRadius: 1,
+                      border: '1px solid',
+                      borderColor: 'error.200'
+                    }}
+                  >
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+                      <Typography
+                        variant="body2"
+                        sx={{
+                          color: 'error.main',
+                          textDecoration: 'line-through',
+                          fontWeight: 500
+                        }}
+                      >
+                        "{suggestion.original}"
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">→</Typography>
+                      <Typography
+                        variant="body2"
+                        sx={{
+                          color: 'success.main',
+                          fontWeight: 600,
+                          bgcolor: 'success.50',
+                          px: 0.5,
+                          borderRadius: 0.5
+                        }}
+                      >
+                        "{suggestion.correction}"
+                      </Typography>
+                    </Box>
+                    <Typography variant="caption" color="text.secondary">
+                      {suggestion.explanation}
+                    </Typography>
+                  </Box>
+                ))}
+              </Box>
+            )}
 
             <Divider />
 

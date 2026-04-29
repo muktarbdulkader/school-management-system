@@ -3,6 +3,7 @@ const API = import.meta.env.VITE_API_URL || import.meta.env.VITE_SMS_URL || 'htt
 
 // Backend API Configuration
 const Backend = {
+  baseUrl: API,
   api: `${API}/api/`,
   auth: `${API}/api/`,
 

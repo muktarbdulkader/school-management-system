@@ -7,7 +7,8 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.exceptions import PermissionDenied
 from .models import (Teacher, TeacherTask, TeacherPerformanceRating, TeacherMetrics,
                      TeacherPerformanceReport, TeacherAssignment, PerformanceMeasurementCriteria,
-                     TeacherPerformanceEvaluation, TeacherPerformanceEvaluationRating)
+                     TeacherPerformanceEvaluation, TeacherPerformanceEvaluationRating,
+                     EvaluationPeriodHistory)
 
 logger = logging.getLogger(__name__)
 from .serializers import (
@@ -1168,6 +1169,87 @@ class TeacherViewSet(viewsets.ModelViewSet):
             }
         })
 
+    @action(detail=False, methods=['post'], url_path='ai-analyze')
+    def ai_analyze_teachers(self, request):
+        """AI analyze teacher performance and patterns"""
+        from ai_integration.services import get_ai_service
+        from ai_integration.models import AIRequest
+        from django.utils import timezone
+        from django.db.models import Avg, Count
+
+        queryset = self.get_queryset()[:30]
+        ai_request = AIRequest.objects.create(
+            user=request.user, request_type='summarize', input_text='Teacher performance analysis', status='processing', error_message=''
+        )
+        try:
+            # Gather teacher data
+            items = []
+            for teacher in queryset:
+                items.append({
+                    'id': str(teacher.id),
+                    'name': teacher.user.full_name if teacher.user else 'Unknown',
+                    'subject_specialties': teacher.subject_specialties or 'N/A',
+                    'rating': teacher.rating or 0,
+                    'attendance': teacher.attendance_percentage or 0,
+                    'teacher_id': teacher.teacher_id
+                })
+
+            service = get_ai_service()
+            result = service.batch_summarize(items, 'overview')
+
+            ai_request.status = 'completed'
+            ai_request.output_text = result.summary if result else ''
+            ai_request.provider = 'TeacherAIAnalyzer'
+            ai_request.completed_at = timezone.now()
+            ai_request.save()
+
+            return Response({'success': True, 'data': {
+                'summary': result.summary if result else 'No analysis available',
+                'key_insights': result.key_insights if result else [],
+                'teacher_count': queryset.count(),
+                'average_rating': queryset.aggregate(avg=Avg('rating'))['avg'] or 0,
+                'average_attendance': queryset.aggregate(avg=Avg('attendance_percentage'))['avg'] or 0
+            }})
+        except Exception as e:
+            ai_request.status = 'failed'
+            ai_request.error_message = str(e)
+            ai_request.save()
+            return Response({'success': False, 'message': str(e), 'status': 500}, status=500)
+
+    @action(detail=True, methods=['post'], url_path='ai-summarize-performance')
+    def ai_summarize_performance(self, request, pk=None):
+        """AI summarize teacher's performance report"""
+        from ai_integration.services import get_ai_service
+        from ai_integration.models import AIRequest
+        from django.utils import timezone
+
+        teacher = self.get_object()
+        text = f"Teacher: {teacher.user.full_name}\nRating: {teacher.rating}\nAttendance: {teacher.attendance_percentage}%\nSpecialties: {teacher.subject_specialties}"
+
+        ai_request = AIRequest.objects.create(
+            user=request.user, request_type='summarize', input_text=text, status='processing', error_message=''
+        )
+        try:
+            service = get_ai_service()
+            result = service.summarize(text, 200, 'detailed')
+
+            ai_request.status = 'completed'
+            ai_request.output_text = result.summary
+            ai_request.provider = service.__class__.__name__
+            ai_request.completed_at = timezone.now()
+            ai_request.save()
+
+            return Response({'success': True, 'data': {
+                'summary': result.summary,
+                'teacher_name': teacher.user.full_name,
+                'key_insights': result.key_insights or []
+            }})
+        except Exception as e:
+            ai_request.status = 'failed'
+            ai_request.error_message = str(e)
+            ai_request.save()
+            return Response({'success': False, 'message': str(e), 'status': 500}, status=500)
+
 class TeacherTaskViewSet(viewsets.ModelViewSet):
     queryset = TeacherTask.objects.all()
     serializer_class = teacherTaskSerializer
@@ -2315,10 +2397,48 @@ class PerformanceMeasurementCriteriaViewSet(viewsets.ModelViewSet):
             # Reset message for new period
             message = 'Evaluation period is now OPEN - Students/Parents can rate teachers'
         elif not is_open and was_open:
+            # Closing the period - check if all teachers have reports
+            from .models import Teacher, TeacherPerformanceReport
+            
+            # Get all active teachers
+            all_teachers = Teacher.objects.filter(user__is_active=True)
+            
+            # Get teachers who have reports in current period
+            teachers_with_reports = TeacherPerformanceReport.objects.filter(
+                evaluation_period_id=settings_obj.period_id
+            ).values_list('teacher_id', flat=True).distinct()
+            
+            # Find teachers without reports
+            teachers_without_reports = all_teachers.exclude(
+                id__in=teachers_with_reports
+            ).select_related('user')
+            
+            # If there are teachers without reports and not force-closing, return warning
+            force_close = request.data.get('force', False)
+            if teachers_without_reports.exists() and not force_close:
+                missing_teachers_list = [
+                    {'id': str(t.id), 'name': t.user.full_name, 'teacher_id': t.teacher_id}
+                    for t in teachers_without_reports
+                ]
+                return Response({
+                    'success': False,
+                    'message': f'Cannot close evaluation period. {len(missing_teachers_list)} teacher(s) do not have generated reports.',
+                    'status': 400,
+                    'data': {
+                        'missing_reports_count': len(missing_teachers_list),
+                        'missing_teachers': missing_teachers_list,
+                        'can_force_close': True,
+                        'hint': 'Send force=true to close anyway (Super Admin only)'
+                    }
+                }, status=400)
+            
             # Closing the period - keep the period_id for reference
             period_id = settings_obj.period_id
             if not message:
-                message = 'Evaluation period is CLOSED - No new ratings allowed'
+                if teachers_without_reports.exists():
+                    message = f'Evaluation period CLOSED - {teachers_without_reports.count()} teacher(s) without reports'
+                else:
+                    message = 'Evaluation period is CLOSED - No new ratings allowed'
         else:
             # No change in state, keep existing period_id
             period_id = settings_obj.period_id
@@ -2478,9 +2598,8 @@ class PerformanceMeasurementCriteriaViewSet(viewsets.ModelViewSet):
                 'period': 'previous'
             }
         
-        # Overall statistics for CURRENT period (used when evaluation is open)
-        current_total = current_period_ratings.count()
-        current_overall_avg = current_period_ratings.aggregate(Avg('rating'))['rating__avg'] or 0
+        # Use helper to calculate stats for current period
+        current_stats = self._calculate_rating_stats(current_period_ratings)
         
         # Overall statistics for PREVIOUS period
         prev_total = previous_period_ratings.count()
@@ -2501,6 +2620,9 @@ class PerformanceMeasurementCriteriaViewSet(viewsets.ModelViewSet):
             'evaluated_at': latest_evaluation.evaluated_at.isoformat() if latest_evaluation and latest_evaluation.evaluated_at else None,
             'term_name': latest_evaluation.term.name if latest_evaluation and latest_evaluation.term else 'N/A'
         } if latest_evaluation else None
+        
+        # Build criteria names lookup for period history
+        criteria_names = {c.code: c.name for c in PerformanceMeasurementCriteria.objects.filter(is_active=True)}
         
         # Get evaluation period settings
         from .models import EvaluationPeriodSettings
@@ -2538,12 +2660,17 @@ class PerformanceMeasurementCriteriaViewSet(viewsets.ModelViewSet):
             },
             # Current period stats (when evaluation is open)
             'current_period': {
-                'total_ratings': current_total,
-                'overall_average': round(current_overall_avg, 2),
-                'overall_percentage': round(current_overall_avg / 5 * 100),
-                'student_ratings_count': current_student_ratings.count(),
-                'parent_ratings_count': current_parent_ratings.count(),
-                'admin_ratings_count': current_admin_ratings.count(),
+                'total_ratings': current_stats['total_ratings'],
+                'overall_average': round(current_period_ratings.aggregate(Avg('rating'))['rating__avg'] or 0, 2),
+                'overall_percentage': round((current_period_ratings.aggregate(Avg('rating'))['rating__avg'] or 0) / 5 * 100),
+                'student_ratings_count': current_stats['student_count'],
+                'parent_ratings_count': current_stats['parent_count'],
+                'admin_ratings_count': current_stats['admin_count'],
+                # Aggregate scores by role (converted to /100 scale)
+                'student_score': current_stats['student_score'],
+                'parent_score': current_stats['parent_score'],
+                'admin_score': current_stats['admin_score'],
+                'other_score': current_stats['other_score'],
                 'criteria_breakdown': current_criteria_stats,
                 'ratings': [
                     {
@@ -2642,6 +2769,62 @@ class PerformanceMeasurementCriteriaViewSet(viewsets.ModelViewSet):
                 for e in evaluations.filter(
                     is_previous_period=True
                 ).order_by('-evaluated_at')
+            ],
+            # Period History - all periods with their ratings grouped
+            'period_history': [
+                {
+                    'period_id': p.period_id,
+                    'period_number': p.period_number,
+                    'name': p.name,
+                    'description': p.description,
+                    'is_open': p.is_open,
+                    'opened_at': p.opened_at.isoformat() if p.opened_at else None,
+                    'closed_at': p.closed_at.isoformat() if p.closed_at else None,
+                    'total_ratings': p.total_ratings,
+                    'avg_rating': float(p.avg_rating) if p.avg_rating else None,
+                    # Get all ratings for this specific period
+                    'ratings': [
+                        {
+                            'id': str(r.id),
+                            'category': r.category,
+                            'rating': r.rating,
+                            'rated_by_name': r.rated_by.full_name if r.rated_by and r.rated_by.is_staff else None,
+                            'rated_by_role': 'Student' if Student.objects.filter(user=r.rated_by).exists() 
+                                             else 'Parent' if ParentStudent.objects.filter(parent__user=r.rated_by).exists()
+                                             else 'Admin' if r.rated_by.is_staff else 'Other',
+                            'rating_date': r.rating_date.isoformat(),
+                            'comment': r.comment,
+                        }
+                        for r in TeacherPerformanceRating.objects.filter(
+                            teacher=teacher,
+                            evaluation_period_id=p.period_id
+                        ).order_by('-rating_date')
+                    ],
+                    # Get criteria breakdown for this period
+                    'criteria_breakdown': {
+                        cat['category']: {
+                            'criteria_code': cat['category'],
+                            'criteria_name': criteria_names.get(cat['category'], cat['category'].replace('_', ' ').title()),
+                            'average_rating': round(
+                                TeacherPerformanceRating.objects.filter(
+                                    teacher=teacher, category=cat['category'], evaluation_period_id=p.period_id
+                                ).aggregate(avg=models.Avg('rating'))['avg'] or 0, 2
+                            ),
+                            'total_ratings': TeacherPerformanceRating.objects.filter(
+                                teacher=teacher, category=cat['category'], evaluation_period_id=p.period_id
+                            ).count(),
+                            'percentage': round(
+                                (TeacherPerformanceRating.objects.filter(
+                                    teacher=teacher, category=cat['category'], evaluation_period_id=p.period_id
+                                ).aggregate(avg=models.Avg('rating'))['avg'] or 0) / 5 * 100
+                            ),
+                        }
+                        for cat in TeacherPerformanceRating.objects.filter(
+                            teacher=teacher, evaluation_period_id=p.period_id
+                        ).values('category').distinct()
+                    }
+                }
+                for p in EvaluationPeriodHistory.objects.all().order_by('-period_number')
             ]
         }
         
@@ -2650,6 +2833,107 @@ class PerformanceMeasurementCriteriaViewSet(viewsets.ModelViewSet):
             'message': 'OK',
             'status': 200,
             'data': result
+        })
+
+    def _calculate_rating_stats(self, ratings_queryset):
+        """Helper method to calculate rating statistics by role for a ratings queryset."""
+        from students.models import Student, ParentStudent
+        from django.db.models import Avg
+
+        student_ratings = ratings_queryset.filter(
+            rated_by__in=Student.objects.values_list('user', flat=True)
+        )
+        parent_ratings = ratings_queryset.filter(
+            rated_by__in=ParentStudent.objects.values_list('parent__user', flat=True)
+        )
+        admin_ratings = ratings_queryset.filter(
+            rated_by__in=User.objects.filter(is_staff=True).values_list('id', flat=True)
+        )
+        other_ratings = ratings_queryset.exclude(
+            rated_by__in=Student.objects.values_list('user', flat=True)
+        ).exclude(
+            rated_by__in=ParentStudent.objects.values_list('parent__user', flat=True)
+        ).exclude(
+            rated_by__in=User.objects.filter(is_staff=True).values_list('id', flat=True)
+        )
+
+        student_avg = student_ratings.aggregate(Avg('rating'))['rating__avg'] or 0
+        parent_avg = parent_ratings.aggregate(Avg('rating'))['rating__avg'] or 0
+        admin_avg = admin_ratings.aggregate(Avg('rating'))['rating__avg'] or 0
+        other_avg = other_ratings.aggregate(Avg('rating'))['rating__avg'] or 0
+        overall_avg = ratings_queryset.aggregate(Avg('rating'))['rating__avg'] or 0
+
+        return {
+            'student_score': round(student_avg / 5 * 100) if student_avg else 0,
+            'parent_score': round(parent_avg / 5 * 100) if parent_avg else 0,
+            'admin_score': round(admin_avg / 5 * 100) if admin_avg else 0,
+            'other_score': round(other_avg / 5 * 100) if other_avg else 0,
+            'overall_score': round(overall_avg / 5 * 100) if overall_avg else 0,
+            'student_count': student_ratings.count(),
+            'parent_count': parent_ratings.count(),
+            'admin_count': admin_ratings.count(),
+            'other_count': other_ratings.count(),
+            'total_ratings': ratings_queryset.count()
+        }
+
+    @action(detail=False, methods=['get'], url_path='all-teachers-summary')
+    def all_teachers_summary(self, request):
+        """
+        Get performance summary for ALL teachers based on evaluation period status.
+        If evaluation is OPEN: show current period data
+        If evaluation is CLOSED: show data from the most recent closed period
+        """
+        from .models import EvaluationPeriodSettings, EvaluationPeriodHistory
+
+        # Get evaluation period settings
+        eval_settings = EvaluationPeriodSettings.get_settings()
+
+        # Determine which period to use
+        if eval_settings.is_open:
+            ratings_filter = {'is_previous_period': False}
+            period_label = 'Current Period'
+        else:
+            latest_history = EvaluationPeriodHistory.objects.order_by('-period_number').first()
+            if latest_history:
+                ratings_filter = {'evaluation_period_id': latest_history.period_id}
+                period_label = f'Period {latest_history.period_number}'
+            else:
+                ratings_filter = {}
+                period_label = 'All Time'
+
+        # Get all teachers
+        teachers = Teacher.objects.filter(user__is_active=True).select_related('user', 'branch')
+
+        teacher_summaries = []
+        for teacher in teachers:
+            teacher_ratings = TeacherPerformanceRating.objects.filter(
+                teacher=teacher, **ratings_filter
+            )
+
+            if teacher_ratings.count() > 0:
+                stats = self._calculate_rating_stats(teacher_ratings)
+                teacher_summaries.append({
+                    'teacher_id': str(teacher.id),
+                    'teacher_code': teacher.teacher_id,
+                    'full_name': teacher.user.full_name,
+                    'email': teacher.user.email,
+                    'branch': teacher.branch.name if teacher.branch else 'N/A',
+                    **stats
+                })
+
+        return Response({
+            'success': True,
+            'message': 'OK',
+            'status': 200,
+            'data': {
+                'evaluation_period': {
+                    'is_open': eval_settings.is_open,
+                    'period_id': eval_settings.period_id if eval_settings.is_open else (latest_history.period_id if latest_history else None),
+                    'period_label': period_label
+                },
+                'teachers': teacher_summaries,
+                'total_teachers': len(teacher_summaries)
+            }
         })
 
 

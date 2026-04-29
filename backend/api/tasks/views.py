@@ -321,6 +321,67 @@ class EmployeeTaskViewSet(viewsets.ModelViewSet):
     def update_status(self, request, pk=None):
         return self.change_status(request, pk)
 
+    @action(detail=True, methods=['post'], url_path='grammar-check')
+    def grammar_check(self, request, pk=None):
+        """AI grammar check for task description"""
+        from ai_integration.services import get_ai_service
+        from ai_integration.models import AIRequest
+        from django.utils import timezone
+        instance = self.get_object()
+        text = f"{instance.title}\n\n{instance.description or ''}"
+        ai_request = AIRequest.objects.create(
+            user=request.user, request_type='grammar', input_text=text[:1000], status='processing', error_message=''
+        )
+        try:
+            service = get_ai_service()
+            result = service.check_grammar(text)
+            ai_request.status = 'completed'
+            ai_request.output_text = result.corrected_text
+            ai_request.provider = service.__class__.__name__
+            ai_request.completed_at = timezone.now()
+            ai_request.save()
+            return Response({'success': True, 'data': {
+                'original_text': result.original_text,
+                'corrected_text': result.corrected_text,
+                'suggestions': result.suggestions,
+                'errors_found': result.errors_found
+            }})
+        except Exception as e:
+            ai_request.status = 'failed'
+            ai_request.error_message = str(e)
+            ai_request.save()
+            return Response({'success': False, 'message': str(e), 'status': 500}, status=500)
+
+    @action(detail=False, methods=['post'], url_path='ai-analyze')
+    def ai_analyze_tasks(self, request):
+        """AI analyze task patterns and productivity"""
+        from ai_integration.utils import batch_ai_analyze
+        from ai_integration.models import AIRequest
+        from django.utils import timezone
+        queryset = self.get_queryset()[:30]
+        ai_request = AIRequest.objects.create(
+            user=request.user, request_type='summarize', input_text='Task analysis', status='processing', error_message=''
+        )
+        try:
+            result = batch_ai_analyze(queryset, 'trends', 'description')
+            ai_request.status = 'completed'
+            ai_request.output_text = result.summary if result else ''
+            ai_request.provider = 'TaskAIAnalyzer'
+            ai_request.completed_at = timezone.now()
+            ai_request.save()
+            return Response({'success': True, 'data': {
+                'summary': result.summary if result else 'No analysis',
+                'key_insights': result.key_insights if result else [],
+                'total_tasks': queryset.count(),
+                'completed': queryset.filter(status='done').count(),
+                'pending': queryset.filter(status='to_do').count()
+            }})
+        except Exception as e:
+            ai_request.status = 'failed'
+            ai_request.error_message = str(e)
+            ai_request.save()
+            return Response({'success': False, 'message': str(e), 'status': 500}, status=500)
+
 class EmployeeSubTaskViewSet(viewsets.ModelViewSet):
     queryset = EmployeeSubTask.objects.all()
     serializer_class = EmployeeSubTaskSerializer

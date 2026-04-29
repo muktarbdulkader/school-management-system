@@ -60,7 +60,8 @@ INSTALLED_APPS = [
     'library',
     'blogs',
     'materials',
-    'tasks'
+    'tasks',
+    'ai_integration'
 ]
 #⚙️ MIDDLEWARE
 MIDDLEWARE = [
@@ -182,3 +183,14 @@ else:
     # Local development settings
     DATA_UPLOAD_MAX_MEMORY_SIZE = 26214400  # 25MB
     FILE_UPLOAD_MAX_MEMORY_SIZE = 26214400  # 25MB
+
+# 🤖 AI Integration Settings
+AI_PROVIDER = os.environ.get('AI_PROVIDER', 'mock')  # 'openai', 'gemini', 'groq', 'mock'
+OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY', '')
+GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '')
+GROQ_API_KEY = os.environ.get('GROQ_API_KEY', '')
+
+# AI Rate Limiting (requests per user per day)
+AI_RATE_LIMIT = int(os.environ.get('AI_RATE_LIMIT', '100'))
+AI_DAILY_GRAMMAR_LIMIT = int(os.environ.get('AI_DAILY_GRAMMAR_LIMIT', '50'))
+AI_DAILY_SUMMARIZE_LIMIT = int(os.environ.get('AI_DAILY_SUMMARIZE_LIMIT', '30'))

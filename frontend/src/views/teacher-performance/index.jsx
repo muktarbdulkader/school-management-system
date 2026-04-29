@@ -91,6 +91,13 @@ const ReportDialog = ({ open, onClose, teacher, evalSettings, onSuccess }) => {
             return;
         }
 
+        // Check if overall score is 0
+        const scoreNum = parseInt(form.overall_score, 10);
+        if (!scoreNum || scoreNum === 0) {
+            toast.error('Cannot generate report: Overall score is 0. No ratings available for this teacher.');
+            return;
+        }
+
         // Check if teacher already has a report
         if (teacher?.is_reported) {
             toast.error('Report already generated for this teacher in this evaluation period');
@@ -152,6 +159,17 @@ const ReportDialog = ({ open, onClose, teacher, evalSettings, onSuccess }) => {
                         </Typography>
                     </Alert>
                 )}
+                {/* Zero Score Alert */}
+                {evalSettings?.is_evaluation_period_open && form.overall_score === '0' && (
+                    <Alert severity="error" sx={{ mb: 2 }}>
+                        <Typography variant="body2" fontWeight={600}>
+                            Cannot Generate Report - Zero Score
+                        </Typography>
+                        <Typography variant="caption">
+                            This teacher has no ratings yet. Reports cannot be generated with a zero score.
+                        </Typography>
+                    </Alert>
+                )}
                 <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 3 }}>
                     Teacher: {teacher?.user_details?.full_name || 'Selected Teacher'}
                     {teacher?.is_reported && (
@@ -196,16 +214,18 @@ const ReportDialog = ({ open, onClose, teacher, evalSettings, onSuccess }) => {
                 <Button
                     variant="contained"
                     onClick={handleSave}
-                    disabled={saving || !evalSettings?.is_evaluation_period_open || teacher?.is_reported}
+                    disabled={saving || !evalSettings?.is_evaluation_period_open || teacher?.is_reported || form.overall_score === '0'}
                     startIcon={saving ? <CircularProgress size={18} /> : <IconFileText size={18} />}
                 >
                     {teacher?.is_reported
                         ? 'Already Reported'
                         : !evalSettings?.is_evaluation_period_open
                             ? 'Evaluation Closed'
-                            : saving
-                                ? 'Generating...'
-                                : 'Generate Report'}
+                            : form.overall_score === '0'
+                                ? 'Zero Score - Cannot Generate'
+                                : saving
+                                    ? 'Generating...'
+                                    : 'Generate Report'}
                 </Button>
             </DialogActions>
         </Dialog>

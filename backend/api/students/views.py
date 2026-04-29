@@ -663,6 +663,98 @@ class StudentViewSet(TeacherCheckMixin, viewsets.ModelViewSet):
             }
         })
 
+    @action(detail=False, methods=['post'], url_path='ai-analyze')
+    def ai_analyze_students(self, request):
+        """AI analyze student performance patterns"""
+        from ai_integration.utils import batch_ai_analyze
+        from ai_integration.models import AIRequest
+        from django.utils import timezone
+        from django.db.models import Avg, Count
+
+        queryset = self.get_queryset()[:40]
+        ai_request = AIRequest.objects.create(
+            user=request.user, request_type='summarize', input_text='Student performance analysis', status='processing', error_message=''
+        )
+        try:
+            # Gather student data for analysis
+            items = []
+            for student in queryset:
+                items.append({
+                    'id': str(student.id),
+                    'name': student.user.full_name if student.user else 'Unknown',
+                    'grade': str(student.grade) if student.grade else 'N/A',
+                    'section': str(student.section) if student.section else 'N/A',
+                    'student_id': student.student_id
+                })
+
+            from ai_integration.services import get_ai_service
+            service = get_ai_service()
+            result = service.batch_summarize(items, 'overview')
+
+            ai_request.status = 'completed'
+            ai_request.output_text = result.summary if result else ''
+            ai_request.provider = 'StudentAIAnalyzer'
+            ai_request.completed_at = timezone.now()
+            ai_request.save()
+
+            return Response({'success': True, 'data': {
+                'summary': result.summary if result else 'No analysis available',
+                'key_insights': result.key_insights if result else [],
+                'student_count': queryset.count(),
+                'grade_distribution': list(queryset.values('grade__name').annotate(count=Count('id')))
+            }})
+        except Exception as e:
+            ai_request.status = 'failed'
+            ai_request.error_message = str(e)
+            ai_request.save()
+            return Response({'success': False, 'message': str(e), 'status': 500}, status=500)
+
+    @action(detail=True, methods=['post'], url_path='ai-explain-progress')
+    def ai_explain_progress(self, request, pk=None):
+        """AI explain student progress in simple terms for parents"""
+        from ai_integration.services import get_ai_service
+        from ai_integration.models import AIRequest
+        from django.utils import timezone
+
+        student = self.get_object()
+        audience = request.data.get('audience', 'beginner')
+
+        # Gather student data
+        from lessontopics.models import StudentAssignments
+        from schedule.models import Attendance
+
+        assignments = StudentAssignments.objects.filter(student=student).count()
+        attendance = Attendance.objects.filter(student=student)
+        present = attendance.filter(status='present').count()
+        total = attendance.count()
+        attendance_rate = (present / total * 100) if total > 0 else 0
+
+        text = f"Student: {student.user.full_name}\nGrade: {student.grade}\nSection: {student.section}\nAssignments: {assignments} submitted\nAttendance: {attendance_rate:.1f}%"
+
+        ai_request = AIRequest.objects.create(
+            user=request.user, request_type='explain', input_text=text[:1000], status='processing', error_message=''
+        )
+        try:
+            service = get_ai_service()
+            explanation = service.explain(text, audience, 'paragraph')
+
+            ai_request.status = 'completed'
+            ai_request.output_text = explanation
+            ai_request.provider = service.__class__.__name__
+            ai_request.completed_at = timezone.now()
+            ai_request.save()
+
+            return Response({'success': True, 'data': {
+                'explanation': explanation,
+                'student_name': student.user.full_name,
+                'audience': audience
+            }})
+        except Exception as e:
+            ai_request.status = 'failed'
+            ai_request.error_message = str(e)
+            ai_request.save()
+            return Response({'success': False, 'message': str(e), 'status': 500}, status=500)
+
 
 class ParentRelationShipViewSet(viewsets.ModelViewSet):
     queryset = ParentRelationship.objects.all()
@@ -1801,7 +1893,7 @@ class ParentStudentViewSet(AdministrativeUserMixin, TeacherCheckMixin, viewsets.
 
         # Get teacher details - Priority 1: TeacherAssignment
         teacher_assignment = TeacherAssignment.objects.filter(
-            class_fk=class_obj, section=section_obj, subject=subject
+            class_fk=class_obj, subject=subject
         ).first()
 
         teacher_name = None
@@ -1811,7 +1903,7 @@ class ParentStudentViewSet(AdministrativeUserMixin, TeacherCheckMixin, viewsets.
         # Priority 2: Fallback to ClassScheduleSlot if not found in assignment
         if not teacher_name:
             schedule_slot = ClassScheduleSlot.objects.filter(
-                class_fk=class_obj, section=section_obj, subject=subject
+                class_fk=class_obj, subject=subject
             ).first()
             if schedule_slot and schedule_slot.teacher_assignment:
                 teacher_assignment = schedule_slot.teacher_assignment
@@ -2513,6 +2605,5 @@ class BehaviorRatingsViewSet(viewsets.ModelViewSet):
                 if branch_id and not has_model_permission(user, 'behavratings', 'delete', branch_id):
                     raise PermissionDenied("No permission to delete behavior ratings.")
         instance.delete()
-
 
 

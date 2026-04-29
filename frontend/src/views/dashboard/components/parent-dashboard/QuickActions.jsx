@@ -19,6 +19,7 @@ import {
   Assignment,
   ChildCare,
   ArrowForward,
+  Feedback,
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { useSelector } from 'react-redux';
@@ -142,6 +143,13 @@ export default function QuickActions() {
       description: 'Provide feedback',
       path: '/teacher-ratings',
       gradient: ['#f093fb', '#f5576c'],
+    },
+    {
+      icon: <Feedback />,
+      title: 'Parent Feedback',
+      description: 'Share your feedback',
+      path: '/parent-feedback',
+      gradient: ['#ff6b6b', '#ee5a6f'],
     },
     {
       icon: <EventNote />,

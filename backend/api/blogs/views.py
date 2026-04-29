@@ -3,6 +3,8 @@ from rest_framework import viewsets
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework import status
+from rest_framework.decorators import action
+from django.utils import timezone
 
 from users.models import User, has_model_permission
 from .models import BlogCategories, BlogPosts, BlogComments
@@ -199,6 +201,95 @@ class BlogPostsViewSet(viewsets.ModelViewSet):
         if branch_id and not has_model_permission(self.request.user, 'blogposts', 'delete', branch_id):
             raise PermissionDenied("No permission to delete posts.")
         instance.delete()
+
+    @action(detail=True, methods=['post'], url_path='grammar-check')
+    def grammar_check(self, request, pk=None):
+        """AI grammar check for blog post content"""
+        from ai_integration.services import get_ai_service
+        from ai_integration.models import AIRequest
+        instance = self.get_object()
+        text = f"{instance.title}\n\n{instance.content}"
+        ai_request = AIRequest.objects.create(
+            user=request.user, request_type='grammar', input_text=text[:1000], status='processing', error_message=''
+        )
+        try:
+            service = get_ai_service()
+            result = service.check_grammar(text)
+            ai_request.status = 'completed'
+            ai_request.output_text = result.corrected_text
+            ai_request.provider = service.__class__.__name__
+            ai_request.completed_at = timezone.now()
+            ai_request.save()
+            return Response({'success': True, 'data': {
+                'original_text': result.original_text,
+                'corrected_text': result.corrected_text,
+                'suggestions': result.suggestions,
+                'errors_found': result.errors_found
+            }})
+        except Exception as e:
+            ai_request.status = 'failed'
+            ai_request.error_message = str(e)
+            ai_request.save()
+            return Response({'success': False, 'message': str(e), 'status': 500}, status=500)
+
+    @action(detail=True, methods=['post'], url_path='summarize')
+    def summarize(self, request, pk=None):
+        """AI generate summary for blog post"""
+        from ai_integration.services import get_ai_service
+        from ai_integration.models import AIRequest
+        instance = self.get_object()
+        text = f"{instance.title}\n\n{instance.content}"
+        ai_request = AIRequest.objects.create(
+            user=request.user, request_type='summarize', input_text=text[:1000], status='processing', error_message=''
+        )
+        try:
+            service = get_ai_service()
+            max_length = request.data.get('max_length', 200)
+            style = request.data.get('style', 'concise')
+            result = service.summarize(text, max_length, style)
+            ai_request.status = 'completed'
+            ai_request.output_text = result.summary
+            ai_request.provider = service.__class__.__name__
+            ai_request.completed_at = timezone.now()
+            ai_request.save()
+            return Response({'success': True, 'data': {
+                'summary': result.summary,
+                'original_length': result.original_length,
+                'summary_length': result.summary_length,
+                'key_insights': result.key_insights or []
+            }})
+        except Exception as e:
+            ai_request.status = 'failed'
+            ai_request.error_message = str(e)
+            ai_request.save()
+            return Response({'success': False, 'message': str(e), 'status': 500}, status=500)
+
+    @action(detail=False, methods=['post'], url_path='batch-analyze')
+    def batch_analyze(self, request):
+        """AI analyze blog posts trends"""
+        from ai_integration.utils import batch_ai_analyze
+        from ai_integration.models import AIRequest
+        queryset = self.get_queryset().filter(status='published')[:20]
+        ai_request = AIRequest.objects.create(
+            user=request.user, request_type='summarize', input_text='Blog posts analysis', status='processing', error_message=''
+        )
+        try:
+            result = batch_ai_analyze(queryset, 'trends', 'content')
+            ai_request.status = 'completed'
+            ai_request.output_text = result.summary if result else ''
+            ai_request.provider = 'BlogAIBatchAnalyzer'
+            ai_request.completed_at = timezone.now()
+            ai_request.save()
+            return Response({'success': True, 'data': {
+                'summary': result.summary if result else 'No analysis',
+                'key_insights': result.key_insights if result else [],
+                'analyzed_posts': queryset.count()
+            }})
+        except Exception as e:
+            ai_request.status = 'failed'
+            ai_request.error_message = str(e)
+            ai_request.save()
+            return Response({'success': False, 'message': str(e), 'status': 500}, status=500)
 
 class BlogCommentsViewSet(viewsets.ModelViewSet):
     queryset = BlogComments.objects.all()

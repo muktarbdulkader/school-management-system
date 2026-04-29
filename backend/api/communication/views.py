@@ -3,7 +3,6 @@ from django.db import models
 from django.db.models import Q, Avg, Max, Count
 from django.utils import timezone
 from django.contrib.auth.decorators import login_required
-from openai import chat
 from rest_framework import viewsets, filters, status
 from rest_framework.decorators import action
 from django_filters.rest_framework import DjangoFilterBackend
@@ -1210,6 +1209,105 @@ class AnnouncementViewSet(viewsets.ModelViewSet):
             'data': serializer.data
         })
 
+    @action(detail=True, methods=['post'], url_path='grammar-check')
+    def grammar_check(self, request, pk=None):
+        """AI grammar check for announcement message"""
+        from ai_integration.services import get_ai_service
+        from ai_integration.models import AIRequest
+        instance = self.get_object()
+        text = instance.message
+
+        if not text:
+            return Response({'success': False, 'message': 'No message content to check', 'status': 400}, status=400)
+
+        ai_request = AIRequest.objects.create(
+            user=request.user, request_type='grammar', input_text=text[:1000], status='processing', error_message=''
+        )
+        try:
+            service = get_ai_service()
+            result = service.check_grammar(text)
+            ai_request.status = 'completed'
+            ai_request.output_text = result.corrected_text
+            ai_request.provider = service.__class__.__name__
+            ai_request.completed_at = timezone.now()
+            ai_request.save()
+            return Response({'success': True, 'data': {
+                'original_text': result.original_text,
+                'corrected_text': result.corrected_text,
+                'suggestions': result.suggestions,
+                'errors_found': result.errors_found
+            }})
+        except Exception as e:
+            ai_request.status = 'failed'
+            ai_request.error_message = str(e)
+            ai_request.save()
+            return Response({'success': False, 'message': str(e), 'status': 500}, status=500)
+
+    @action(detail=True, methods=['post'], url_path='summarize')
+    def summarize(self, request, pk=None):
+        """AI summarize announcement"""
+        from ai_integration.services import get_ai_service
+        from ai_integration.models import AIRequest
+        instance = self.get_object()
+        text = f"{instance.title}\n\n{instance.message}"
+
+        ai_request = AIRequest.objects.create(
+            user=request.user, request_type='summarize', input_text=text[:1000], status='processing', error_message=''
+        )
+        try:
+            service = get_ai_service()
+            max_length = request.data.get('max_length', 100)
+            style = request.data.get('style', 'concise')
+            result = service.summarize(text, max_length, style)
+            ai_request.status = 'completed'
+            ai_request.output_text = result.summary
+            ai_request.provider = service.__class__.__name__
+            ai_request.completed_at = timezone.now()
+            ai_request.save()
+            return Response({'success': True, 'data': {
+                'summary': result.summary,
+                'original_length': result.original_length,
+                'summary_length': result.summary_length,
+                'compression_ratio': round(result.compression_ratio, 2),
+                'key_insights': result.key_insights or []
+            }})
+        except Exception as e:
+            ai_request.status = 'failed'
+            ai_request.error_message = str(e)
+            ai_request.save()
+            return Response({'success': False, 'message': str(e), 'status': 500}, status=500)
+
+    @action(detail=False, methods=['post'], url_path='batch-analyze')
+    def batch_analyze(self, request):
+        """AI analyze multiple announcements"""
+        from ai_integration.services import get_ai_service
+        from ai_integration.models import AIRequest
+        from ai_integration.utils import batch_ai_analyze
+
+        queryset = self.get_queryset()[:20]
+        ai_request = AIRequest.objects.create(
+            user=request.user, request_type='summarize', input_text='Batch announcement analysis', status='processing', error_message=''
+        )
+        try:
+            result = batch_ai_analyze(queryset, 'trends', 'message')
+            if not result:
+                return Response({'success': False, 'message': 'No announcements to analyze', 'status': 400}, status=400)
+            ai_request.status = 'completed'
+            ai_request.output_text = result.summary
+            ai_request.provider = 'BatchAIAnalyzer'
+            ai_request.completed_at = timezone.now()
+            ai_request.save()
+            return Response({'success': True, 'data': {
+                'summary': result.summary,
+                'key_insights': result.key_insights or [],
+                'analyzed_count': queryset.count()
+            }})
+        except Exception as e:
+            ai_request.status = 'failed'
+            ai_request.error_message = str(e)
+            ai_request.save()
+            return Response({'success': False, 'message': str(e), 'status': 500}, status=500)
+
 class GroupChatViewSet(viewsets.ModelViewSet):
     queryset = GroupChat.objects.all()
     serializer_class = GroupChatSerializer
@@ -1804,6 +1902,39 @@ class ParentFeedbackViewSet(viewsets.ModelViewSet):
             'data': []
         }
         return Response(response_data, status=204)
+
+    @action(detail=False, methods=['post'], url_path='ai-analyze')
+    def ai_analyze_feedback(self, request):
+        """AI analyze parent feedback patterns and sentiments"""
+        from ai_integration.services import get_ai_service
+        from ai_integration.models import AIRequest
+        from ai_integration.utils import batch_ai_analyze
+
+        queryset = self.get_queryset()[:30]
+        if not queryset.exists():
+            return Response({'success': False, 'message': 'No feedback to analyze', 'status': 400}, status=400)
+
+        ai_request = AIRequest.objects.create(
+            user=request.user, request_type='summarize', input_text='Parent feedback analysis', status='processing', error_message=''
+        )
+        try:
+            result = batch_ai_analyze(queryset, 'trends', 'comments')
+            ai_request.status = 'completed'
+            ai_request.output_text = result.summary if result else 'No analysis available'
+            ai_request.provider = 'AIFeedbackAnalyzer'
+            ai_request.completed_at = timezone.now()
+            ai_request.save()
+            return Response({'success': True, 'data': {
+                'summary': result.summary if result else 'No analysis available',
+                'key_insights': result.key_insights if result else [],
+                'feedback_count': queryset.count(),
+                'average_rating': queryset.aggregate(avg=models.Avg('rating'))['avg']
+            }})
+        except Exception as e:
+            ai_request.status = 'failed'
+            ai_request.error_message = str(e)
+            ai_request.save()
+            return Response({'success': False, 'message': str(e), 'status': 500}, status=500)
 
     @action(detail=False, methods=['get', 'post', 'patch'], url_path='parent_feedback')
     def parent_feedback(self, request, *args, **kwargs):

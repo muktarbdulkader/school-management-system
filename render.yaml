@@ -3,7 +3,7 @@ services:
     name: school-management-backend
     env: python
     buildCommand: "chmod +x build.sh && ./build.sh"
-    startCommand: "gunicorn mald_sms.wsgi:application --config gunicorn_config.py"
+    startCommand: "bash -c 'python manage.py migrate --noinput && python manage.py create_roles && python manage.py create_users && gunicorn mald_sms.wsgi:application --config gunicorn_config.py'"
     rootDir: backend
     envVars:
       - key: PYTHON_VERSION

@@ -26,6 +26,18 @@ export const getAdminPortalMenu = () => {
     breadcrumbs: false,
   });
 
+  // School Analytics Dashboard - Only for Super Admin
+  if (roles.includes('super_admin')) {
+    items.push({
+      id: 'school-analytics',
+      title: 'School Analytics',
+      type: 'item',
+      url: '/school-analytics',
+      icon: IconChartBar,
+      breadcrumbs: false,
+    });
+  }
+
   if (roles.some(r => ['admin', 'super_admin', 'head_admin', 'ceo', 'tlh', 'counselor', 'clinic', 'analyst'].includes(r))) {
     items.push({ id: 'students', title: 'Students', type: 'item', url: '/students', icon: IconSchool, breadcrumbs: false });
   }

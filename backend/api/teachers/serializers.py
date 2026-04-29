@@ -373,6 +373,66 @@ class TeacherPerformanceReportSerializer(serializers.ModelSerializer):
         fields = '__all__'
         read_only_fields = ['id', 'generated_at']
 
+    def create(self, validated_data):
+        # Calculate scores from teacher's actual data if not provided
+        teacher = validated_data.get('teacher')
+        if teacher:
+            from django.db.models import Avg, Count, Q
+            from .models import TeacherPerformanceRating, TeacherTask, TeacherMetrics
+            
+            # Get current period ratings
+            from django.db import models
+            all_current = TeacherPerformanceRating.objects.filter(
+                teacher=teacher
+            ).filter(
+                models.Q(is_previous_period=False) | models.Q(is_previous_period__isnull=True)
+            )
+            
+            # Calculate overall score from ratings
+            if validated_data.get('overall_score') is None or validated_data.get('overall_score') == 0:
+                avg_rating = all_current.aggregate(avg=Avg('rating'))['avg']
+                if avg_rating:
+                    validated_data['overall_score'] = round((avg_rating / 5) * 100, 2)
+                else:
+                    validated_data['overall_score'] = 0
+            
+            # Calculate attendance score from teacher metrics
+            if validated_data.get('attendance_score') is None or validated_data.get('attendance_score') == 0:
+                metrics = TeacherMetrics.objects.filter(teacher=teacher).order_by('-month').first()
+                if metrics and metrics.attendance_percentage:
+                    validated_data['attendance_score'] = float(metrics.attendance_percentage)
+                else:
+                    validated_data['attendance_score'] = 0
+            
+            # Calculate task completion score
+            if validated_data.get('task_completion_score') is None or validated_data.get('task_completion_score') == 0:
+                total_tasks = TeacherTask.objects.filter(teacher=teacher).count()
+                completed_tasks = TeacherTask.objects.filter(teacher=teacher, status='completed').count()
+                if total_tasks > 0:
+                    validated_data['task_completion_score'] = round((completed_tasks / total_tasks) * 100, 2)
+                else:
+                    validated_data['task_completion_score'] = 0
+            
+            # Student performance score - calculated from student ratings only
+            if validated_data.get('student_performance_score') is None or validated_data.get('student_performance_score') == 0:
+                from students.models import Student, ParentStudent
+                # Get student user IDs
+                student_user_ids = Student.objects.values_list('user', flat=True)
+                parent_user_ids = ParentStudent.objects.values_list('parent__user', flat=True)
+                
+                # Filter ratings by students and parents (not admin/staff)
+                non_admin_ratings = all_current.filter(
+                    rated_by__in=list(student_user_ids) + list(parent_user_ids)
+                )
+                
+                avg_non_admin = non_admin_ratings.aggregate(avg=Avg('rating'))['avg']
+                if avg_non_admin:
+                    validated_data['student_performance_score'] = round((avg_non_admin / 5) * 100, 2)
+                else:
+                    validated_data['student_performance_score'] = 0
+        
+        return super().create(validated_data)
+
 
 class TeacherAssignmentSerializer(serializers.ModelSerializer):
     teacher = serializers.PrimaryKeyRelatedField(

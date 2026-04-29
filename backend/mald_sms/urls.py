@@ -23,6 +23,7 @@ urlpatterns = [
     # Specific API paths FIRST (before any wildcard 'api/' includes)
     path('api/materials/', include('materials.urls')),
     path('api/communication/', include('communication.urls')),
+    path('api/ai/', include('ai_integration.urls')),
     path('api/tasks/', include('tasks.urls')),
     path('api/library/', include('library.urls')),
     path('api/token/', CustomTokenObtainPairView.as_view(), name='token_obtain_pair'),

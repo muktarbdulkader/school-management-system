@@ -276,7 +276,14 @@ const CriteriaManagement = ({ open, onClose }) => {
     }
   };
 
-  const toggleEvaluationPeriod = async () => {
+  const [closeConfirmOpen, setCloseConfirmOpen] = useState(false);
+  const [missingTeachers, setMissingTeachers] = useState([]);
+  const [missingCount, setMissingCount] = useState(0);
+
+  const toggleEvaluationPeriod = async (force = false) => {
+    // Ensure force is a boolean (handle case where click event is passed)
+    const isForce = typeof force === 'boolean' ? force : false;
+
     setEvalSettingsLoading(true);
     try {
       const token = await GetToken();
@@ -289,13 +296,21 @@ const CriteriaManagement = ({ open, onClose }) => {
         },
         body: JSON.stringify({
           is_open: newState,
-          message: newState ? 'Evaluation period is open' : 'Evaluation period is closed by admin'
+          message: newState ? 'Evaluation period is open' : 'Evaluation period is closed by admin',
+          force: isForce
         })
       });
       const data = await response.json();
       if (response.ok && data.success) {
         setEvalSettings(data.data);
         toast.success(`Evaluation period ${newState ? 'opened' : 'closed'} successfully`);
+        setCloseConfirmOpen(false);
+        setMissingTeachers([]);
+      } else if (!response.ok && data.data?.can_force_close) {
+        // Show confirmation dialog for missing reports
+        setMissingTeachers(data.data.missing_teachers || []);
+        setMissingCount(data.data.missing_reports_count || 0);
+        setCloseConfirmOpen(true);
       } else {
         toast.error(data.message || 'Failed to update evaluation period');
       }
@@ -631,6 +646,52 @@ const CriteriaManagement = ({ open, onClose }) => {
             variant="contained"
           >
             Delete
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Close Evaluation Confirmation - Missing Reports */}
+      <Dialog
+        open={closeConfirmOpen}
+        onClose={() => setCloseConfirmOpen(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle sx={{ fontWeight: 700, color: 'warning.main' }}>
+          ⚠️ Missing Reports Warning
+        </DialogTitle>
+        <DialogContent>
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            <Typography fontWeight={700}>
+              {missingCount} teacher(s) do not have generated reports!
+            </Typography>
+          </Alert>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            The following teachers are missing performance reports for the current evaluation period:
+          </Typography>
+          <Box sx={{ maxHeight: 200, overflow: 'auto', bgcolor: 'grey.50', p: 1, borderRadius: 1 }}>
+            {missingTeachers.map((teacher) => (
+              <Typography key={teacher.id} variant="body2" sx={{ py: 0.5 }}>
+                • {teacher.name} ({teacher.teacher_id})
+              </Typography>
+            ))}
+          </Box>
+          <Typography variant="body2" sx={{ mt: 2 }}>
+            Do you want to close the evaluation period anyway?
+            <strong>Super Admin can force close.</strong>
+          </Typography>
+        </DialogContent>
+        <DialogActions sx={{ p: 2 }}>
+          <Button onClick={() => setCloseConfirmOpen(false)} color="inherit">
+            Cancel
+          </Button>
+          <Button
+            onClick={() => toggleEvaluationPeriod(true)}
+            color="warning"
+            variant="contained"
+            disabled={evalSettingsLoading}
+          >
+            {evalSettingsLoading ? 'Closing...' : 'Force Close Anyway'}
           </Button>
         </DialogActions>
       </Dialog>

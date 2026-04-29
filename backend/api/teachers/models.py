@@ -625,6 +625,62 @@ class EvaluationPeriodSettings(models.Model):
             message='Evaluation period is not configured'
         )
     
+    def save(self, *args, **kwargs):
+        # Check if this is an update (existing record)
+        if self.pk:
+            try:
+                old_record = EvaluationPeriodSettings.objects.get(pk=self.pk)
+                
+                # If changing from CLOSED to OPEN - create new period
+                if not old_record.is_open and self.is_open:
+                    # Get next period number
+                    from django.db.models import Max
+                    max_period = EvaluationPeriodHistory.objects.aggregate(
+                        max_num=Max('period_number')
+                    )['max_num'] or 0
+                    
+                    # Create new period history record
+                    EvaluationPeriodHistory.objects.create(
+                        period_id=self.period_id or f"period_{max_period + 1}",
+                        period_number=max_period + 1,
+                        is_open=True,
+                        opened_at=timezone.now(),
+                        name=f"Period {max_period + 1}",
+                        description=f"Evaluation period opened on {timezone.now().strftime('%Y-%m-%d')}"
+                    )
+                
+                # If changing from OPEN to CLOSED - close the current period
+                if old_record.is_open and not self.is_open:
+                    # Mark all current ratings as previous
+                    TeacherPerformanceRating.objects.filter(
+                        is_previous_period=False
+                    ).update(is_previous_period=True)
+                    # Mark all current evaluations as previous
+                    TeacherPerformanceEvaluation.objects.filter(
+                        is_previous_period=False
+                    ).update(is_previous_period=True)
+                    
+                    # Close the period history record
+                    current_period = EvaluationPeriodHistory.objects.filter(
+                        is_open=True
+                    ).first()
+                    if current_period:
+                        current_period.is_open = False
+                        current_period.closed_at = timezone.now()
+                        # Calculate stats before closing
+                        period_ratings = TeacherPerformanceRating.objects.filter(
+                            evaluation_period_id=current_period.period_id
+                        )
+                        current_period.total_ratings = period_ratings.count()
+                        avg = period_ratings.aggregate(avg=models.Avg('rating'))['avg']
+                        current_period.avg_rating = avg
+                        current_period.save()
+                        
+            except EvaluationPeriodSettings.DoesNotExist:
+                pass
+        
+        super().save(*args, **kwargs)
+    
     def to_dict(self):
         """Convert to dictionary format matching the old cache format."""
         return {
@@ -636,3 +692,45 @@ class EvaluationPeriodSettings(models.Model):
             'updated_by': self.updated_by.full_name if self.updated_by else 'System',
             'updated_at': self.updated_at.isoformat() if self.updated_at else None
         }
+
+
+class EvaluationPeriodHistory(models.Model):
+    """History of all teacher evaluation periods.
+    
+    Tracks each time the evaluation period was opened and closed,
+    allowing historical analysis of ratings by period.
+    """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    
+    # Period identification
+    period_id = models.CharField(max_length=100, unique=True, help_text="Unique identifier for this period")
+    period_number = models.IntegerField(default=1, help_text="Sequential period number (1, 2, 3, etc.)")
+    
+    # Period status
+    is_open = models.BooleanField(default=False, help_text="Is this period currently open")
+    
+    # Period dates
+    opened_at = models.DateTimeField(null=True, blank=True, help_text="When this period was opened")
+    closed_at = models.DateTimeField(null=True, blank=True, help_text="When this period was closed")
+    
+    # Period metadata
+    name = models.CharField(max_length=200, blank=True, help_text="Period name/label (e.g., 'Term 1 2026')")
+    description = models.TextField(blank=True, help_text="Description of this evaluation period")
+    
+    # Statistics (cached at close time)
+    total_ratings = models.IntegerField(default=0, help_text="Total ratings during this period")
+    avg_rating = models.DecimalField(max_digits=3, decimal_places=2, null=True, blank=True)
+    
+    # Tracking
+    created_by = models.ForeignKey('users.User', on_delete=models.SET_NULL, null=True, blank=True, related_name='created_evaluation_periods')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        db_table = 'teacher_evaluation_period_history'
+        ordering = ['-period_number']
+        verbose_name_plural = 'Evaluation Period Histories'
+    
+    def __str__(self):
+        status = "OPEN" if self.is_open else "CLOSED"
+        return f"Period {self.period_number} ({self.period_id}) - {status}"

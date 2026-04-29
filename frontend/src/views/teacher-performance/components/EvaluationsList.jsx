@@ -61,13 +61,37 @@ const EvaluationsList = ({ teacherId = null, open, onClose, onEdit, onCreate, ca
   const [allEvaluationsData, setAllEvaluationsData] = useState(null);
   const [allEvaluationsLoading, setAllEvaluationsLoading] = useState(false);
   const [showPreviousPeriod, setShowPreviousPeriod] = useState(false);
+  const [allTeachersSummary, setAllTeachersSummary] = useState(null);
 
   useEffect(() => {
     if (open) {
       fetchEvaluations();
       fetchTerms();
+      // Fetch all teachers summary for "All Evaluations" dialog
+      fetchAllTeachersSummary();
+      // Also fetch full evaluation data for specific teacher (silent)
+      if (teacherId) {
+        fetchAllEvaluations(teacherId, true);
+      }
     }
   }, [open, teacherId, termFilter]);
+
+  const fetchAllTeachersSummary = async () => {
+    // Fetch summary for ALL teachers
+    try {
+      const token = await GetToken();
+      const url = `${Backend.api}performance-criteria/all-teachers-summary/`;
+      const response = await fetch(url, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await response.json();
+      if (response.ok && data.success) {
+        setAllTeachersSummary(data.data);
+      }
+    } catch (error) {
+      console.error('Error fetching all teachers summary:', error);
+    }
+  };
 
   const fetchTerms = async () => {
     try {
@@ -84,8 +108,8 @@ const EvaluationsList = ({ teacherId = null, open, onClose, onEdit, onCreate, ca
     }
   };
 
-  const fetchAllEvaluations = async (tid) => {
-    setAllEvaluationsLoading(true);
+  const fetchAllEvaluations = async (tid, silent = false) => {
+    if (!silent) setAllEvaluationsLoading(true);
     try {
       const token = await GetToken();
       const url = `${Backend.api}${Backend.performanceAllEvaluations}?teacher_id=${tid}`;
@@ -95,15 +119,15 @@ const EvaluationsList = ({ teacherId = null, open, onClose, onEdit, onCreate, ca
       const data = await response.json();
       if (response.ok && data.success) {
         setAllEvaluationsData(data.data);
-        setAllEvaluationsOpen(true);
-      } else {
+        if (!silent) setAllEvaluationsOpen(true);
+      } else if (!silent) {
         toast.error(data.message || 'Failed to load all evaluations');
       }
     } catch (error) {
       console.error('Error fetching all evaluations:', error);
-      toast.error('Failed to load all evaluations');
+      if (!silent) toast.error('Failed to load all evaluations');
     } finally {
-      setAllEvaluationsLoading(false);
+      if (!silent) setAllEvaluationsLoading(false);
     }
   };
 
@@ -291,42 +315,93 @@ const EvaluationsList = ({ teacherId = null, open, onClose, onEdit, onCreate, ca
             </Button>
           </Stack>
 
-          {/* Review Info - Admin reviews student/parent ratings, does not create evaluations */}
-          <Alert severity="info" sx={{ mb: 3 }}>
-            <Typography variant="body2" fontWeight={600}>
-              Admin Review Mode
-            </Typography>
-            <Typography variant="body2">
-              reviews teacher performance based on student and parent ratings only.
-              Click "View Full Analysis" to see aggregate ratings, strengths, weaknesses, and provide recommendations.
-            </Typography>
-          </Alert>
-
-          {/* Admin Review Mode - No formal evaluations table, just info */}
-          <Alert severity="success" sx={{ mt: 2 }}>
-            <Typography variant="body1" fontWeight={700} gutterBottom>
-              ✅ Admin Review Mode Active
-            </Typography>
-            <Typography variant="body2" paragraph>
-              Super Admin/Admin reviews teacher performance based on student and parent ratings only.
-              You cannot create formal evaluations - you can only review existing ratings and provide recommendations.
-            </Typography>
-            <Typography variant="body2">
-              <strong>To review a teacher:</strong>
-            </Typography>
-            <Typography component="div" variant="body2" sx={{ pl: 2, mt: 1 }}>
-              • Click <strong>"View Full Analysis"</strong> button above<br />
-              • See aggregate ratings from students/parents (names hidden for privacy)<br />
-              • View strengths, weaknesses, and provide recommendations<br />
-              • See recent anonymous ratings by role (Student/Parent/Admin)
-            </Typography>
-          </Alert>
-
           {loading && (
             <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
               <CircularProgress />
             </Box>
           )}
+
+          {/* All Teachers Summary Table */}
+          {!loading && allTeachersSummary && (
+            <>
+              <Alert severity="info" sx={{ mb: 2 }}>
+                <Typography variant="body2" fontWeight={600}>
+                  {allTeachersSummary.evaluation_period?.period_label || 'Current Period'}
+                  {allTeachersSummary.evaluation_period?.is_open ? ' (Open)' : ' (Closed)'}
+                </Typography>
+                <Typography variant="body2">
+                  Showing {allTeachersSummary.total_teachers} teachers with ratings
+                </Typography>
+              </Alert>
+
+              {allTeachersSummary.teachers?.length === 0 ? (
+                <Alert severity="info">
+                  No teachers have ratings yet for this period.
+                </Alert>
+              ) : (
+                <TableContainer>
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow sx={{ bgcolor: 'grey.100' }}>
+                        <TableCell><strong>Teacher</strong></TableCell>
+                        <TableCell align="center"><strong>Student Score</strong></TableCell>
+                        <TableCell align="center"><strong>Parent Score</strong></TableCell>
+                        <TableCell align="center"><strong>Other Score</strong></TableCell>
+                        <TableCell align="center"><strong>Total Score</strong></TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {allTeachersSummary.teachers.map((teacher) => (
+                        <TableRow key={teacher.teacher_id} hover>
+                          <TableCell>
+                            <Typography fontWeight={600}>
+                              {teacher.full_name}
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary">
+                              {teacher.teacher_code} • {teacher.total_ratings} ratings
+                            </Typography>
+                          </TableCell>
+                          <TableCell align="center">
+                            {teacher.student_count > 0 ? (
+                              <Typography fontWeight={700} color="primary">
+                                {teacher.student_score}/100
+                              </Typography>
+                            ) : (
+                              <Typography variant="caption" color="text.secondary">-</Typography>
+                            )}
+                          </TableCell>
+                          <TableCell align="center">
+                            {teacher.parent_count > 0 ? (
+                              <Typography fontWeight={700} color="success.main">
+                                {teacher.parent_score}/100
+                              </Typography>
+                            ) : (
+                              <Typography variant="caption" color="text.secondary">-</Typography>
+                            )}
+                          </TableCell>
+                          <TableCell align="center">
+                            {teacher.other_count > 0 ? (
+                              <Typography fontWeight={700} color="warning.main">
+                                {teacher.other_score}/100
+                              </Typography>
+                            ) : (
+                              <Typography variant="caption" color="text.secondary">-</Typography>
+                            )}
+                          </TableCell>
+                          <TableCell align="center">
+                            <Typography fontWeight={700} color="primary" variant="h6">
+                              {teacher.overall_score}/100
+                            </Typography>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              )}
+            </>
+          )}
+
         </Stack>
       </DialogContent>
       <DialogActions sx={{ p: 3 }}>
@@ -1058,6 +1133,68 @@ const EvaluationsList = ({ teacherId = null, open, onClose, onEdit, onCreate, ca
                               </TableCell>
                             </TableRow>
                           ))}
+                        </TableBody>
+                      </Table>
+                    </TableContainer>
+
+                    {/* Previous Period Individual Ratings */}
+                    <Typography variant="subtitle2" fontWeight={700} color="text.secondary" sx={{ mt: 2, mb: 1 }}>
+                      Previous Period Individual Ratings ({allEvaluationsData.previous_period?.ratings?.length || 0} total)
+                    </Typography>
+                    <TableContainer component={Card} sx={{ bgcolor: 'white', maxHeight: 300 }}>
+                      <Table size="small" stickyHeader>
+                        <TableHead>
+                          <TableRow>
+                            <TableCell sx={{ fontWeight: 700 }}>Date</TableCell>
+                            <TableCell sx={{ fontWeight: 700 }}>Rated By</TableCell>
+                            <TableCell sx={{ fontWeight: 700 }}>Criteria</TableCell>
+                            <TableCell sx={{ fontWeight: 700 }}>Rating</TableCell>
+                            <TableCell sx={{ fontWeight: 700 }}>Comment</TableCell>
+                          </TableRow>
+                        </TableHead>
+                        <TableBody>
+                          {allEvaluationsData.previous_period?.ratings?.map((rating) => (
+                            <TableRow key={`prev-rating-${rating.id}`}>
+                              <TableCell>
+                                {dayjs(rating.rating_date).format('MMM D, YYYY')}
+                              </TableCell>
+                              <TableCell>
+                                {rating.rated_by_role === 'Admin' && rating.rated_by_name ? (
+                                  <Box>
+                                    <Typography variant="body2" fontWeight={600}>
+                                      {rating.rated_by_name}
+                                    </Typography>
+                                    <Chip label="Admin" size="small" color="warning" variant="outlined" />
+                                  </Box>
+                                ) : (
+                                  <Chip
+                                    label={rating.rated_by_role}
+                                    size="small"
+                                    color={rating.rated_by_role === 'Student' ? 'success' : rating.rated_by_role === 'Parent' ? 'info' : 'warning'}
+                                    variant="outlined"
+                                  />
+                                )}
+                              </TableCell>
+                              <TableCell>{rating.category}</TableCell>
+                              <TableCell>
+                                <Rating value={rating.rating} readOnly size="small" />
+                              </TableCell>
+                              <TableCell>
+                                <Typography variant="body2" sx={{ maxWidth: 200 }} noWrap>
+                                  {rating.comment || '-'}
+                                </Typography>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                          {(!allEvaluationsData.previous_period?.ratings || allEvaluationsData.previous_period.ratings.length === 0) && (
+                            <TableRow>
+                              <TableCell colSpan={5} align="center">
+                                <Typography variant="body2" color="text.secondary" sx={{ py: 2 }}>
+                                  No individual ratings recorded for previous period
+                                </Typography>
+                              </TableCell>
+                            </TableRow>
+                          )}
                         </TableBody>
                       </Table>
                     </TableContainer>

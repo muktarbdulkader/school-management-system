@@ -104,6 +104,7 @@ const LearningObjectives = Loadable(
 );
 const TeacherRatingsPage = Loadable(lazy(() => import('views/teacher-ratings')));
 const MeetingRequestsPage = Loadable(lazy(() => import('views/meeting-requests')));
+const ParentFeedbackPage = Loadable(lazy(() => import('views/parent-feedback')));
 const Grades = Loadable(lazy(() => import('views/Grade')));
 const ExamManagement = Loadable(lazy(() => import('views/exams')));
 const TeachersClassUnits = Loadable(
@@ -151,6 +152,7 @@ const ClassSubjectAssignmentsPage = Loadable(lazy(() => import('views/class-subj
 const AdminClassManage = Loadable(lazy(() => import('views/classes/AdminClassManage')));
 const CreateClassPage = Loadable(lazy(() => import('views/classes/CreateClass')));
 const FinanceOverviewPage = Loadable(lazy(() => import('views/finance')));
+const SchoolAnalyticsDashboard = Loadable(lazy(() => import('views/dashboard/ai-analytics-dashboard')));
 ///////////////// end  of new import ////////////////
 
 const EvaluationApproval = Loadable(
@@ -221,6 +223,14 @@ const MainRoutes = {
       element: (
         <Protected>
           <Home />
+        </Protected>
+      ),
+    },
+    {
+      path: 'school-analytics',
+      element: (
+        <Protected>
+          <SchoolAnalyticsDashboard />
         </Protected>
       ),
     },
@@ -344,6 +354,14 @@ const MainRoutes = {
       element: (
         <Protected>
           <MeetingRequestsPage />
+        </Protected>
+      ),
+    },
+    {
+      path: 'parent-feedback',
+      element: (
+        <Protected>
+          <ParentFeedbackPage />
         </Protected>
       ),
     },
