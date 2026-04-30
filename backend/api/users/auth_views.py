@@ -124,9 +124,8 @@ class ForgotPasswordView(APIView):
         # Get user's name from full_name
         user_name = user.full_name if user.full_name else 'User'
 
-        # Send email with code
-        try:
-            email_message = f"""
+        # Prepare email message
+        email_message = f"""
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
               MALD SCHOOL MANAGEMENT SYSTEM
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -147,27 +146,34 @@ and your account will remain secure.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 © {timezone.now().year} MALD School. All rights reserved.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-            """
-            send_mail(
+        """
+
+        # Send email with code using fail_silently to prevent timeout blocking
+        email_sent = False
+        try:
+            # Use a socket timeout to prevent hanging
+            import socket
+            socket.setdefaulttimeout(5)  # 5 second timeout for socket operations
+            
+            email_sent = send_mail(
                 subject='MALD School - Password Reset Code',
                 message=email_message,
                 from_email=settings.DEFAULT_FROM_EMAIL,
                 recipient_list=[email],
-                fail_silently=False,
+                fail_silently=True,  # Don't crash if email fails
             )
+            socket.setdefaulttimeout(None)  # Reset to default
         except Exception as e:
             # Log error but don't expose it to user
             print(f"[ForgotPassword] Email sending failed: {e}")
-            return Response({
-                'success': True,
-                'message': 'If an account exists, a password reset email has been sent.',
-                'debug_code': reset_code if settings.DEBUG else None,
-                'status': 200
-            }, status=status.HTTP_200_OK)
 
+        # Always return success to prevent email enumeration
+        # Include debug_code in DEBUG mode for testing
         return Response({
             'success': True,
-            'message': 'Password reset code sent. Please check your inbox.',
+            'message': 'Password reset code sent. Please check your inbox.' if email_sent else 'If an account exists, a password reset email has been sent.',
+            'debug_code': reset_code if settings.DEBUG else None,
+            'email_sent': email_sent,
             'status': 200
         }, status=status.HTTP_200_OK)
 
