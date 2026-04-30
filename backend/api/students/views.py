@@ -948,6 +948,101 @@ class ParentStudentViewSet(AdministrativeUserMixin, TeacherCheckMixin, viewsets.
             'data': serializer.data
         })
 
+    @action(detail=False, methods=['get'], url_path='available_teachers/(?P<student_id>[^/.]+)')
+    def available_teachers(self, request, student_id=None, *args, **kwargs):
+        """
+        Get all teachers available for a specific student based on their enrolled subjects.
+        This endpoint is used by students/parents to see which teachers they can rate.
+        """
+        from teachers.models import Teacher, TeacherAssignment
+        from teachers.serializers import TeacherSerializer
+        from academics.models import Subject
+        from django.core.exceptions import ValidationError
+        from django.db.models import Q
+
+        user = request.user
+
+        # Handle special case "all"
+        if student_id == 'all':
+            return Response({
+                'success': True,
+                'message': 'All teachers endpoint - please specify a student ID',
+                'status': 200,
+                'data': {'teachers': [], 'student_id': 'all'}
+            })
+
+        try:
+            # First try to find by Student.id
+            try:
+                student = Student.objects.select_related('user', 'section').get(id=student_id)
+            except (Student.DoesNotExist, ValidationError):
+                # If that fails, try to find by Student.user_id
+                student = Student.objects.select_related('user', 'section').get(user_id=student_id)
+
+            # Check permissions: allow students, parents, teachers, and admins
+            is_own_profile = student.user == user
+            is_parent = ParentStudent.objects.filter(parent__user=user, student=student).exists()
+            is_teacher_user = Teacher.objects.filter(user=user).exists()
+            is_admin = user.is_superuser or user.is_staff
+
+            if not (is_own_profile or is_parent or is_teacher_user or is_admin):
+                raise PermissionDenied("You do not have permission to view teachers for this student.")
+
+        except (Student.DoesNotExist, ValidationError):
+            return Response({
+                'success': False,
+                'message': 'Student not found',
+                'status': 404,
+                'data': {}
+            }, status=status.HTTP_404_NOT_FOUND)
+
+        # Get all subjects the student is enrolled in
+        student_subjects = StudentSubject.objects.filter(
+            student=student
+        ).select_related('subject').values_list('subject', flat=True)
+
+        # Get all teachers who teach this specific student's class and section
+        teacher_ids = TeacherAssignment.objects.filter(
+            Q(class_fk=student.grade, section=student.section) |
+            Q(subject__in=student_subjects)
+        ).values_list('teacher', flat=True).distinct()
+
+        teachers = Teacher.objects.filter(
+            id__in=teacher_ids
+        ).select_related('user')
+
+        teachers_data = []
+        for teacher in teachers:
+            # Find which subjects this teacher teaches this student
+            teacher_cst = TeacherAssignment.objects.filter(teacher=teacher)
+            cst_for_student = teacher_cst.filter(
+                Q(subject__in=student_subjects) |
+                (Q(class_fk=student.grade) & (Q(section=student.section) | Q(section__isnull=True) if hasattr(student, 'section') and student.section else Q()))
+            )
+            subj_ids = cst_for_student.values_list('subject', flat=True).distinct()
+            teacher_subjects = Subject.objects.filter(id__in=subj_ids)
+            subject_names = [s.name for s in teacher_subjects]
+
+            teachers_data.append({
+                'teacher_id': str(teacher.id),
+                'teacher_name': teacher.user.full_name,
+                'subjects': subject_names,
+                'subject_specialization': teacher.subject_specialization or (subject_names[0] if subject_names else 'N/A'),
+            })
+
+        return Response({
+            'success': True,
+            'message': f'Available teachers for {student.user.full_name}',
+            'status': 200,
+            'data': {
+                'teachers': teachers_data,
+                'student_id': str(student.id),
+                'student_name': student.user.full_name,
+                'grade': str(student.grade) if student.grade else None,
+                'section': str(student.section) if student.section else None,
+            }
+        })
+
     @action(detail=False, methods=['get'], url_path='dashboard/(?P<student_id>[^/.]+)/?')
     def dashboard(self, request, student_id=None):
         user = request.user
@@ -2607,3 +2702,115 @@ class BehaviorRatingsViewSet(viewsets.ModelViewSet):
         instance.delete()
 
 
+# Standalone API view for available_teachers (used by parent feedback and teacher ratings)
+from rest_framework.decorators import api_view, permission_classes
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def available_teachers_view(request, student_id):
+    """
+    Get all teachers available for a specific student based on their enrolled subjects.
+    This endpoint is used by students/parents to see which teachers they can rate.
+    """
+    from teachers.models import Teacher, TeacherAssignment
+    from teachers.serializers import TeacherSerializer
+    from academics.models import Subject
+    from django.core.exceptions import ValidationError
+    
+    user = request.user
+    branch_id = request.query_params.get('branch_id')
+
+    if branch_id and not has_model_permission(user, 'student', 'view_student', branch_id):
+        raise PermissionDenied("You do not have permission to view teachers for this student.")
+
+    # Handle special case "all"
+    if student_id == 'all':
+        return Response({
+            'success': True,
+            'message': 'All teachers endpoint - please specify a student ID',
+            'status': 200,
+            'data': {'teachers': [], 'student_id': 'all'}
+        })
+    
+    try:
+        # First try to find by Student.id
+        try:
+            student = Student.objects.select_related('user', 'section').get(id=student_id)
+        except (Student.DoesNotExist, ValidationError):
+            # If that fails, try to find by Student.user_id
+            student = Student.objects.select_related('user', 'section').get(user_id=student_id)
+
+        # Check permissions: allow students, parents, teachers, and admins
+        is_own_profile = student.user == user
+        is_parent = ParentStudent.objects.filter(parent__user=user, student=student).exists()
+        is_teacher_user = Teacher.objects.filter(user=user).exists()
+        is_admin = user.is_superuser or user.is_staff
+
+        if not (is_own_profile or is_parent or is_teacher_user or is_admin):
+            raise PermissionDenied("You do not have permission to view teachers for this student.")
+
+    except (Student.DoesNotExist, ValidationError):
+        return Response({
+            'success': False,
+            'message': 'Student not found',
+            'status': 404,
+            'data': {}
+        }, status=status.HTTP_404_NOT_FOUND)
+
+    # Get all subjects the student is enrolled in
+    student_subjects = StudentSubject.objects.filter(
+        student=student
+    ).select_related('subject').values_list('subject', flat=True)
+
+    # Get all teachers who teach this specific student's class and section
+    teacher_ids = TeacherAssignment.objects.filter(
+        Q(class_fk=student.grade, section=student.section) |
+        Q(subject__in=student_subjects)
+    ).values_list('teacher', flat=True).distinct()
+
+    teachers = Teacher.objects.filter(
+        id__in=teacher_ids
+    ).select_related('user')
+
+    teachers_data = []
+    for teacher in teachers:
+        # Find which subjects this teacher teaches this student
+        teacher_cst = TeacherAssignment.objects.filter(teacher=teacher)
+        cst_for_student = teacher_cst.filter(
+            Q(subject__in=student_subjects) |
+            (Q(class_fk=student.grade) & (Q(section=student.section) | Q(section__isnull=True) if hasattr(student, 'section') and student.section else Q()))
+        )
+        subj_ids = cst_for_student.values_list('subject', flat=True).distinct()
+        teacher_subjects = Subject.objects.filter(id__in=subj_ids)
+
+        if subj_ids.exists():
+            teacher_serializer = TeacherSerializer(teacher, context={'request': request})
+            teacher_data = teacher_serializer.data
+            teacher_data['subject_details'] = [
+                {
+                    'id': str(subj.id),
+                    'name': subj.name,
+                    'code': subj.code
+                } for subj in teacher_subjects if subj
+            ]
+            teachers_data.append(teacher_data)
+
+    # Get available subjects for filtering
+    all_student_subject_ids = set()
+    for t_data in teachers_data:
+        for s_data in t_data['subject_details']:
+            all_student_subject_ids.add(s_data['id'])
+
+    available_subjects = Subject.objects.filter(
+        id__in=all_student_subject_ids
+    ).values('id', 'name', 'code')
+
+    return Response({
+        'success': True,
+        'message': 'Available teachers retrieved successfully',
+        'status': 200,
+        'data': {
+            'teachers': teachers_data,
+            'filters': {'available_subjects': list(available_subjects)}
+        }
+    })

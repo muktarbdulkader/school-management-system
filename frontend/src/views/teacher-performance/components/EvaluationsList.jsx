@@ -321,85 +321,96 @@ const EvaluationsList = ({ teacherId = null, open, onClose, onEdit, onCreate, ca
             </Box>
           )}
 
-          {/* All Teachers Summary Table */}
+          {/* All Teachers Summary Table - Filter to show only selected teacher if teacherId provided */}
           {!loading && allTeachersSummary && (
-            <>
-              <Alert severity="info" sx={{ mb: 2 }}>
-                <Typography variant="body2" fontWeight={600}>
-                  {allTeachersSummary.evaluation_period?.period_label || 'Current Period'}
-                  {allTeachersSummary.evaluation_period?.is_open ? ' (Open)' : ' (Closed)'}
-                </Typography>
-                <Typography variant="body2">
-                  Showing {allTeachersSummary.total_teachers} teachers with ratings
-                </Typography>
-              </Alert>
+            (() => {
+              // Filter to show only selected teacher if teacherId is provided
+              const teachersToShow = teacherId
+                ? allTeachersSummary.teachers.filter(t => t.teacher_id === teacherId)
+                : allTeachersSummary.teachers;
 
-              {allTeachersSummary.teachers?.length === 0 ? (
-                <Alert severity="info">
-                  No teachers have ratings yet for this period.
-                </Alert>
-              ) : (
-                <TableContainer>
-                  <Table size="small">
-                    <TableHead>
-                      <TableRow sx={{ bgcolor: 'grey.100' }}>
-                        <TableCell><strong>Teacher</strong></TableCell>
-                        <TableCell align="center"><strong>Student Score</strong></TableCell>
-                        <TableCell align="center"><strong>Parent Score</strong></TableCell>
-                        <TableCell align="center"><strong>Other Score</strong></TableCell>
-                        <TableCell align="center"><strong>Total Score</strong></TableCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {allTeachersSummary.teachers.map((teacher) => (
-                        <TableRow key={teacher.teacher_id} hover>
-                          <TableCell>
-                            <Typography fontWeight={600}>
-                              {teacher.full_name}
-                            </Typography>
-                            <Typography variant="caption" color="text.secondary">
-                              {teacher.teacher_code} • {teacher.total_ratings} ratings
-                            </Typography>
-                          </TableCell>
-                          <TableCell align="center">
-                            {teacher.student_count > 0 ? (
-                              <Typography fontWeight={700} color="primary">
-                                {teacher.student_score}/100
-                              </Typography>
-                            ) : (
-                              <Typography variant="caption" color="text.secondary">-</Typography>
-                            )}
-                          </TableCell>
-                          <TableCell align="center">
-                            {teacher.parent_count > 0 ? (
-                              <Typography fontWeight={700} color="success.main">
-                                {teacher.parent_score}/100
-                              </Typography>
-                            ) : (
-                              <Typography variant="caption" color="text.secondary">-</Typography>
-                            )}
-                          </TableCell>
-                          <TableCell align="center">
-                            {teacher.other_count > 0 ? (
-                              <Typography fontWeight={700} color="warning.main">
-                                {teacher.other_score}/100
-                              </Typography>
-                            ) : (
-                              <Typography variant="caption" color="text.secondary">-</Typography>
-                            )}
-                          </TableCell>
-                          <TableCell align="center">
-                            <Typography fontWeight={700} color="primary" variant="h6">
-                              {teacher.overall_score}/100
-                            </Typography>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </TableContainer>
-              )}
-            </>
+              return (
+                <>
+                  <Alert severity="info" sx={{ mb: 2 }}>
+                    <Typography variant="body2" fontWeight={600}>
+                      {allTeachersSummary.evaluation_period?.period_label || 'Current Period'}
+                      {allTeachersSummary.evaluation_period?.is_open ? ' (Open)' : ' (Closed)'}
+                    </Typography>
+                    <Typography variant="body2">
+                      {teacherId
+                        ? `Showing performance for selected teacher`
+                        : `Showing ${allTeachersSummary.total_teachers} teachers with ratings`}
+                    </Typography>
+                  </Alert>
+
+                  {teachersToShow.length === 0 ? (
+                    <Alert severity="info">
+                      No ratings found for this teacher in the current period.
+                    </Alert>
+                  ) : (
+                    <TableContainer>
+                      <Table size="small">
+                        <TableHead>
+                          <TableRow sx={{ bgcolor: 'grey.100' }}>
+                            <TableCell><strong>Teacher</strong></TableCell>
+                            <TableCell align="center"><strong>Student Score</strong></TableCell>
+                            <TableCell align="center"><strong>Parent Score</strong></TableCell>
+                            <TableCell align="center"><strong>Other Score</strong></TableCell>
+                            <TableCell align="center"><strong>Total Score</strong></TableCell>
+                          </TableRow>
+                        </TableHead>
+                        <TableBody>
+                          {teachersToShow.map((teacher) => (
+                            <TableRow key={teacher.teacher_id} hover>
+                              <TableCell>
+                                <Typography fontWeight={600}>
+                                  {teacher.full_name}
+                                </Typography>
+                                <Typography variant="caption" color="text.secondary">
+                                  {teacher.teacher_code} • {teacher.total_ratings} ratings
+                                </Typography>
+                              </TableCell>
+                              <TableCell align="center">
+                                {teacher.student_count > 0 ? (
+                                  <Typography fontWeight={700} color="primary">
+                                    {teacher.student_score}/100
+                                  </Typography>
+                                ) : (
+                                  <Typography variant="caption" color="text.secondary">-</Typography>
+                                )}
+                              </TableCell>
+                              <TableCell align="center">
+                                {teacher.parent_count > 0 ? (
+                                  <Typography fontWeight={700} color="success.main">
+                                    {teacher.parent_score}/100
+                                  </Typography>
+                                ) : (
+                                  <Typography variant="caption" color="text.secondary">-</Typography>
+                                )}
+                              </TableCell>
+                              <TableCell align="center">
+                                {teacher.other_count > 0 ? (
+                                  <Typography fontWeight={700} color="warning.main">
+                                    {teacher.other_score}/100
+                                  </Typography>
+                                ) : (
+                                  <Typography variant="caption" color="text.secondary">-</Typography>
+                                )}
+                              </TableCell>
+                              <TableCell align="center">
+                                <Typography fontWeight={700} color="primary" variant="h6">
+                                  {teacher.overall_score}/100
+                                </Typography>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </TableContainer>
+                  )}
+                </>
+              );
+            })()
           )}
 
         </Stack>

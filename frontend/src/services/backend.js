@@ -11,7 +11,8 @@ const Backend = {
   login: 'token/',
   refreshToken: 'token/refresh/',
   logout: 'logout/',
-  resetPassword: 'password_reset/',
+  forgotPassword: 'forgot-password/',
+  resetPassword: 'reset-password/',
   setPassword: 'create-password/',
   verifyOtp: 'verify-otp/',
   changePassword: 'change_password/',
@@ -39,7 +40,7 @@ const Backend = {
   studentsDetail: 'students/{id}/',
   parents: 'parents/',
   parentStudents: 'parent_students/',
-  parentAvailableTeachers: 'parent_students/available_teachers/',
+  parentAvailableTeachers: 'parent_students/available_teachers/',  // Append {student_id}/
   parentRelationships: 'parent_relationships/',
   healthConditions: 'health_conditions/',
   studentHealthRecords: 'student_health_records/',

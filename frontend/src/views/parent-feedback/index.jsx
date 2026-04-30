@@ -282,8 +282,8 @@ export default function ParentFeedbackPage() {
   };
 
   const getTeacherName = (teacherId) => {
-    const teacher = teachers.find(t => t.user_id === teacherId || t.id === teacherId);
-    return teacher?.full_name || teacher?.name || 'Unknown Teacher';
+    const teacher = teachers.find(t => t.user === teacherId || t.user_id === teacherId || t.id === teacherId);
+    return teacher?.name || teacher?.user_details?.full_name || teacher?.full_name || 'Unknown Teacher';
   };
 
   // Super Admin View - All Parent Feedbacks
@@ -445,19 +445,30 @@ export default function ParentFeedbackPage() {
               child.student_name ||
               child.user?.full_name ||
               'Unknown Child';
-            // Get grade/section info - handle both name and object formats
+            // Get grade/section info - use _details fields which contain actual objects with names
+            // The raw grade/section fields are UUIDs, so we need to use grade_details/section_details
             let grade = 'N/A';
             let section = 'N/A';
 
-            if (child.grade) {
+            // Try grade_details first (this contains the actual grade object with name)
+            if (child.grade_details) {
+              grade = child.grade_details.grade || child.grade_details.name;
+            } else if (child.student_details?.grade_details) {
+              grade = child.student_details.grade_details.grade || child.student_details.grade_details.name;
+            } else if (child.grade) {
+              // Fallback: if grade is an object, extract name
               grade = typeof child.grade === 'object' ? child.grade.grade || child.grade.name : child.grade;
             } else if (child.student_details?.grade) {
               grade = typeof child.student_details.grade === 'object' ? child.student_details.grade.grade || child.student_details.grade.name : child.student_details.grade;
-            } else if (child.class) {
-              grade = typeof child.class === 'object' ? child.class.grade || child.class.name : child.class;
             }
 
-            if (child.section) {
+            // Try section_details first (this contains the actual section object with name)
+            if (child.section_details) {
+              section = child.section_details.name || child.section_details.section;
+            } else if (child.student_details?.section_details) {
+              section = child.student_details.section_details.name || child.student_details.section_details.section;
+            } else if (child.section) {
+              // Fallback: if section is an object, extract name
               section = typeof child.section === 'object' ? child.section.name || child.section.section : child.section;
             } else if (child.student_details?.section) {
               section = typeof child.student_details.section === 'object' ? child.student_details.section.name || child.student_details.section.section : child.student_details.section;
@@ -538,15 +549,17 @@ export default function ParentFeedbackPage() {
               ) : (
                 teachers.map((teacher) => {
                   // Handle various data structures for teacher
-                  const teacherId = teacher.teacher_id || teacher.user_id || teacher.id;
-                  const teacherName = teacher.teacher_name ||
-                    teacher.full_name ||
+                  // TeacherSerializer returns 'user' (User ID), 'user_details', 'name', 'id' (Teacher ID)
+                  const teacherId = teacher.user || teacher.user_id || teacher.user_details?.id || teacher.id;
+                  const teacherName = teacher.name ||
                     teacher.user_details?.full_name ||
-                    teacher.name ||
+                    teacher.teacher_name ||
+                    teacher.full_name ||
                     'Unknown Teacher';
                   const subject = teacher.subject ||
                     teacher.subjects?.[0] ||
-                    teacher.subject_details?.map(s => s.name).join(', ') ||
+                    teacher.subject_details?.map(s => s.name || s.code).join(', ') ||
+                    teacher.subjects_list?.[0] ||
                     'N/A';
 
                   return (

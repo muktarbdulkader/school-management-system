@@ -16,7 +16,7 @@ from rest_framework_simplejwt.views import TokenRefreshView
 from django.urls import include, path
 from django.conf import settings
 from django.conf.urls.static import static
-from users.auth_views import CustomTokenObtainPairView, LogoutView
+from users.auth_views import CustomTokenObtainPairView, LogoutView, ForgotPasswordView, ResetPasswordView, VerifyResetCodeView
 
 urlpatterns = [
     path('admin/', admin.site.urls),
@@ -29,6 +29,9 @@ urlpatterns = [
     path('api/token/', CustomTokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     path('api/logout/', LogoutView.as_view(), name='logout'),
+    path('api/forgot-password/', ForgotPasswordView.as_view(), name='forgot-password'),
+    path('api/verify-reset-code/', VerifyResetCodeView.as_view(), name='verify-reset-code'),
+    path('api/reset-password/', ResetPasswordView.as_view(), name='reset-password'),
     # Wildcard 'api/' includes LAST
     path('api/', include('users.urls')),
     path('api/', include('students.urls')),

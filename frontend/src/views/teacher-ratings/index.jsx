@@ -335,10 +335,10 @@ export default function TeacherRatingsPage() {
       return;
     }
 
-    // Validate all criteria have ratings - all 14 must be filled
+    // Validate all criteria have ratings (optional - can rate partial)
     const unratedCriteria = criteria.filter(c => !multiRatings[c.code]);
-    if (unratedCriteria.length > 0) {
-      toast.error('Please fill all measurements');
+    if (unratedCriteria.length === criteria.length) {
+      toast.warning('Please rate at least one criteria');
       return;
     }
 
