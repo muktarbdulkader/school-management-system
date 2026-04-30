@@ -94,7 +94,7 @@ class Command(BaseCommand):
 
         users_data = [
             {
-                'email': 'superadmin@school.com',
+                'email': 'muktarabdulkader957@gmail.com',
                 'full_name': 'Super Administrator',
                 'password': 'admin123',
                 'role': 'Super_Admin',
@@ -102,7 +102,7 @@ class Command(BaseCommand):
                 'is_superuser': True
             },
             {
-                'email': 'admin@school.com',
+                'email': 'muktarabdulkader35@gmail.com',
                 'full_name': 'School Administrator',
                 'password': 'admin123',
                 'role': 'Admin',

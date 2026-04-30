@@ -4,8 +4,8 @@ Gunicorn configuration for Render (512MB memory limit)
 import multiprocessing
 import os
 
-# Server socket
-bind = "0.0.0.0:10000"
+# Server socket - use Render's PORT env var or default to 10000
+bind = f"0.0.0.0:{os.environ.get('PORT', '10000')}"
 
 # Worker processes - limit for 512MB memory
 # Formula: (512MB - OS overhead) / ~150MB per worker = ~2 workers max
