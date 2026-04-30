@@ -18,5 +18,8 @@ RUN pip install --no-cache-dir --prefer-binary -r requirements.txt
 # Copy project files
 COPY . /code/
 
-# Run migrations, collect static files, and start the server
-CMD ["sh", "-c", "python manage.py migrate && python manage.py collectstatic --noinput && python manage.py create_roles && python manage.py create_users && gunicorn --bind 0.0.0.0:10000 mald_sms.wsgi:application"]
+# Make startup script executable
+RUN chmod +x /code/docker-start.sh
+
+# Run startup script
+CMD ["/code/docker-start.sh"]

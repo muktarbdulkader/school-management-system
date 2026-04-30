@@ -13,11 +13,7 @@ import {
   Select,
   MenuItem,
   FormHelperText,
-  CircularProgress,
-  OutlinedInput,
-  Chip,
-  Checkbox,
-  ListItemText
+  CircularProgress
 } from '@mui/material';
 import { IconPlus, IconArrowLeft } from '@tabler/icons-react';
 import { toast } from 'react-toastify';
@@ -35,48 +31,20 @@ const AddTeacher = () => {
     email: '',
     password: '',
     phone: '',
-    branch_id: '',
-    class_id: '',
-    section_id: '',
-    subject_ids: []
+    branch_id: ''
   });
 
   // Dropdown data
   const [branches, setBranches] = useState([]);
-  const [classes, setClasses] = useState([]);
-  const [sections, setSections] = useState([]);
-  const [subjects, setSubjects] = useState([]);
 
   // Loading states
   const [loading, setLoading] = useState(false);
-  const [fetchingData, setFetchingData] = useState(false);
   const [errors, setErrors] = useState({});
 
   // Fetch branches on mount
   useEffect(() => {
     fetchBranches();
   }, []);
-
-  // Fetch classes when branch changes
-  useEffect(() => {
-    if (formData.branch_id) {
-      fetchClasses(formData.branch_id);
-      // Reset dependent fields
-      setFormData(prev => ({ ...prev, class_id: '', section_id: '', subject_ids: [] }));
-      setSections([]);
-      setSubjects([]);
-    }
-  }, [formData.branch_id]);
-
-  // Fetch sections when class changes
-  useEffect(() => {
-    if (formData.class_id) {
-      fetchSections(formData.class_id);
-      fetchSubjects(formData.class_id);
-      // Reset dependent fields
-      setFormData(prev => ({ ...prev, section_id: '', subject_ids: [] }));
-    }
-  }, [formData.class_id]);
 
   const fetchBranches = async () => {
     try {
@@ -101,85 +69,10 @@ const AddTeacher = () => {
     }
   };
 
-  const fetchClasses = async (branchId) => {
-    setFetchingData(true);
-    try {
-      const token = await GetToken();
-      const response = await fetch(`${Backend.api}classes/?branch_id=${branchId}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      if (response.ok) {
-        const data = await response.json();
-        console.log('Classes data:', data);
-        if (data.success && data.data) {
-          setClasses(data.data);
-        } else if (Array.isArray(data)) {
-          setClasses(data);
-        } else if (data.results) {
-          setClasses(data.results);
-        }
-      }
-    } catch (error) {
-      console.error('Error fetching classes:', error);
-      toast.error('Failed to load classes');
-    } finally {
-      setFetchingData(false);
-    }
-  };
-
-  const fetchSections = async (classId) => {
-    setFetchingData(true);
-    try {
-      const token = await GetToken();
-      const response = await fetch(`${Backend.api}sections/?class_id=${classId}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      if (response.ok) {
-        const data = await response.json();
-        console.log('Sections data:', data);
-        if (data.success && data.data) {
-          setSections(data.data);
-        } else if (Array.isArray(data)) {
-          setSections(data);
-        } else if (data.results) {
-          setSections(data.results);
-        }
-      }
-    } catch (error) {
-      console.error('Error fetching sections:', error);
-      toast.error('Failed to load sections');
-    } finally {
-      setFetchingData(false);
-    }
-  };
-
-  const fetchSubjects = async (classId) => {
-    try {
-      const token = await GetToken();
-      const response = await fetch(`${Backend.api}subjects/?class_id=${classId}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      if (response.ok) {
-        const data = await response.json();
-        console.log('Subjects data:', data);
-        if (data.success && data.data) {
-          setSubjects(data.data);
-        } else if (Array.isArray(data)) {
-          setSubjects(data);
-        } else if (data.results) {
-          setSubjects(data.results);
-        }
-      }
-    } catch (error) {
-      console.error('Error fetching subjects:', error);
-      toast.error('Failed to load subjects');
-    }
-  };
-
   const handleChange = (field) => (event) => {
     const value = event.target.value;
     // For ID fields, ensure value is a string
-    const isIdField = ['branch_id', 'class_id', 'section_id'].includes(field);
+    const isIdField = ['branch_id'].includes(field);
     setFormData(prev => ({
       ...prev,
       [field]: isIdField && value ? String(value) : value
@@ -188,15 +81,6 @@ const AddTeacher = () => {
     if (errors[field]) {
       setErrors(prev => ({ ...prev, [field]: '' }));
     }
-  };
-
-  const handleSubjectChange = (event) => {
-    const { value } = event.target;
-    const subjectIds = typeof value === 'string' ? value.split(',') : value;
-    setFormData(prev => ({
-      ...prev,
-      subject_ids: subjectIds.map(id => String(id))
-    }));
   };
 
   const validateForm = () => {
@@ -222,14 +106,6 @@ const AddTeacher = () => {
       newErrors.branch_id = 'Branch is required';
     }
 
-    if (!formData.class_id) {
-      newErrors.class_id = 'Class/Grade is required';
-    }
-
-    if (!formData.section_id) {
-      newErrors.section_id = 'Section is required';
-    }
-
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -247,10 +123,7 @@ const AddTeacher = () => {
         full_name: formData.full_name,
         email: formData.email,
         phone: formData.phone,
-        branch_id: formData.branch_id,
-        class_id: formData.class_id,
-        section_id: formData.section_id,
-        subject_ids: formData.subject_ids
+        branch_id: formData.branch_id
       });
 
       const response = await fetch(`${Backend.api}teachers/register/`, {
@@ -264,10 +137,7 @@ const AddTeacher = () => {
           email: formData.email,
           password: formData.password,
           phone: formData.phone,
-          branch_id: formData.branch_id,
-          class_id: formData.class_id,
-          section_id: formData.section_id,
-          subject_ids: formData.subject_ids
+          branch_id: formData.branch_id
         })
       });
 
@@ -307,7 +177,7 @@ const AddTeacher = () => {
             Add New Teacher
           </Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-            Create a new teacher account with class and subject assignments
+            Create a new teacher account
           </Typography>
 
           <Card variant="outlined">
@@ -392,86 +262,6 @@ const AddTeacher = () => {
                       ))}
                     </Select>
                     {errors.branch_id && <FormHelperText>{errors.branch_id}</FormHelperText>}
-                  </FormControl>
-                </Grid>
-
-                <Grid item xs={12} md={6}>
-                  <FormControl fullWidth error={!!errors.class_id}>
-                    <InputLabel>Class/Grade *</InputLabel>
-                    <Select
-                      value={formData.class_id}
-                      onChange={handleChange('class_id')}
-                      label="Class/Grade *"
-                      disabled={!formData.branch_id || fetchingData}
-                    >
-                      <MenuItem value="">
-                        <em>{formData.branch_id ? 'Select Class' : 'Select Branch First'}</em>
-                      </MenuItem>
-                      {classes.map((cls) => (
-                        <MenuItem key={String(cls.id)} value={String(cls.id)}>
-                          Grade {cls.grade}
-                        </MenuItem>
-                      ))}
-                    </Select>
-                    {errors.class_id && <FormHelperText>{errors.class_id}</FormHelperText>}
-                  </FormControl>
-                </Grid>
-
-                <Grid item xs={12} md={6}>
-                  <FormControl fullWidth error={!!errors.section_id}>
-                    <InputLabel>Section *</InputLabel>
-                    <Select
-                      value={formData.section_id}
-                      onChange={handleChange('section_id')}
-                      label="Section *"
-                      disabled={!formData.class_id || fetchingData}
-                    >
-                      <MenuItem value="">
-                        <em>{formData.class_id ? 'Select Section' : 'Select Class First'}</em>
-                      </MenuItem>
-                      {sections.map((section) => (
-                        <MenuItem key={String(section.id)} value={String(section.id)}>
-                          {section.name}
-                        </MenuItem>
-                      ))}
-                    </Select>
-                    {errors.section_id && <FormHelperText>{errors.section_id}</FormHelperText>}
-                  </FormControl>
-                </Grid>
-
-                <Grid item xs={12} md={6}>
-                  <FormControl fullWidth>
-                    <InputLabel>Subjects to Teach</InputLabel>
-                    <Select
-                      multiple
-                      value={formData.subject_ids}
-                      onChange={handleSubjectChange}
-                      input={<OutlinedInput label="Subjects to Teach" />}
-                      renderValue={(selected) => (
-                        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                          {selected.map((value) => {
-                            const subject = subjects.find(s => String(s.id) === String(value));
-                            return (
-                              <Chip key={value} label={subject?.name || value} size="small" />
-                            );
-                          })}
-                        </Box>
-                      )}
-                      disabled={!formData.class_id}
-                    >
-                      {subjects.map((subject) => {
-                        const subjectId = String(subject.id);
-                        return (
-                          <MenuItem key={subjectId} value={subjectId}>
-                            <Checkbox checked={formData.subject_ids.includes(subjectId)} />
-                            <ListItemText primary={subject.name} />
-                          </MenuItem>
-                        );
-                      })}
-                    </Select>
-                    <FormHelperText>
-                      {formData.class_id ? 'Select subjects this teacher will teach' : 'Select Class First'}
-                    </FormHelperText>
                   </FormControl>
                 </Grid>
 
