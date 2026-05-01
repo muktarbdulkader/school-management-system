@@ -146,13 +146,32 @@ SIMPLE_JWT = {
     'REFRESH_TOKEN_LIFETIME': timedelta(days=1),
 }
 
-EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
-EMAIL_HOST = 'smtp.gmail.com'
-EMAIL_PORT = 587
-EMAIL_USE_TLS = True
+# 📧 EMAIL CONFIGURATION
 EMAIL_HOST_USER = config("EMAIL_HOST_USER", default="")
 EMAIL_HOST_PASSWORD = config("EMAIL_HOST_PASSWORD", default="")
-DEFAULT_FROM_EMAIL = EMAIL_HOST_USER
+DEFAULT_FROM_EMAIL = config("DEFAULT_FROM_EMAIL", default=EMAIL_HOST_USER)
+
+if RENDER:
+    # Production: Use SendGrid if API key is available, otherwise console backend
+    SENDGRID_API_KEY = config("SENDGRID_API_KEY", default="")
+    if SENDGRID_API_KEY:
+        EMAIL_BACKEND = 'sendgrid_backend.SendgridBackend'
+        SENDGRID_SANDBOX_MODE_IN_DEBUG = False
+        SENDGRID_ECHO_TO_STDOUT = True
+    else:
+        # Fallback: Log emails to console for debugging on Render
+        EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+        print("[WARNING] Using console email backend. Set SENDGRID_API_KEY for production emails.")
+else:
+    # Local development: Use SMTP (Gmail) or console backend
+    USE_CONSOLE_EMAIL = config("USE_CONSOLE_EMAIL", default="False", cast=bool)
+    if USE_CONSOLE_EMAIL:
+        EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+    else:
+        EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+        EMAIL_HOST = 'smtp.gmail.com'
+        EMAIL_PORT = 587
+        EMAIL_USE_TLS = True
 
 # 🧠 Memory Optimizations for Render (512MB limit)
 if RENDER:

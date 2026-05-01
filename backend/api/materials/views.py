@@ -642,31 +642,23 @@ class DigitalResourceViewSet(viewsets.ModelViewSet):
         user = self.request.user
         queryset = self.queryset
         
-        # Branch-based isolation
+        # Filter by specific branch if requested
         branch_id = self.request.query_params.get('branch_id')
         if branch_id:
             queryset = queryset.filter(branch_id=branch_id)
-        elif not user.is_superuser:
-            # Users see resources for their assigned branch
-            from users.models import UserBranchAccess
-            accessible_branches = UserBranchAccess.objects.filter(user=user).values_list('branch_id', flat=True)
-            queryset = queryset.filter(branch_id__in=accessible_branches)
+        
+        # Users see all public resources + their own uploads
+        if not user.is_superuser:
+            queryset = queryset.filter(is_public=True) | queryset.filter(uploaded_by=user)
             
         return queryset
 
     def create(self, request, *args, **kwargs):
         user = request.user
-        # Get user's branch from UserBranchAccess
+        # Get user's branch from UserBranchAccess (optional - not required)
         from users.models import UserBranchAccess
         user_branch = UserBranchAccess.objects.filter(user=user).first()
         branch = user_branch.branch if user_branch else None
-        
-        if not branch:
-            return Response({
-                'success': False,
-                'message': 'You must be assigned to a branch to upload resources. Please contact an administrator.',
-                'status': 400
-            }, status=status.HTTP_400_BAD_REQUEST)
         
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -688,3 +680,108 @@ class DigitalResourceViewSet(viewsets.ModelViewSet):
             'status': status.HTTP_200_OK,
             'data': serializer.data
         })
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_classes_for_resource_assignment(request):
+    """Get all classes for resource assignment dropdown (admin only)"""
+    user = request.user
+    user_roles = [r.name.lower() for r in user.userrole_set.all().select_related('role')]
+    
+    # Only admin/staff can access
+    is_admin = user.is_superuser or user.is_staff or any(r in ['admin', 'super_admin', 'head_admin', 'ceo'] for r in user_roles)
+    
+    if not is_admin:
+        return Response({
+            'success': False,
+            'message': 'Only administrators can access this endpoint',
+            'status': 403
+        }, status=status.HTTP_403_FORBIDDEN)
+    
+    from academics.models import Class
+    classes = Class.objects.filter(is_active=True).values('id', 'grade').order_by('grade')
+    
+    return Response({
+        'success': True,
+        'message': 'OK',
+        'status': 200,
+        'data': list(classes)
+    })
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_students_for_resource_assignment(request):
+    """Get all students for resource assignment dropdown (admin only)"""
+    user = request.user
+    user_roles = [r.name.lower() for r in user.userrole_set.all().select_related('role')]
+    
+    # Only admin/staff can access
+    is_admin = user.is_superuser or user.is_staff or any(r in ['admin', 'super_admin', 'head_admin', 'ceo'] for r in user_roles)
+    
+    if not is_admin:
+        return Response({
+            'success': False,
+            'message': 'Only administrators can access this endpoint',
+            'status': 403
+        }, status=status.HTTP_403_FORBIDDEN)
+    
+    from students.models import Student
+    students = Student.objects.select_related('user', 'grade').values(
+        'id', 'user__full_name', 'grade__grade'
+    ).order_by('user__full_name')
+    
+    data = [
+        {
+            'id': s['id'],
+            'name': s['user__full_name'],
+            'class': s['grade__grade']
+        }
+        for s in students
+    ]
+    
+    return Response({
+        'success': True,
+        'message': 'OK',
+        'status': 200,
+        'data': data
+    })
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_teachers_for_resource_assignment(request):
+    """Get all teachers for resource assignment dropdown (admin only)"""
+    user = request.user
+    user_roles = [r.name.lower() for r in user.userrole_set.all().select_related('role')]
+    
+    # Only admin/staff can access
+    is_admin = user.is_superuser or user.is_staff or any(r in ['admin', 'super_admin', 'head_admin', 'ceo'] for r in user_roles)
+    
+    if not is_admin:
+        return Response({
+            'success': False,
+            'message': 'Only administrators can access this endpoint',
+            'status': 403
+        }, status=status.HTTP_403_FORBIDDEN)
+    
+    from teachers.models import Teacher
+    teachers = Teacher.objects.select_related('user').values(
+        'id', 'user__full_name'
+    ).order_by('user__full_name')
+    
+    data = [
+        {
+            'id': t['id'],
+            'name': t['user__full_name']
+        }
+        for t in teachers
+    ]
+    
+    return Response({
+        'success': True,
+        'message': 'OK',
+        'status': 200,
+        'data': data
+    })

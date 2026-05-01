@@ -112,7 +112,7 @@ class DigitalResource(models.Model):
     
     file = models.FileField(upload_to='resources/%Y/%m/')
     
-    branch = models.ForeignKey('users.Branch', on_delete=models.CASCADE, related_name='digital_resources')
+    branch = models.ForeignKey('users.Branch', on_delete=models.SET_NULL, null=True, blank=True, related_name='digital_resources')
     uploaded_by = models.ForeignKey('users.User', on_delete=models.SET_NULL, null=True, related_name='uploaded_resources')
     
     is_public = models.BooleanField(default=True, help_text="Visible for all authenticated users in the branch")
@@ -126,3 +126,35 @@ class DigitalResource(models.Model):
 
     def __str__(self):
         return f"{self.title} ({self.get_resource_type_display()})"
+
+
+class DigitalResourceAssignment(models.Model):
+    """
+    Tracks which students, teachers, and classes a digital resource is assigned to
+    """
+    TARGET_TYPE_CHOICES = (
+        ('all', 'All Users'),
+        ('students', 'Students Only'),
+        ('teachers', 'Teachers Only'),
+        ('specific_students', 'Specific Students'),
+        ('specific_teachers', 'Specific Teachers'),
+        ('classes', 'Specific Classes'),
+    )
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    resource = models.ForeignKey(DigitalResource, on_delete=models.CASCADE, related_name='assignments')
+    target_type = models.CharField(max_length=20, choices=TARGET_TYPE_CHOICES, default='all')
+    
+    # Specific assignments (optional based on target_type)
+    student = models.ForeignKey('students.Student', on_delete=models.CASCADE, null=True, blank=True, related_name='resource_assignments')
+    teacher = models.ForeignKey('teachers.Teacher', on_delete=models.CASCADE, null=True, blank=True, related_name='resource_assignments')
+    class_fk = models.ForeignKey('academics.Class', on_delete=models.CASCADE, null=True, blank=True, related_name='resource_assignments')
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'digital_resource_assignments'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.resource.title} -> {self.get_target_type_display()}"

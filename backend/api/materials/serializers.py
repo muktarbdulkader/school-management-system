@@ -2,7 +2,7 @@
 Resource Request Serializers
 """
 from rest_framework import serializers
-from .models import ResourceRequest, ResourceRequestItem, DigitalResource
+from .models import ResourceRequest, ResourceRequestItem, DigitalResource, DigitalResourceAssignment
 
 
 class ResourceRequestItemSerializer(serializers.ModelSerializer):
@@ -64,11 +64,29 @@ class ResourceRequestApprovalSerializer(serializers.Serializer):
     notes = serializers.CharField(required=False, allow_blank=True)
 
 
+class DigitalResourceAssignmentSerializer(serializers.ModelSerializer):
+    student_name = serializers.CharField(source='student.user.full_name', read_only=True)
+    teacher_name = serializers.CharField(source='teacher.user.full_name', read_only=True)
+    class_name = serializers.CharField(source='class_fk.grade', read_only=True)
+    target_type_display = serializers.CharField(source='get_target_type_display', read_only=True)
+
+    class Meta:
+        model = DigitalResourceAssignment
+        fields = ['id', 'target_type', 'target_type_display', 'student', 'student_name', 
+                  'teacher', 'teacher_name', 'class_fk', 'class_name', 'created_at']
+        read_only_fields = ['id', 'created_at']
+
+
 class DigitalResourceSerializer(serializers.ModelSerializer):
     uploaded_by_name = serializers.CharField(source='uploaded_by.full_name', read_only=True)
     branch_name = serializers.CharField(source='branch.name', read_only=True)
     resource_type_display = serializers.CharField(source='get_resource_type_display', read_only=True)
     file_size = serializers.SerializerMethodField()
+    assignments = DigitalResourceAssignmentSerializer(many=True, read_only=True)
+    target_type = serializers.CharField(write_only=True, required=False)
+    target_students = serializers.ListField(child=serializers.UUIDField(), write_only=True, required=False)
+    target_teachers = serializers.ListField(child=serializers.UUIDField(), write_only=True, required=False)
+    target_classes = serializers.ListField(child=serializers.UUIDField(), write_only=True, required=False)
 
     class Meta:
         model = DigitalResource
@@ -80,3 +98,30 @@ class DigitalResourceSerializer(serializers.ModelSerializer):
             return obj.file.size
         except Exception:
             return 0
+
+    def create(self, validated_data):
+        target_type = validated_data.pop('target_type', 'all')
+        target_students = validated_data.pop('target_students', [])
+        target_teachers = validated_data.pop('target_teachers', [])
+        target_classes = validated_data.pop('target_classes', [])
+        
+        resource = super().create(validated_data)
+        
+        # Create assignments based on target type
+        if target_type == 'all':
+            DigitalResourceAssignment.objects.create(resource=resource, target_type='all')
+        elif target_type == 'students':
+            DigitalResourceAssignment.objects.create(resource=resource, target_type='students')
+        elif target_type == 'teachers':
+            DigitalResourceAssignment.objects.create(resource=resource, target_type='teachers')
+        elif target_type == 'specific_students':
+            for student_id in target_students:
+                DigitalResourceAssignment.objects.create(resource=resource, target_type='specific_students', student_id=student_id)
+        elif target_type == 'specific_teachers':
+            for teacher_id in target_teachers:
+                DigitalResourceAssignment.objects.create(resource=resource, target_type='specific_teachers', teacher_id=teacher_id)
+        elif target_type == 'classes':
+            for class_id in target_classes:
+                DigitalResourceAssignment.objects.create(resource=resource, target_type='classes', class_fk_id=class_id)
+        
+        return resource

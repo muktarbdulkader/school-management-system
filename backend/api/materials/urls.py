@@ -15,5 +15,9 @@ urlpatterns = [
     path('export/attendance/', views.export_attendance, name='export-attendance'),
     path('export/grades/', views.export_grades, name='export-grades'),
     path('export/report-card/<str:student_id>/', views.export_report_card, name='export-report-card'),
+    # Resource assignment dropdown endpoints
+    path('resource-classes/', views.get_classes_for_resource_assignment, name='resource-classes'),
+    path('resource-students/', views.get_students_for_resource_assignment, name='resource-students'),
+    path('resource-teachers/', views.get_teachers_for_resource_assignment, name='resource-teachers'),
     path('', include(router.urls)),
 ]
