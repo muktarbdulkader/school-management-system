@@ -117,7 +117,7 @@ const CreateMessageForm = ({ open, onClose, onSubmit }) => {
 
       // Find the selected student to get their name
       const selectedStudent = students.find(
-        (student) => student.student_details.id === messageDetails.student_id,
+        (student) => student?.student_details?.id === messageDetails.student_id,
       );
 
       const newDraft = {
@@ -126,7 +126,7 @@ const CreateMessageForm = ({ open, onClose, onSubmit }) => {
         receiver: messageDetails.receiver,
         student_id: messageDetails.student_id,
         studentName:
-          selectedStudent?.student_details.user_details.full_name || '',
+          selectedStudent?.student_details?.user_details?.full_name || '',
         branch_id: messageDetails.branch_id,
         created_at: new Date().toISOString(),
       };

@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { useSelector } from 'react-redux';
 import {
   Box,
   Typography,
@@ -46,8 +47,11 @@ const TARGET_TYPES = [
 
 const UploadResourcePage = () => {
   const navigate = useNavigate();
+  // Get user from Redux store
+  const user = useSelector((state) => state.user?.user);
+  const userRoles = useSelector((state) => state.user?.roles || []);
+
   const [loading, setLoading] = useState(false);
-  const [isAdmin, setIsAdmin] = useState(false);
   const [classes, setClasses] = useState([]);
   const [students, setStudents] = useState([]);
   const [teachers, setTeachers] = useState([]);
@@ -62,47 +66,51 @@ const UploadResourcePage = () => {
   });
   const [file, setFile] = useState(null);
 
-  // Check if user is admin and load dropdown data
+  // Check if user is admin
+  const isAdmin = useMemo(() => {
+    if (!user) return false;
+
+    const adminRoles = ['admin', 'super_admin', 'head_admin', 'ceo', 'staff'];
+    const hasAdminRole = userRoles.some(role => {
+      const roleName = typeof role === 'string' ? role.toLowerCase() : role.name?.toLowerCase();
+      return adminRoles.includes(roleName);
+    });
+    const isSuperUser = user.is_superuser || user.is_staff;
+
+    return hasAdminRole || isSuperUser;
+  }, [user, userRoles]);
+
+  // Load dropdown data for admin users
   useEffect(() => {
-    const checkAdminAndLoadData = async () => {
+    const loadAssignmentData = async () => {
+      if (!isAdmin) return;
+
       try {
         const token = await GetToken();
 
-        // Check admin status from user data in localStorage or make an API call
-        const userData = JSON.parse(localStorage.getItem('user') || '{}');
-        const userRoles = userData.roles || [];
-        const adminRoles = ['admin', 'super_admin', 'head_admin', 'ceo', 'staff'];
-        const hasAdminRole = userRoles.some(role => adminRoles.includes(role.toLowerCase()));
-        const isSuperUser = userData.is_superuser || userData.is_staff;
-        const admin = hasAdminRole || isSuperUser;
+        // Load classes, students, and teachers for dropdowns
+        const [classesRes, studentsRes, teachersRes] = await Promise.all([
+          fetch(`${Backend.api}${Backend.resourceClasses}`, { headers: { Authorization: `Bearer ${token}` } }),
+          fetch(`${Backend.api}${Backend.resourceStudents}`, { headers: { Authorization: `Bearer ${token}` } }),
+          fetch(`${Backend.api}${Backend.resourceTeachers}`, { headers: { Authorization: `Bearer ${token}` } })
+        ]);
 
-        setIsAdmin(admin);
+        const [classesData, studentsData, teachersData] = await Promise.all([
+          classesRes.json(),
+          studentsRes.json(),
+          teachersRes.json()
+        ]);
 
-        if (admin) {
-          // Load classes, students, and teachers for dropdowns
-          const [classesRes, studentsRes, teachersRes] = await Promise.all([
-            fetch(`${Backend.api}${Backend.resourceClasses}`, { headers: { Authorization: `Bearer ${token}` } }),
-            fetch(`${Backend.api}${Backend.resourceStudents}`, { headers: { Authorization: `Bearer ${token}` } }),
-            fetch(`${Backend.api}${Backend.resourceTeachers}`, { headers: { Authorization: `Bearer ${token}` } })
-          ]);
-
-          const [classesData, studentsData, teachersData] = await Promise.all([
-            classesRes.json(),
-            studentsRes.json(),
-            teachersRes.json()
-          ]);
-
-          if (classesData.success) setClasses(classesData.data || []);
-          if (studentsData.success) setStudents(studentsData.data || []);
-          if (teachersData.success) setTeachers(teachersData.data || []);
-        }
+        if (classesData.success) setClasses(classesData.data || []);
+        if (studentsData.success) setStudents(studentsData.data || []);
+        if (teachersData.success) setTeachers(teachersData.data || []);
       } catch (error) {
         console.error('Error loading assignment data:', error);
       }
     };
 
-    checkAdminAndLoadData();
-  }, []);
+    loadAssignmentData();
+  }, [isAdmin]);
 
   const handleFileChange = (e) => {
     const selectedFile = e.target.files[0];
@@ -153,7 +161,20 @@ const UploadResourcePage = () => {
 
       const result = await response.json();
       if (response.ok && result.success) {
-        toast.success('Resource uploaded successfully');
+        // Build detailed success message
+        let successMsg = 'Resource uploaded successfully';
+        if (isAdmin && formData.target_type) {
+          const targetLabels = {
+            'all': ' for all users',
+            'students': ' for all students',
+            'teachers': ' for all teachers',
+            'specific_students': ` for ${formData.target_students.length} selected student(s)`,
+            'specific_teachers': ` for ${formData.target_teachers.length} selected teacher(s)`,
+            'classes': ` for ${formData.target_classes.length} selected class(es)`
+          };
+          successMsg += targetLabels[formData.target_type] || '';
+        }
+        toast.success(successMsg);
         navigate('/home');
       } else {
         toast.error(result.message || 'Failed to upload resource');

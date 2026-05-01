@@ -29,7 +29,7 @@ def role_required(allowed_roles):
         @permission_classes([IsAuthenticated])
         def _wrapped_view(request, *args, **kwargs):
             user = request.user
-            user_roles = [r.name.lower() for r in user.userrole_set.all().select_related('role')]
+            user_roles = [r.role.name.lower() for r in user.userrole_set.all().select_related('role')]
 
             # Allow superuser and staff
             if user.is_superuser or user.is_staff:
@@ -54,7 +54,7 @@ ALLOWED_EXPORT_ROLES = ['admin', 'super_admin', 'head_admin', 'ceo', 'analyst', 
 def export_students(request):
     """Export students list"""
     user = request.user
-    user_roles = [r.name.lower() for r in user.userrole_set.all().select_related('role')]
+    user_roles = [r.role.name.lower() for r in user.userrole_set.all().select_related('role')]
 
     # Check if student or parent
     if any(role in ['student', 'parent'] for role in user_roles) and not user.is_staff and not user.is_superuser:
@@ -109,7 +109,7 @@ def export_students(request):
 def export_teachers(request):
     """Export teachers list"""
     user = request.user
-    user_roles = [r.name.lower() for r in user.userrole_set.all().select_related('role')]
+    user_roles = [r.role.name.lower() for r in user.userrole_set.all().select_related('role')]
 
     # Check if student or parent
     # Check if student or parent
@@ -170,7 +170,7 @@ def export_teachers(request):
 def export_attendance(request):
     """Export attendance records"""
     user = request.user
-    user_roles = [r.name.lower() for r in user.userrole_set.all().select_related('role')]
+    user_roles = [r.role.name.lower() for r in user.userrole_set.all().select_related('role')]
 
     # Check if student or parent
     if any(role in ['student', 'parent'] for role in user_roles) and not user.is_staff and not user.is_superuser:
@@ -231,7 +231,7 @@ def export_attendance(request):
 def export_report_card(request, student_id):
     """Generate student report card PDF"""
     user = request.user
-    user_roles = [r.name.lower() for r in user.userrole_set.all().select_related('role')]
+    user_roles = [r.role.name.lower() for r in user.userrole_set.all().select_related('role')]
 
     # Parents can only export their own children's report cards
     if 'parent' in user_roles and not user.is_staff and not user.is_superuser:
@@ -324,7 +324,7 @@ def export_report_card(request, student_id):
 def export_grades(request):
     """Export grades"""
     user = request.user
-    user_roles = [r.name.lower() for r in user.userrole_set.all().select_related('role')]
+    user_roles = [r.role.name.lower() for r in user.userrole_set.all().select_related('role')]
 
     # Check if student or parent
     if any(role in ['student', 'parent'] for role in user_roles) and not user.is_staff and not user.is_superuser:
@@ -640,12 +640,20 @@ class DigitalResourceViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
-        queryset = self.queryset
+        queryset = self.queryset.prefetch_related('assignments')
         
         # Filter by specific branch if requested
         branch_id = self.request.query_params.get('branch_id')
         if branch_id:
             queryset = queryset.filter(branch_id=branch_id)
+        
+        # Filter by created_after for notifications
+        created_after = self.request.query_params.get('created_after')
+        if created_after:
+            from django.utils.dateparse import parse_datetime
+            parsed_date = parse_datetime(created_after)
+            if parsed_date:
+                queryset = queryset.filter(created_at__gt=parsed_date)
         
         # Users see all public resources + their own uploads
         if not user.is_superuser:
@@ -660,15 +668,34 @@ class DigitalResourceViewSet(viewsets.ModelViewSet):
         user_branch = UserBranchAccess.objects.filter(user=user).first()
         branch = user_branch.branch if user_branch else None
         
-        serializer = self.get_serializer(data=request.data)
+        # Build data dict manually to avoid deep copy issues with file objects
+        data = {
+            'title': request.data.get('title'),
+            'description': request.data.get('description', ''),
+            'resource_type': request.data.get('resource_type'),
+            'file': request.data.get('file'),
+            'target_type': request.data.get('target_type', 'all'),
+        }
+        
+        # Handle array fields from FormData
+        target_students = request.data.getlist('target_students') if hasattr(request.data, 'getlist') else request.data.get('target_students', [])
+        target_teachers = request.data.getlist('target_teachers') if hasattr(request.data, 'getlist') else request.data.get('target_teachers', [])
+        target_classes = request.data.getlist('target_classes') if hasattr(request.data, 'getlist') else request.data.get('target_classes', [])
+        
+        # Ensure they're lists and filter out empty values
+        data['target_students'] = [s for s in (target_students if isinstance(target_students, list) else [target_students]) if s]
+        data['target_teachers'] = [t for t in (target_teachers if isinstance(target_teachers, list) else [target_teachers]) if t]
+        data['target_classes'] = [c for c in (target_classes if isinstance(target_classes, list) else [target_classes]) if c]
+        
+        serializer = self.get_serializer(data=data)
         serializer.is_valid(raise_exception=True)
-        serializer.save(uploaded_by=user, branch=branch)
+        resource = serializer.save(uploaded_by=user, branch=branch)
         
         return Response({
             'success': True,
             'message': 'Digital resource uploaded successfully',
             'status': 201,
-            'data': serializer.data
+            'data': self.get_serializer(resource).data
         }, status=status.HTTP_201_CREATED)
 
     def list(self, request, *args, **kwargs):
@@ -687,7 +714,7 @@ class DigitalResourceViewSet(viewsets.ModelViewSet):
 def get_classes_for_resource_assignment(request):
     """Get all classes for resource assignment dropdown (admin only)"""
     user = request.user
-    user_roles = [r.name.lower() for r in user.userrole_set.all().select_related('role')]
+    user_roles = [r.role.name.lower() for r in user.userrole_set.all().select_related('role')]
     
     # Only admin/staff can access
     is_admin = user.is_superuser or user.is_staff or any(r in ['admin', 'super_admin', 'head_admin', 'ceo'] for r in user_roles)
@@ -715,7 +742,7 @@ def get_classes_for_resource_assignment(request):
 def get_students_for_resource_assignment(request):
     """Get all students for resource assignment dropdown (admin only)"""
     user = request.user
-    user_roles = [r.name.lower() for r in user.userrole_set.all().select_related('role')]
+    user_roles = [r.role.name.lower() for r in user.userrole_set.all().select_related('role')]
     
     # Only admin/staff can access
     is_admin = user.is_superuser or user.is_staff or any(r in ['admin', 'super_admin', 'head_admin', 'ceo'] for r in user_roles)
@@ -754,7 +781,7 @@ def get_students_for_resource_assignment(request):
 def get_teachers_for_resource_assignment(request):
     """Get all teachers for resource assignment dropdown (admin only)"""
     user = request.user
-    user_roles = [r.name.lower() for r in user.userrole_set.all().select_related('role')]
+    user_roles = [r.role.name.lower() for r in user.userrole_set.all().select_related('role')]
     
     # Only admin/staff can access
     is_admin = user.is_superuser or user.is_staff or any(r in ['admin', 'super_admin', 'head_admin', 'ceo'] for r in user_roles)

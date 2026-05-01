@@ -29,10 +29,15 @@ import { useEffect, useState } from 'react';
 import Backend from 'services/backend';
 import GetToken from 'utils/auth-token';
 import { toast, ToastContainer } from 'react-toastify';
+import useResourceNotifications from '../../hooks/useResourceNotifications';
 
 export default function TeacherDashboardPage() {
   const navigate = useNavigate();
   const user = useSelector((state) => state?.user?.user);
+
+  // Check for new resource notifications
+  useResourceNotifications();
+
   const [add, setAdd] = useState(false);
   const [manageUnitsOpen, setManageUnitsOpen] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -50,6 +55,9 @@ export default function TeacherDashboardPage() {
   const [teacherTasks, setTeacherTasks] = useState([]);
   const [teacherReports, setTeacherReports] = useState([]);
   const [teacherAssignments, setTeacherAssignments] = useState([]);
+
+  // Resources
+  const [resources, setResources] = useState([]);
 
   // Dashboard stats
   const [dashboardStats, setDashboardStats] = useState({
@@ -362,6 +370,21 @@ export default function TeacherDashboardPage() {
     }
   };
 
+  const fetchResources = async () => {
+    try {
+      const token = await GetToken();
+      const response = await fetch(`${Backend.api}${Backend.digitalResources}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const result = await response.json();
+      if (result.success) {
+        setResources(result.data || []);
+      }
+    } catch (error) {
+      console.error('Error fetching resources:', error);
+    }
+  };
+
   useEffect(() => {
     handleFetchingSubjects();
     handleFetchingCategories();
@@ -374,6 +397,7 @@ export default function TeacherDashboardPage() {
     fetchDashboardStats();
     fetchTeacherTasks();
     fetchTeacherReports();
+    fetchResources();
   }, []);
 
   // API functions for creating categories, units, and subunits
@@ -1085,6 +1109,21 @@ export default function TeacherDashboardPage() {
             gradientFrom="#10b981"
             gradientTo="#059669"
             onClick={() => navigate('/resource-requests')}
+          />
+        </Grid>
+
+        <Grid item xs={12} sm={6} lg={6} xl={3}>
+          <DashboardCard
+            icon={<Download size={24} />}
+            title="My Resources"
+            description="Access digital resources and materials assigned to you"
+            buttonText="View Resources"
+            buttonHref="#"
+            statusText={`${resources.length} resource${resources.length !== 1 ? 's' : ''} available`}
+            statusColor={resources.length > 0 ? "#3b82f6" : "#9ca3af"}
+            gradientFrom="#3b82f6"
+            gradientTo="#2563eb"
+            onClick={() => navigate('/my-resources')}
           />
         </Grid>
 

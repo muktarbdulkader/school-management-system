@@ -14,6 +14,7 @@ import GetToken from 'utils/auth-token';
 import Backend from 'services/backend';
 import ActivityIndicator from 'ui-component/indicators/ActivityIndicator';
 import { toast } from 'react-toastify';
+import useResourceNotifications from '../../hooks/useResourceNotifications';
 
 const CATEGORIES = [
   { value: 'teaching_quality', label: 'Teaching Quality' },
@@ -47,8 +48,12 @@ const StudentDashboard = () => {
   const [comment, setComment] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
+  // Check for new resource notifications
+  useResourceNotifications();
+
   useEffect(() => {
     fetchStudentData();
+    fetchResources();
   }, []);
 
 
@@ -110,6 +115,7 @@ const StudentDashboard = () => {
   const [examResults, setExamResults] = useState([]);
   const [assignmentGrades, setAssignmentGrades] = useState([]);
   const [reportCard, setReportCard] = useState(null);
+  const [resources, setResources] = useState([]);
 
   const fetchStudentData = async () => {
     setLoading(true);
@@ -155,6 +161,21 @@ const StudentDashboard = () => {
       toast.error('Failed to load dashboard data');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchResources = async () => {
+    try {
+      const token = await GetToken();
+      const response = await fetch(`${Backend.api}${Backend.digitalResources}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const result = await response.json();
+      if (result.success) {
+        setResources(result.data || []);
+      }
+    } catch (error) {
+      console.error('Error fetching resources:', error);
     }
   };
 
@@ -383,6 +404,56 @@ const StudentDashboard = () => {
                     </CardContent>
                   </Card>
                 ))}
+              </Box>
+            )}
+          </DrogaCard>
+        </Grid>
+
+        {/* My Resources - Digital Resources assigned to student */}
+        <Grid item xs={12}>
+          <DrogaCard>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+              <Typography variant="h4">My Resources</Typography>
+              <IconButton onClick={() => navigate('/my-resources')}>
+                <IconFileText />
+              </IconButton>
+            </Box>
+            {resources.length === 0 ? (
+              <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 3 }}>
+                No resources assigned yet
+              </Typography>
+            ) : (
+              <Box>
+                {resources.slice(0, 5).map((resource, index) => (
+                  <Card key={index} sx={{ mb: 1, bgcolor: theme.palette.background.default }}>
+                    <CardContent sx={{ py: 1.5 }}>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <Box>
+                          <Typography variant="subtitle1" fontWeight="bold">
+                            {resource.title}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            {resource.resource_type_display || resource.resource_type} • Uploaded by {resource.uploaded_by_name || 'Admin'}
+                          </Typography>
+                        </Box>
+                        <Button
+                          variant="outlined"
+                          size="small"
+                          onClick={() => window.open(resource.file, '_blank')}
+                        >
+                          View
+                        </Button>
+                      </Box>
+                    </CardContent>
+                  </Card>
+                ))}
+                {resources.length > 5 && (
+                  <Box sx={{ textAlign: 'center', mt: 1 }}>
+                    <Button onClick={() => navigate('/my-resources')} size="small">
+                      View All ({resources.length})
+                    </Button>
+                  </Box>
+                )}
               </Box>
             )}
           </DrogaCard>

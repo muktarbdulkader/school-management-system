@@ -137,6 +137,7 @@ const MySubjectsPage = Loadable(lazy(() => import('views/students/my-subjects'))
 const LibraryPage = Loadable(lazy(() => import('views/library')));
 const UploadResourcePage = Loadable(lazy(() => import('views/library/UploadResource')));
 const ResourceRequestsPage = Loadable(lazy(() => import('views/resource-requests')));
+const MyResourcesPage = Loadable(lazy(() => import('views/my-resources')));
 const DataExportPage = Loadable(lazy(() => import('views/data-export')));
 const TeacherPerformancePage = Loadable(lazy(() => import('views/teacher-performance')));
 
@@ -732,6 +733,14 @@ const MainRoutes = {
       element: (
         <Protected>
           <UploadResourcePage />
+        </Protected>
+      ),
+    },
+    {
+      path: 'my-resources',
+      element: (
+        <Protected>
+          <MyResourcesPage />
         </Protected>
       ),
     },
