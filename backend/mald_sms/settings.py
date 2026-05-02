@@ -55,7 +55,6 @@ INSTALLED_APPS = [
     'teachers',
     'academics.apps.AcademicsConfig',
     'schedule',
-    'reports',
     'communication',
     'lessontopics',
     'library',

@@ -68,12 +68,15 @@ class DigitalResourceAssignmentSerializer(serializers.ModelSerializer):
     student_name = serializers.CharField(source='student.user.full_name', read_only=True)
     teacher_name = serializers.CharField(source='teacher.user.full_name', read_only=True)
     class_name = serializers.CharField(source='class_fk.grade', read_only=True)
+    section_name = serializers.CharField(source='section.name', read_only=True)
+    subject_name = serializers.CharField(source='subject.name', read_only=True)
     target_type_display = serializers.CharField(source='get_target_type_display', read_only=True)
 
     class Meta:
         model = DigitalResourceAssignment
         fields = ['id', 'target_type', 'target_type_display', 'student', 'student_name', 
-                  'teacher', 'teacher_name', 'class_fk', 'class_name', 'created_at']
+                  'teacher', 'teacher_name', 'class_fk', 'class_name', 'section', 'section_name',
+                  'subject', 'subject_name', 'created_at']
         read_only_fields = ['id', 'created_at']
 
 
@@ -81,12 +84,15 @@ class DigitalResourceSerializer(serializers.ModelSerializer):
     uploaded_by_name = serializers.CharField(source='uploaded_by.full_name', read_only=True)
     branch_name = serializers.CharField(source='branch.name', read_only=True)
     resource_type_display = serializers.CharField(source='get_resource_type_display', read_only=True)
+    subject_name = serializers.CharField(source='subject.name', read_only=True)
     file_size = serializers.SerializerMethodField()
     assignments = DigitalResourceAssignmentSerializer(many=True, read_only=True)
     target_type = serializers.CharField(write_only=True, required=False)
     target_students = serializers.ListField(child=serializers.UUIDField(), write_only=True, required=False)
     target_teachers = serializers.ListField(child=serializers.UUIDField(), write_only=True, required=False)
     target_classes = serializers.ListField(child=serializers.UUIDField(), write_only=True, required=False)
+    target_sections = serializers.ListField(child=serializers.UUIDField(), write_only=True, required=False)
+    target_subject = serializers.UUIDField(write_only=True, required=False)
 
     class Meta:
         model = DigitalResource
@@ -104,24 +110,51 @@ class DigitalResourceSerializer(serializers.ModelSerializer):
         target_students = validated_data.pop('target_students', [])
         target_teachers = validated_data.pop('target_teachers', [])
         target_classes = validated_data.pop('target_classes', [])
+        target_sections = validated_data.pop('target_sections', [])
+        target_subject = validated_data.pop('target_subject', None)
+        
+        # Set subject on resource if provided
+        if target_subject:
+            validated_data['subject_id'] = target_subject
         
         resource = super().create(validated_data)
         
+        # Get subject for assignments
+        subject_id = target_subject
+        
         # Create assignments based on target type
         if target_type == 'all':
-            DigitalResourceAssignment.objects.create(resource=resource, target_type='all')
+            DigitalResourceAssignment.objects.create(resource=resource, target_type='all', subject_id=subject_id)
         elif target_type == 'students':
-            DigitalResourceAssignment.objects.create(resource=resource, target_type='students')
+            DigitalResourceAssignment.objects.create(resource=resource, target_type='students', subject_id=subject_id)
         elif target_type == 'teachers':
-            DigitalResourceAssignment.objects.create(resource=resource, target_type='teachers')
+            DigitalResourceAssignment.objects.create(resource=resource, target_type='teachers', subject_id=subject_id)
         elif target_type == 'specific_students':
             for student_id in target_students:
-                DigitalResourceAssignment.objects.create(resource=resource, target_type='specific_students', student_id=student_id)
+                DigitalResourceAssignment.objects.create(
+                    resource=resource, 
+                    target_type='specific_students', 
+                    student_id=student_id,
+                    subject_id=subject_id
+                )
         elif target_type == 'specific_teachers':
             for teacher_id in target_teachers:
-                DigitalResourceAssignment.objects.create(resource=resource, target_type='specific_teachers', teacher_id=teacher_id)
-        elif target_type == 'classes':
-            for class_id in target_classes:
-                DigitalResourceAssignment.objects.create(resource=resource, target_type='classes', class_fk_id=class_id)
+                DigitalResourceAssignment.objects.create(
+                    resource=resource, 
+                    target_type='specific_teachers', 
+                    teacher_id=teacher_id,
+                    subject_id=subject_id
+                )
+        elif target_type == 'classes' or target_type == 'my_classes' or target_type == 'specific_class':
+            # Handle both section-specific and class-wide assignments
+            for i, class_id in enumerate(target_classes):
+                section_id = target_sections[i] if i < len(target_sections) else None
+                DigitalResourceAssignment.objects.create(
+                    resource=resource, 
+                    target_type='classes', 
+                    class_fk_id=class_id,
+                    section_id=section_id,
+                    subject_id=subject_id
+                )
         
         return resource

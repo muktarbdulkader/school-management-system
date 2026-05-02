@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   Box,
   Container,
@@ -159,6 +159,43 @@ export default function GradeBookPage() {
     }
   }, [grade]);
 
+  // Filter subjects based on selected grade and section
+  const getFilteredSubjects = useCallback(() => {
+    if (!grade || !section || teacherAssignments.length === 0) {
+      return [];
+    }
+    // Filter teacher assignments by selected grade and section
+    const filtered = teacherAssignments.filter(
+      a => a.class_id === grade && a.section_id === section
+    );
+    // Extract unique subjects from filtered assignments
+    const uniqueSubjects = [...new Map(
+      filtered.map(item => [item.id, { id: item.id, name: item.name, code: item.code }])
+    ).values()];
+    return uniqueSubjects;
+  }, [grade, section, teacherAssignments]);
+
+  // Update subjects when grade or section changes
+  useEffect(() => {
+    if (grade && section) {
+      const filteredSubjects = getFilteredSubjects();
+      setSubjects(filteredSubjects);
+      // Clear subject if current selection is not in filtered list
+      const subjectStillValid = filteredSubjects.some(s => s.id === subject);
+      if (!subjectStillValid) {
+        setSubject('');
+        // Auto-select first subject if available and no state override
+        if (filteredSubjects.length > 0 && !stateData.subjectId) {
+          setSubject(filteredSubjects[0].id);
+        }
+      }
+    } else {
+      // Clear subjects when grade or section is not selected
+      setSubjects([]);
+      setSubject('');
+    }
+  }, [grade, section, teacherAssignments, getFilteredSubjects, stateData.subjectId, subject]);
+
   useEffect(() => {
     console.log('Selection changed - term:', term, 'grade:', grade, 'section:', section, 'subject:', subject);
     if (grade && subject && term) {
@@ -279,8 +316,7 @@ export default function GradeBookPage() {
         }
 
         setClasses(uniqueClasses);
-        setSubjects(uniqueSubjects);
-        // Store full assignments data for later use
+        // Store full assignments data for later use - subjects will be filtered dynamically
         console.log('[Grade] Storing teacher assignments:', teacherSubjects);
         console.log('[Grade] First assignment sample:', teacherSubjects[0]);
         setTeacherAssignments(teacherSubjects);
@@ -292,11 +328,7 @@ export default function GradeBookPage() {
           setGrade(uniqueClasses[0].id);
         }
 
-        if (stateData.subjectId) {
-          setSubject(stateData.subjectId);
-        } else if (uniqueSubjects.length > 0) {
-          setSubject(uniqueSubjects[0].id);
-        }
+        // Subject will be auto-selected by the useEffect when grade/section are set
 
         if (stateData.sectionId && stateData.sectionId !== 'null') {
           setSection(stateData.sectionId);
@@ -1075,7 +1107,7 @@ export default function GradeBookPage() {
           </FormControl>
           <FormControl size="small" sx={{ minWidth: 150 }}>
             <InputLabel>Subject</InputLabel>
-            <Select value={subject} onChange={(e) => setSubject(e.target.value)} label="Subject" disabled={subjects.length === 0}>
+            <Select value={subject} onChange={(e) => setSubject(e.target.value)} label="Subject" disabled={subjects.length === 0 || !section}>
               {subjects.map(s => (
                 <MenuItem key={s.id} value={s.id}>{s.name}</MenuItem>
               ))}

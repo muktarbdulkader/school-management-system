@@ -115,6 +115,10 @@ class DigitalResource(models.Model):
     branch = models.ForeignKey('users.Branch', on_delete=models.SET_NULL, null=True, blank=True, related_name='digital_resources')
     uploaded_by = models.ForeignKey('users.User', on_delete=models.SET_NULL, null=True, related_name='uploaded_resources')
     
+    # Subject this resource is for (teacher uploads must specify subject)
+    subject = models.ForeignKey('academics.Subject', on_delete=models.SET_NULL, null=True, blank=True, 
+                                related_name='digital_resources', help_text="Subject this resource is for")
+    
     is_public = models.BooleanField(default=True, help_text="Visible for all authenticated users in the branch")
     
     created_at = models.DateTimeField(auto_now_add=True)
@@ -149,6 +153,8 @@ class DigitalResourceAssignment(models.Model):
     student = models.ForeignKey('students.Student', on_delete=models.CASCADE, null=True, blank=True, related_name='resource_assignments')
     teacher = models.ForeignKey('teachers.Teacher', on_delete=models.CASCADE, null=True, blank=True, related_name='resource_assignments')
     class_fk = models.ForeignKey('academics.Class', on_delete=models.CASCADE, null=True, blank=True, related_name='resource_assignments')
+    section = models.ForeignKey('academics.Section', on_delete=models.CASCADE, null=True, blank=True, related_name='resource_assignments')
+    subject = models.ForeignKey('academics.Subject', on_delete=models.CASCADE, null=True, blank=True, related_name='resource_assignments')
     
     created_at = models.DateTimeField(auto_now_add=True)
 

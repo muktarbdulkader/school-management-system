@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import {
   Box,
   Typography,
@@ -11,19 +11,38 @@ import {
   TextField,
   InputAdornment,
   CircularProgress,
-  useTheme
+  useTheme,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions
 } from '@mui/material';
-import { IconDownload, IconFileText, IconSearch, IconArrowLeft } from '@tabler/icons-react';
+import { IconDownload, IconFileText, IconSearch, IconArrowLeft, IconTrash } from '@tabler/icons-react';
 import { useNavigate } from 'react-router-dom';
+import { useSelector } from 'react-redux';
 import GetToken from 'utils/auth-token';
 import Backend from 'services/backend';
 
 const MyResources = () => {
   const theme = useTheme();
   const navigate = useNavigate();
+  const user = useSelector((state) => state.user?.user);
+  const userRoles = useSelector((state) => state.user?.roles || []);
   const [resources, setResources] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [resourceToDelete, setResourceToDelete] = useState(null);
+  const [deleting, setDeleting] = useState(false);
+
+  // Check if user is student
+  const isStudent = useMemo(() => {
+    if (!user) return false;
+    return userRoles.some(role => {
+      const roleName = typeof role === 'string' ? role.toLowerCase() : role.name?.toLowerCase();
+      return roleName === 'student';
+    }) || user.is_student;
+  }, [user, userRoles]);
 
   const fetchResources = async () => {
     try {
@@ -46,6 +65,41 @@ const MyResources = () => {
   useEffect(() => {
     fetchResources();
   }, []);
+
+  const handleDeleteClick = (resource) => {
+    setResourceToDelete(resource);
+    setDeleteDialogOpen(true);
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!resourceToDelete) return;
+
+    setDeleting(true);
+    try {
+      const token = await GetToken();
+      const response = await fetch(`${Backend.api}${Backend.digitalResources}${resourceToDelete.id}/`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      if (response.ok) {
+        setResources(resources.filter(r => r.id !== resourceToDelete.id));
+        setDeleteDialogOpen(false);
+        setResourceToDelete(null);
+      } else {
+        console.error('Failed to delete resource');
+      }
+    } catch (error) {
+      console.error('Error deleting resource:', error);
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const handleDeleteCancel = () => {
+    setDeleteDialogOpen(false);
+    setResourceToDelete(null);
+  };
 
   const filteredResources = resources.filter(resource =>
     resource.title?.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -168,14 +222,25 @@ const MyResources = () => {
                     </Typography>
                   )}
 
-                  <Button
-                    fullWidth
-                    variant="contained"
-                    startIcon={<IconDownload size={18} />}
-                    onClick={() => window.open(resource.file, '_blank')}
-                  >
-                    Download / View
-                  </Button>
+                  <Box sx={{ display: 'flex', gap: 1 }}>
+                    <Button
+                      fullWidth
+                      variant="contained"
+                      startIcon={<IconDownload size={18} />}
+                      onClick={() => window.open(resource.file, '_blank')}
+                    >
+                      Download
+                    </Button>
+                    {!isStudent && (
+                      <IconButton
+                        color="error"
+                        onClick={() => handleDeleteClick(resource)}
+                        sx={{ bgcolor: theme.palette.error.light }}
+                      >
+                        <IconTrash size={20} />
+                      </IconButton>
+                    )}
+                  </Box>
                 </CardContent>
               </Card>
             </Grid>
@@ -191,6 +256,30 @@ const MyResources = () => {
           </Typography>
         </Box>
       )}
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={deleteDialogOpen} onClose={handleDeleteCancel}>
+        <DialogTitle>Delete Resource</DialogTitle>
+        <DialogContent>
+          <Typography>
+            Are you sure you want to delete "{resourceToDelete?.title}"? This action cannot be undone.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleDeleteCancel} disabled={deleting}>
+            Cancel
+          </Button>
+          <Button
+            onClick={handleDeleteConfirm}
+            color="error"
+            variant="contained"
+            disabled={deleting}
+            startIcon={deleting ? <CircularProgress size={18} /> : <IconTrash size={18} />}
+          >
+            {deleting ? 'Deleting...' : 'Delete'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };

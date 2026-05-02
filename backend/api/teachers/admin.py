@@ -36,7 +36,8 @@ class TeacherPerformanceReportAdmin(admin.ModelAdmin):
 
 @admin.register(TeacherAssignment)
 class TeacherAssignmentAdmin(admin.ModelAdmin):
-    list_display = ['id', 'teacher', 'class_fk', 'section', 'subject', 'assigned_on', 'is_primary']
-    list_filter = ['class_fk__grade', 'subject', 'is_primary']
+    list_display = ['id', 'teacher', 'class_fk', 'section', 'subject', 'assigned_on', 'is_primary', 'is_active']
+    list_filter = ['is_active', 'is_primary', 'class_fk__grade', 'subject', 'term']
     search_fields = ['teacher__user__full_name', 'subject__name', 'class_fk__grade']
+    list_editable = ['is_active', 'is_primary']
     readonly_fields = ['id', 'assigned_on']

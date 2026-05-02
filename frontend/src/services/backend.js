@@ -189,6 +189,9 @@ const Backend = {
   exportAttendance: 'materials/export/attendance/',
   exportGrades: 'materials/export/grades/',
   exportReportCard: 'materials/export/report-card/{student_id}/',
+  // Teacher-specific exports (filtered by their assigned classes)
+  exportTeacherAttendance: 'materials/export/teacher/attendance/',
+  exportTeacherGrades: 'materials/export/teacher/grades/',
 
   // Tasks & To-Do Management
   tasks: 'tasks/',
@@ -222,6 +225,8 @@ const Backend = {
   resourceClasses: 'materials/resource-classes/',
   resourceStudents: 'materials/resource-students/',
   resourceTeachers: 'materials/resource-teachers/',
+  teacherAssignmentsMaterials: 'materials/teacher-assignments/',
+  teacherStudentsMaterials: 'materials/teacher-students/',
   otpRequest: 'users/request-otp/',
   otpVerify: 'users/verify-otp/',
   parentChildren: 'parent_students/children/',

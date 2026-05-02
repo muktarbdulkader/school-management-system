@@ -39,6 +39,7 @@ const ManageUnits = ({
   onCategoryCreated,
   onUnitCreated,
   onSubunitCreated,
+  onCategoryDeleted,
   onRefresh,
 }) => {
   const [activeTab, setActiveTab] = useState('category');
@@ -250,13 +251,56 @@ const ManageUnits = ({
   };
 
   // Handle Submit button click based on active tab
-  const handleSubmit = async () => {
+  const handleSubmit = async (e) => {
+    if (e) e.preventDefault();
     if (activeTab === 'category') {
       await handleCreateCategory();
     } else if (activeTab === 'unit') {
       await handleCreateUnit();
     } else if (activeTab === 'subunit') {
       await handleCreateSubunit();
+    }
+  };
+
+  // Handle category deletion with confirmation
+  const handleDeleteCategory = async (categoryId) => {
+    const cat = categories.find(c => c.id === categoryId);
+    const catName = cat?.name || 'this category';
+    const relatedUnits = units.filter(u => {
+      // Check both category_id and category_details.id for proper matching
+      const unitCatId = u.category_id?.toString?.() ||
+        u.category_details?.id?.toString?.() ||
+        u.category_details?.id ||
+        u.category?.id?.toString?.() ||
+        u.category?.id;
+      const catId = categoryId?.toString?.() || categoryId;
+      return unitCatId === catId;
+    });
+
+    const confirmMsg = relatedUnits.length > 0
+      ? `Are you sure you want to delete "${catName}"?\n\nThis will also delete ${relatedUnits.length} unit(s) and all their sub-units. This action cannot be undone.`
+      : `Are you sure you want to delete "${catName}"?\n\nThis action cannot be undone.`;
+
+    if (!window.confirm(confirmMsg)) {
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const result = await onCategoryDeleted(categoryId);
+      if (result?.success) {
+        toast.success(`Category "${catName}" and all related units/sub-units deleted successfully`);
+        if (onRefresh) {
+          await onRefresh();
+        }
+      } else {
+        toast.error(result?.message || 'Failed to delete category');
+      }
+    } catch (error) {
+      console.error('Delete category error:', error);
+      toast.error(error?.message || 'Failed to delete category');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -274,13 +318,31 @@ const ManageUnits = ({
   };
 
   // Group units by category for display
+  // Handle both string and number ID types for proper matching
+  // Note: backend returns category_details.id (not category_id) since category_id is write-only
   const groupedUnits = categories.map((cat) => ({
     ...cat,
-    units: units.filter((u) => u.category_id === cat.id),
+    units: units.filter((u) => {
+      // Check both category_id (for input) and category_details.id (from backend response)
+      const unitCatId = u.category_id?.toString?.() ||
+        u.category_details?.id?.toString?.() ||
+        u.category_details?.id ||
+        u.category?.id?.toString?.() ||
+        u.category?.id;
+      const catId = cat.id?.toString?.() || cat.id;
+      return unitCatId === catId;
+    }),
   }));
 
   return (
-    <DrogaFormModal open={open} onClose={onClose} title="Manage Units & Sub-units">
+    <DrogaFormModal
+      open={open}
+      handleClose={onClose}
+      onCancel={onClose}
+      onSubmit={handleSubmit}
+      submitting={loading}
+      title="Manage Units & Sub-units"
+    >
       <Box sx={{ width: 800, maxWidth: '100%' }}>
         {/* Tabs */}
         <Box sx={{ display: 'flex', gap: 1, mb: 3, borderBottom: 1, borderColor: 'divider' }}>
@@ -390,7 +452,21 @@ const ManageUnits = ({
             ) : (
               <List dense>
                 {categories.map((cat) => (
-                  <ListItem key={cat.id}>
+                  <ListItem
+                    key={cat.id}
+                    secondaryAction={
+                      <IconButton
+                        edge="end"
+                        aria-label="delete"
+                        onClick={() => handleDeleteCategory(cat.id)}
+                        disabled={loading}
+                        color="error"
+                        size="small"
+                      >
+                        <DeleteIcon />
+                      </IconButton>
+                    }
+                  >
                     <ListItemText
                       primary={cat.name || 'Unnamed Category'}
                       secondary={`Subject: ${cat.subject_details?.name || cat.subject?.name || 'N/A'} | Class: ${cat.class_details?.name || cat.class_details?.grade || cat.class_fk?.name || 'N/A'}`}
@@ -594,23 +670,6 @@ const ManageUnits = ({
           </Box>
         )}
 
-        {/* Bottom Action Buttons */}
-        <Box sx={{ mt: 4, pt: 3, borderTop: 1, borderColor: 'divider', display: 'flex', justifyContent: 'flex-end', gap: 2 }}>
-          <Button
-            variant="outlined"
-            onClick={onClose}
-            disabled={loading}
-          >
-            Cancel
-          </Button>
-          <Button
-            variant="contained"
-            onClick={handleSubmit}
-            disabled={isSubmitDisabled()}
-          >
-            {loading ? 'Saving...' : 'Submit'}
-          </Button>
-        </Box>
       </Box>
     </DrogaFormModal>
   );
@@ -628,6 +687,7 @@ ManageUnits.propTypes = {
   onCategoryCreated: PropTypes.func.isRequired,
   onUnitCreated: PropTypes.func.isRequired,
   onSubunitCreated: PropTypes.func.isRequired,
+  onCategoryDeleted: PropTypes.func,
   onRefresh: PropTypes.func.isRequired,
 };
 

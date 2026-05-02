@@ -312,35 +312,20 @@ class TeacherAssignment(models.Model):
         ]
 
     def clean(self):
-        """Validate that section belongs to the selected class and prevent duplicates"""
+        """Validate that section belongs to the selected class"""
         from django.core.exceptions import ValidationError
-        
+
         # Validate section belongs to class
         if self.section and self.class_fk:
             if self.section.class_fk_id != self.class_fk_id:
                 raise ValidationError(
                     f"Section {self.section.name} does not belong to class {self.class_fk.grade}"
                 )
-        
-        # Check for duplicate assignment (another teacher assigned to same class/section/subject as primary)
-        if self.is_primary and self.is_active:
-            existing_primary = TeacherAssignment.objects.filter(
-                class_fk=self.class_fk,
-                section=self.section,
-                subject=self.subject,
-                term=self.term,
-                is_primary=True,
-                is_active=True
-            ).exclude(id=self.id if self.id else None)
-            
-            if existing_primary.exists():
-                other_teacher = existing_primary.first().teacher.user.full_name
-                section_info = f" Section {self.section.name}" if self.section else " All Sections"
-                raise ValidationError(
-                    f"{other_teacher} is already assigned as primary teacher for "
-                    f"{self.subject.name} in {self.class_fk.grade}{section_info}. "
-                    f"Only one primary teacher is allowed per class-section-subject combination."
-                )
+
+        # Note: Duplicate assignment checks are handled by:
+        # 1. Database unique constraint for same teacher
+        # 2. Serializer validation for existing assignments by other teachers
+        # 3. Database unique constraint for primary teachers per class-section-subject-term
 
     def save(self, *args, **kwargs):
         self.clean()

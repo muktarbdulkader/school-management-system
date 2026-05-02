@@ -101,8 +101,8 @@ class TeacherSerializer(serializers.ModelSerializer):
 
     def get_subject_details(self, obj):
         from teachers.models import TeacherAssignment
-        # Return unique subjects taught by this teacher
-        subjects = TeacherAssignment.objects.filter(teacher=obj).select_related('subject')
+        # Return unique subjects taught by this teacher (only active assignments)
+        subjects = TeacherAssignment.objects.filter(teacher=obj, is_active=True).select_related('subject')
         unique_subjects = {}
         for s in subjects:
             if s.subject:
@@ -117,8 +117,8 @@ class TeacherSerializer(serializers.ModelSerializer):
         if obj.subject_specialties and obj.subject_specialties.strip():
             return obj.subject_specialties
 
-        # Otherwise, get from assigned subjects
-        subjects = TeacherAssignment.objects.filter(teacher=obj).select_related('subject')
+        # Otherwise, get from assigned subjects (only active assignments)
+        subjects = TeacherAssignment.objects.filter(teacher=obj, is_active=True).select_related('subject')
         unique_subjects = set()
         for s in subjects:
             if s.subject:
@@ -471,34 +471,89 @@ class TeacherAssignmentSerializer(serializers.ModelSerializer):
                   'section', 'section_details', 'subject', 'subject_details',
                   'term', 'term_details', 'assigned_on', 'is_primary', 'is_active']
         read_only_fields = ['id', 'assigned_on']
+        # Disable automatic unique constraint validation - we handle it in validate()
+        validators = []
 
-    def create(self, validated_data):
-        """Create teacher assignment with validation"""
+    def validate(self, data):
+        """Validate that no duplicate assignments exist"""
         from rest_framework.exceptions import ValidationError
 
-        # Check required fields
-        if not validated_data.get('teacher'):
-            raise ValidationError("Teacher is required")
-        if not validated_data.get('class_fk'):
-            raise ValidationError("Class is required")
-        if not validated_data.get('subject'):
-            raise ValidationError("Subject is required")
+        teacher = data.get('teacher')
+        class_fk = data.get('class_fk')
+        section = data.get('section')
+        subject = data.get('subject')
+        term = data.get('term')
 
-        # Check for existing assignment (unique constraint)
-        from django.db.models import Q
-        existing = TeacherAssignment.objects.filter(
-            teacher=validated_data.get('teacher'),
-            class_fk=validated_data.get('class_fk'),
-            section=validated_data.get('section'),
-            subject=validated_data.get('subject'),
-            term=validated_data.get('term')
+        if not all([teacher, class_fk, subject]):
+            return data  # Let field-level validation handle missing fields
+
+        # Check for existing ACTIVE assignment for SAME teacher (ignore inactive/substituted ones)
+        existing_same_teacher = TeacherAssignment.objects.filter(
+            teacher=teacher,
+            class_fk=class_fk,
+            section=section,
+            subject=subject,
+            term=term,
+            is_active=True
         ).first()
 
-        if existing:
-            raise ValidationError(
-                f"Teacher assignment already exists for this teacher, class, section, subject, and term combination"
-            )
+        if existing_same_teacher:
+            section_info = f" Section {section.name}" if section else " All Sections"
+            term_info = f" - Term: {term.name}" if term else ""
+            raise ValidationError({
+                "error": "DUPLICATE_ASSIGNMENT",
+                "message": f"This teacher is already assigned to {subject.name} for {class_fk.grade}{section_info}{term_info}.",
+                "existing_assignment": {
+                    "id": str(existing_same_teacher.id),
+                    "teacher_id": str(teacher.id),
+                    "teacher_name": teacher.user.full_name if teacher.user else 'Unknown',
+                    "class_id": str(class_fk.id),
+                    "class_name": class_fk.grade,
+                    "section_id": str(section.id) if section else None,
+                    "section_name": section.name if section else "All Sections",
+                    "subject_id": str(subject.id),
+                    "subject_name": subject.name,
+                    "term_id": str(term.id) if term else None,
+                    "term_name": term.name if term else None,
+                },
+                "suggestion": "This subject is already assigned to this teacher. No action needed."
+            })
 
+        # Check for existing assignment by ANOTHER teacher (prevent duplicate assignment)
+        existing_other_teacher = TeacherAssignment.objects.filter(
+            class_fk=class_fk,
+            section=section,
+            subject=subject,
+            term=term,
+            is_active=True
+        ).exclude(teacher=teacher).first()
+
+        if existing_other_teacher:
+            section_info = f" Section {section.name}" if section else " All Sections"
+            term_info = f" - Term: {term.name}" if term else ""
+            raise ValidationError({
+                "error": "SUBJECT_ALREADY_ASSIGNED",
+                "message": f"{existing_other_teacher.teacher.user.full_name} is already assigned as {subject.name} teacher for {class_fk.grade}{section_info}{term_info}.",
+                "existing_assignment": {
+                    "id": str(existing_other_teacher.id),
+                    "teacher_id": str(existing_other_teacher.teacher.id),
+                    "teacher_name": existing_other_teacher.teacher.user.full_name,
+                    "class_id": str(class_fk.id),
+                    "class_name": class_fk.grade,
+                    "section_id": str(section.id) if section else None,
+                    "section_name": section.name if section else "All Sections",
+                    "subject_id": str(subject.id),
+                    "subject_name": subject.name,
+                    "term_id": str(term.id) if term else None,
+                    "term_name": term.name if term else None,
+                },
+                "suggestion": "Use the 'substitute_teacher' endpoint to replace the existing assignment."
+            })
+
+        return data
+
+    def create(self, validated_data):
+        """Create teacher assignment - validation is done in validate()"""
         return super().create(validated_data)
 
     def get_class_details(self, obj):

@@ -11,9 +11,12 @@ import {
   MenuItem,
   Stack,
   Typography,
-  CircularProgress
+  CircularProgress,
+  Box,
+  Alert,
+  AlertTitle
 } from '@mui/material';
-import { IconBook } from '@tabler/icons-react';
+import { IconBook, IconAlertTriangle } from '@tabler/icons-react';
 import GetToken from 'utils/auth-token';
 import Backend from 'services/backend';
 import { toast } from 'react-hot-toast';
@@ -24,16 +27,21 @@ const AssignSubjectDialog = ({ open, onClose, teacherId, onAssignmentSuccess }) 
   const [classes, setClasses] = useState([]);
   const [sections, setSections] = useState([]);
   const [terms, setTerms] = useState([]);
-  const [classSubjectsMap, setClassSubjectsMap] = useState({});
+  const [classSubjectsMap, setClassSubjectsMap] = useState([]);
 
   const [selectedSubject, setSelectedSubject] = useState('');
   const [selectedClass, setSelectedClass] = useState('');
   const [selectedSection, setSelectedSection] = useState('');
   const [selectedTerm, setSelectedTerm] = useState('');
-  const [isPrimary, setIsPrimary] = useState(false);
+  const [isPrimary, setIsPrimary] = useState(true);
 
   const [loading, setLoading] = useState(false);
   const [assigning, setAssigning] = useState(false);
+
+  // Substitution dialog state
+  const [showSubstituteDialog, setShowSubstituteDialog] = useState(false);
+  const [existingAssignment, setExistingAssignment] = useState(null);
+  const [substituting, setSubstituting] = useState(false);
 
   useEffect(() => {
     if (open) {
@@ -246,13 +254,64 @@ const AssignSubjectDialog = ({ open, onClose, teacherId, onAssignmentSuccess }) 
         resetFields();
       } else {
         const err = await res.json();
-        toast.error(err.message || 'Failed to assign teacher');
+
+        // Check if subject is already assigned to another teacher
+        if (err.error === 'SUBJECT_ALREADY_ASSIGNED' && err.existing_assignment) {
+          setExistingAssignment(err.existing_assignment);
+          setShowSubstituteDialog(true);
+        } else {
+          toast.error(err.message || 'Failed to assign teacher');
+        }
       }
     } catch (e) {
       toast.error('Error: ' + e.message);
     } finally {
       setAssigning(false);
     }
+  };
+
+  const handleSubstitute = async () => {
+    if (!existingAssignment) return;
+
+    setSubstituting(true);
+    try {
+      const token = await GetToken();
+      const res = await fetch(`${Backend.api}${Backend.teacherAssignments}substitute_teacher/`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          existing_assignment_id: existingAssignment.id,
+          new_teacher_id: teacherId,
+          is_primary: isPrimary,
+          is_active: true
+        })
+      });
+
+      const data = await res.json();
+
+      if (res.ok && data.success) {
+        toast.success(data.message || 'Teacher substituted successfully');
+        setShowSubstituteDialog(false);
+        setExistingAssignment(null);
+        if (onAssignmentSuccess) onAssignmentSuccess();
+        onClose();
+        resetFields();
+      } else {
+        toast.error(data.message || 'Failed to substitute teacher');
+      }
+    } catch (e) {
+      toast.error('Error: ' + e.message);
+    } finally {
+      setSubstituting(false);
+    }
+  };
+
+  const handleCancelSubstitute = () => {
+    setShowSubstituteDialog(false);
+    setExistingAssignment(null);
   };
 
   const resetFields = () => {
@@ -379,6 +438,65 @@ const AssignSubjectDialog = ({ open, onClose, teacherId, onAssignmentSuccess }) 
           {assigning ? <CircularProgress size={18} /> : 'Assign'}
         </Button>
       </DialogActions>
+
+      {/* Substitution Confirmation Dialog */}
+      <Dialog
+        open={showSubstituteDialog}
+        onClose={handleCancelSubstitute}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>
+          <Stack direction="row" spacing={1} alignItems="center">
+            <IconAlertTriangle size={24} color="#ff9800" />
+            <Typography variant="h5">Subject Already Assigned</Typography>
+          </Stack>
+        </DialogTitle>
+        <DialogContent>
+          <Stack spacing={2}>
+            <Alert severity="warning">
+              <AlertTitle>Teacher Already Assigned</AlertTitle>
+              <Typography variant="body1">
+                <strong>{existingAssignment?.teacher_name}</strong> is currently assigned as the teacher for:
+              </Typography>
+              <Box sx={{ mt: 1, pl: 2 }}>
+                <Typography variant="body2">
+                  • Subject: <strong>{existingAssignment?.subject_name}</strong>
+                </Typography>
+                <Typography variant="body2">
+                  • Class: <strong>{existingAssignment?.class_name}</strong>
+                </Typography>
+                <Typography variant="body2">
+                  • Section: <strong>{existingAssignment?.section_name}</strong>
+                </Typography>
+                {existingAssignment?.term_name && (
+                  <Typography variant="body2">
+                    • Term: <strong>{existingAssignment?.term_name}</strong>
+                  </Typography>
+                )}
+              </Box>
+            </Alert>
+
+            <Typography variant="body1" color="text.secondary">
+              Do you want to <strong>substitute</strong> the teacher? This will remove the assignment from <strong>{existingAssignment?.teacher_name}</strong> and assign it to the new teacher instead.
+            </Typography>
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCancelSubstitute} disabled={substituting}>
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            color="warning"
+            onClick={handleSubstitute}
+            disabled={substituting}
+            startIcon={substituting ? <CircularProgress size={16} /> : null}
+          >
+            {substituting ? 'Substituting...' : 'Yes, Substitute Teacher'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Dialog>
   );
 };

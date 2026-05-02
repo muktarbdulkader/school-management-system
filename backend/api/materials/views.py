@@ -179,10 +179,14 @@ def export_attendance(request):
     format_type = request.query_params.get('format', 'csv')
     student_id = request.query_params.get('student_id')
     class_id = request.query_params.get('class_id')
+    section_id = request.query_params.get('section_id')
     start_date = request.query_params.get('start_date')
     end_date = request.query_params.get('end_date')
 
     attendance = Attendance.objects.all().select_related('student_id__user')
+
+    if section_id:
+        attendance = attendance.filter(student_id__section_id=section_id)
 
     if student_id:
         attendance = attendance.filter(student_id=student_id)
@@ -335,7 +339,9 @@ def export_grades(request):
     format_type = request.query_params.get('format', 'csv')
     term_id = request.query_params.get('term_id')
     class_id = request.query_params.get('class_id')
+    section_id = request.query_params.get('section_id')
     student_id = request.query_params.get('student_id')
+    subject_id = request.query_params.get('subject_id')
 
     # Fetch exam results
     results = ExamResults.objects.all().select_related(
@@ -348,8 +354,12 @@ def export_grades(request):
         results = results.filter(exam_id__term_id=term_id)
     if class_id:
         results = results.filter(student_id__grade_id=class_id)
+    if section_id:
+        results = results.filter(student_id__section_id=section_id)
     if student_id:
         results = results.filter(student_id=student_id)
+    if subject_id:
+        results = results.filter(models.Q(subject_id=subject_id) | models.Q(teacher_assignment__subject_id=subject_id))
 
     if not results.exists():
         return Response({'success': False, 'message': 'No grades found matching the criteria'}, status=200)
@@ -655,9 +665,75 @@ class DigitalResourceViewSet(viewsets.ModelViewSet):
             if parsed_date:
                 queryset = queryset.filter(created_at__gt=parsed_date)
         
-        # Users see all public resources + their own uploads
-        if not user.is_superuser:
-            queryset = queryset.filter(is_public=True) | queryset.filter(uploaded_by=user)
+        # Admins see all resources
+        if user.is_superuser:
+            return queryset
+        
+        # Check if user is a student
+        try:
+            from students.models import Student
+            student = Student.objects.select_related('grade', 'section').get(user=user)
+            from django.db.models import Q
+            
+            # Student can see resources where:
+            # 1. Specifically assigned to them
+            # 2. Assigned to their class AND (their section OR no specific section)
+            # 3. Target type 'all' or 'students' but ONLY if for their class/section
+            
+            student_filter = Q(
+                # Specifically assigned to this student
+                Q(assignments__student=student) |
+                
+                # Assigned to their class with matching section
+                Q(assignments__class_fk=student.grade, assignments__section=student.section) |
+                
+                # Assigned to their class with no specific section (all sections)
+                Q(assignments__class_fk=student.grade, assignments__section__isnull=True) |
+                
+                # Target type 'all' or 'students' for their specific class
+                Q(
+                    Q(assignments__target_type__in=['all', 'students']) &
+                    Q(assignments__class_fk=student.grade) &
+                    Q(Q(assignments__section=student.section) | Q(assignments__section__isnull=True))
+                )
+            )
+            
+            queryset = queryset.filter(student_filter).distinct()
+            
+            return queryset
+        except Student.DoesNotExist:
+            pass
+        
+        # Teachers see their own uploads + assigned resources
+        try:
+            from teachers.models import Teacher, TeacherAssignment
+            teacher = Teacher.objects.get(user=user)
+            # Get teacher's class/section assignments
+            teacher_classes = TeacherAssignment.objects.filter(
+                teacher=teacher, is_active=True
+            ).values_list('class_fk_id', flat=True)
+            teacher_sections = TeacherAssignment.objects.filter(
+                teacher=teacher, is_active=True
+            ).values_list('section_id', flat=True)
+            
+            from django.db.models import Q
+            teacher_assignments = Q(
+                Q(assignments__target_type='all') |
+                Q(assignments__target_type='teachers') |
+                Q(assignments__teacher=teacher) |
+                Q(assignments__class_fk_id__in=teacher_classes) |
+                Q(assignments__section_id__in=teacher_sections)
+            )
+            
+            queryset = queryset.filter(
+                Q(uploaded_by=user) | teacher_assignments
+            ).distinct()
+            return queryset
+        except Teacher.DoesNotExist:
+            pass
+        
+        # Other users - see public resources + their own uploads
+        queryset = queryset.filter(is_public=True) | queryset.filter(uploaded_by=user)
             
         return queryset
 
@@ -707,6 +783,45 @@ class DigitalResourceViewSet(viewsets.ModelViewSet):
             'status': status.HTTP_200_OK,
             'data': serializer.data
         })
+
+    def destroy(self, request, *args, **kwargs):
+        """Delete a digital resource - only admin or the uploader can delete"""
+        resource = self.get_object()
+        user = request.user
+        
+        # Check if user is admin or the uploader
+        user_roles = [r.role.name.lower() for r in user.userrole_set.all().select_related('role')]
+        is_admin = user.is_superuser or user.is_staff or any(r in ['admin', 'super_admin', 'head_admin', 'ceo'] for r in user_roles)
+        
+        # Compare uploader - handle both ID and object comparisons
+        is_uploader = False
+        if resource.uploaded_by_id:
+            is_uploader = str(resource.uploaded_by_id) == str(user.id)
+        elif resource.uploaded_by:
+            is_uploader = str(resource.uploaded_by.id) == str(user.id)
+        
+        # Debug logging
+        print(f"DEBUG: Resource uploaded_by_id={resource.uploaded_by_id}, user.id={user.id}, is_uploader={is_uploader}, is_admin={is_admin}")
+        
+        if not (is_admin or is_uploader):
+            return Response({
+                'success': False,
+                'message': f'Only administrators or the uploader can delete this resource. Resource uploader: {resource.uploaded_by_id}, Your ID: {user.id}',
+                'status': 403
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        # Delete the file from storage
+        if resource.file:
+            resource.file.delete(save=False)
+        
+        # Delete the resource record
+        resource.delete()
+        
+        return Response({
+            'success': True,
+            'message': 'Resource deleted successfully',
+            'status': 200
+        }, status=status.HTTP_200_OK)
 
 
 @api_view(['GET'])
@@ -812,3 +927,318 @@ def get_teachers_for_resource_assignment(request):
         'status': 200,
         'data': data
     })
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_teacher_assignments(request):
+    """Get classes and subjects assigned to the current teacher"""
+    user = request.user
+    
+    # Check if user is a teacher
+    try:
+        from teachers.models import Teacher, TeacherAssignment
+        teacher = Teacher.objects.get(user=user)
+    except Teacher.DoesNotExist:
+        return Response({
+            'success': False,
+            'message': 'Only teachers can access this endpoint',
+            'status': 403
+        }, status=status.HTTP_403_FORBIDDEN)
+    
+    # Get teacher's assignments
+    assignments = TeacherAssignment.objects.filter(
+        teacher=teacher,
+        is_active=True
+    ).select_related('class_fk', 'section', 'subject')
+    
+    # Group by class
+    classes_data = {}
+    for assignment in assignments:
+        class_id = str(assignment.class_fk.id)
+        if class_id not in classes_data:
+            classes_data[class_id] = {
+                'id': class_id,
+                'grade': assignment.class_fk.grade,
+                'sections': [],
+                'subjects': []
+            }
+        
+        # Add section if not already added
+        if assignment.section:
+            section_info = {'id': str(assignment.section.id), 'name': assignment.section.name}
+            if section_info not in classes_data[class_id]['sections']:
+                classes_data[class_id]['sections'].append(section_info)
+        
+        # Add subject if not already added
+        subject_info = {'id': str(assignment.subject.id), 'name': assignment.subject.name}
+        if subject_info not in classes_data[class_id]['subjects']:
+            classes_data[class_id]['subjects'].append(subject_info)
+    
+    return Response({
+        'success': True,
+        'message': 'Teacher assignments retrieved successfully',
+        'status': 200,
+        'data': {
+            'teacher_id': str(teacher.id),
+            'teacher_name': user.full_name,
+            'classes': list(classes_data.values())
+        }
+    })
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_teacher_students(request):
+    """Get students for a specific class/section/subject that the teacher teaches"""
+    user = request.user
+    class_id = request.query_params.get('class_id')
+    section_id = request.query_params.get('section_id')
+    subject_id = request.query_params.get('subject_id')
+    
+    if not class_id:
+        return Response({
+            'success': False,
+            'message': 'class_id is required',
+            'status': 400
+        }, status=status.HTTP_400_BAD_REQUEST)
+    
+    # Check if user is a teacher
+    try:
+        from teachers.models import Teacher, TeacherAssignment
+        from students.models import Student
+        teacher = Teacher.objects.get(user=user)
+    except Teacher.DoesNotExist:
+        return Response({
+            'success': False,
+            'message': 'Only teachers can access this endpoint',
+            'status': 403
+        }, status=status.HTTP_403_FORBIDDEN)
+    
+    # Verify teacher teaches this class/subject combination
+    assignment_filter = {'teacher': teacher, 'class_fk_id': class_id, 'is_active': True}
+    if section_id:
+        assignment_filter['section_id'] = section_id
+    if subject_id:
+        assignment_filter['subject_id'] = subject_id
+    
+    has_assignment = TeacherAssignment.objects.filter(**assignment_filter).exists()
+    
+    if not has_assignment:
+        return Response({
+            'success': False,
+            'message': 'You are not assigned to teach this class/section/subject',
+            'status': 403
+        }, status=status.HTTP_403_FORBIDDEN)
+    
+    # Get students
+    student_filter = {'grade_id': class_id}
+    if section_id:
+        student_filter['section_id'] = section_id
+    
+    students = Student.objects.filter(**student_filter).select_related('user')
+    
+    data = [
+        {
+            'id': str(s.id),
+            'name': s.user.full_name,
+            'student_id': s.student_id
+        }
+        for s in students
+    ]
+    
+    return Response({
+        'success': True,
+        'message': 'Students retrieved successfully',
+        'status': 200,
+        'data': data
+    })
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def export_teacher_attendance(request):
+    """Export attendance for teacher's assigned classes"""
+    user = request.user
+    user_roles = [r.role.name.lower() for r in user.userrole_set.all().select_related('role')]
+    
+    # Check if user is a teacher or admin
+    is_teacher = 'teacher' in user_roles
+    is_admin = user.is_superuser or user.is_staff or any(r in ['admin', 'super_admin', 'head_admin', 'ceo'] for r in user_roles)
+    
+    if not (is_teacher or is_admin):
+        return Response({'success': False, 'message': 'Access denied', 'status': 403}, status=403)
+    
+    from teachers.models import Teacher, TeacherAssignment
+    format_type = request.query_params.get('format', 'csv')
+    class_id = request.query_params.get('class_id')
+    section_id = request.query_params.get('section_id')
+    start_date = request.query_params.get('start_date')
+    end_date = request.query_params.get('end_date')
+    
+    # Get teacher's assigned class IDs
+    try:
+        teacher = Teacher.objects.get(user=user)
+        teacher_assignments = TeacherAssignment.objects.filter(teacher=teacher, is_active=True)
+        assigned_class_ids = list(teacher_assignments.values_list('class_fk_id', flat=True).distinct())
+    except Teacher.DoesNotExist:
+        if not is_admin:
+            return Response({'success': False, 'message': 'Teacher profile not found'}, status=403)
+        assigned_class_ids = []
+    
+    # Build attendance query
+    attendance = Attendance.objects.all().select_related('student_id__user', 'student_id__grade', 'student_id__section')
+    
+    # Filter by teacher's classes (unless admin)
+    if not is_admin and assigned_class_ids:
+        attendance = attendance.filter(student_id__grade_id__in=assigned_class_ids)
+    
+    # Apply additional filters
+    if class_id:
+        # Verify teacher teaches this class
+        if not is_admin and assigned_class_ids and int(class_id) not in assigned_class_ids:
+            return Response({'success': False, 'message': 'You are not assigned to this class'}, status=403)
+        attendance = attendance.filter(student_id__grade_id=class_id)
+    
+    if section_id:
+        attendance = attendance.filter(student_id__section_id=section_id)
+    if start_date:
+        attendance = attendance.filter(date__gte=start_date)
+    if end_date:
+        attendance = attendance.filter(date__lte=end_date)
+    
+    if not attendance.exists():
+        return Response({'success': False, 'message': 'No attendance records found for the selected criteria'}, status=200)
+    
+    headers = ['Student ID', 'Student Name', 'Class', 'Section', 'Date', 'Status']
+    data = [
+        [
+            a.student_id.student_id or str(a.student_id.id)[:8].upper(),
+            a.student_id.user.full_name,
+            a.student_id.grade.grade if a.student_id.grade else 'N/A',
+            a.student_id.section.name if a.student_id.section else 'N/A',
+            a.date.strftime('%Y-%m-%d'),
+            a.status
+        ]
+        for a in attendance
+    ]
+    
+    if format_type == 'pdf':
+        buffer = PDFExporter.export_list_to_pdf('Attendance Report', headers, data)
+        response = HttpResponse(buffer, content_type='application/pdf')
+        response['Content-Disposition'] = f'attachment; filename="attendance_{timezone.now().strftime("%Y%m%d")}.pdf"'
+        return response
+    elif format_type == 'excel':
+        buffer = ExcelExporter.export_to_excel('Attendance Report', headers, data, 'Attendance')
+        response = HttpResponse(buffer, content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        response['Content-Disposition'] = f'attachment; filename="attendance_{timezone.now().strftime("%Y%m%d")}.xlsx"'
+        return response
+    else:  # CSV
+        csv_data = CSVExporter.export_to_csv(headers, data)
+        response = HttpResponse(csv_data, content_type='text/csv')
+        response['Content-Disposition'] = f'attachment; filename="attendance_{timezone.now().strftime("%Y%m%d")}.csv"'
+        return response
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def export_teacher_grades(request):
+    """Export grades for teacher's assigned classes/subjects"""
+    user = request.user
+    user_roles = [r.role.name.lower() for r in user.userrole_set.all().select_related('role')]
+    
+    # Check if user is a teacher or admin
+    is_teacher = 'teacher' in user_roles
+    is_admin = user.is_superuser or user.is_staff or any(r in ['admin', 'super_admin', 'head_admin', 'ceo'] for r in user_roles)
+    
+    if not (is_teacher or is_admin):
+        return Response({'success': False, 'message': 'Access denied', 'status': 403}, status=403)
+    
+    from teachers.models import Teacher, TeacherAssignment
+    from lessontopics.models import ExamResults
+    
+    format_type = request.query_params.get('format', 'csv')
+    class_id = request.query_params.get('class_id')
+    section_id = request.query_params.get('section_id')
+    subject_id = request.query_params.get('subject_id')
+    term_id = request.query_params.get('term_id')
+    
+    # Get teacher's assignments
+    try:
+        teacher = Teacher.objects.get(user=user)
+        teacher_assignments = TeacherAssignment.objects.filter(teacher=teacher, is_active=True)
+        assigned_class_ids = list(teacher_assignments.values_list('class_fk_id', flat=True).distinct())
+        assigned_subject_ids = list(teacher_assignments.values_list('subject_id', flat=True).distinct())
+    except Teacher.DoesNotExist:
+        if not is_admin:
+            return Response({'success': False, 'message': 'Teacher profile not found'}, status=403)
+        assigned_class_ids = []
+        assigned_subject_ids = []
+    
+    # Build grades query
+    results = ExamResults.objects.all().select_related(
+        'student_id__user', 'student_id__grade', 'student_id__section',
+        'subject_id', 'exam_id'
+    )
+    
+    # Filter by teacher's classes/subjects (unless admin)
+    if not is_admin:
+        if assigned_class_ids:
+            results = results.filter(student_id__grade_id__in=assigned_class_ids)
+        if assigned_subject_ids:
+            results = results.filter(
+                models.Q(subject_id__in=assigned_subject_ids) | 
+                models.Q(teacher_assignment__subject_id__in=assigned_subject_ids)
+            )
+    
+    # Apply additional filters
+    if class_id:
+        if not is_admin and assigned_class_ids and int(class_id) not in assigned_class_ids:
+            return Response({'success': False, 'message': 'You are not assigned to this class'}, status=403)
+        results = results.filter(student_id__grade_id=class_id)
+    
+    if section_id:
+        results = results.filter(student_id__section_id=section_id)
+    if subject_id:
+        if not is_admin and assigned_subject_ids and int(subject_id) not in assigned_subject_ids:
+            return Response({'success': False, 'message': 'You are not assigned to this subject'}, status=403)
+        results = results.filter(
+            models.Q(subject_id=subject_id) | models.Q(teacher_assignment__subject_id=subject_id)
+        )
+    if term_id:
+        results = results.filter(exam_id__term_id=term_id)
+    
+    if not results.exists():
+        return Response({'success': False, 'message': 'No grades found matching the criteria'}, status=200)
+    
+    headers = ['Student ID', 'Student Name', 'Class', 'Section', 'Subject', 'Exam', 'Score', 'Grade', 'Date']
+    data = [
+        [
+            r.student_id.student_id or str(r.student_id.id)[:8].upper(),
+            r.student_id.user.full_name,
+            r.student_id.grade.grade if r.student_id.grade else 'N/A',
+            r.student_id.section.name if r.student_id.section else 'N/A',
+            r.subject_id.name if r.subject_id else (r.teacher_assignment.subject.name if r.teacher_assignment else 'N/A'),
+            r.exam_id.name if r.exam_id else 'N/A',
+            str(r.score) if hasattr(r, 'score') else 'N/A',
+            r.grade if hasattr(r, 'grade') else 'N/A',
+            r.exam_id.date.strftime('%Y-%m-%d') if r.exam_id and hasattr(r.exam_id, 'date') else 'N/A'
+        ]
+        for r in results
+    ]
+    
+    if format_type == 'pdf':
+        buffer = PDFExporter.export_list_to_pdf('Grades Report', headers, data)
+        response = HttpResponse(buffer, content_type='application/pdf')
+        response['Content-Disposition'] = f'attachment; filename="grades_{timezone.now().strftime("%Y%m%d")}.pdf"'
+        return response
+    elif format_type == 'excel':
+        buffer = ExcelExporter.export_to_excel('Grades Report', headers, data, 'Grades')
+        response = HttpResponse(buffer, content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        response['Content-Disposition'] = f'attachment; filename="grades_{timezone.now().strftime("%Y%m%d")}.xlsx"'
+        return response
+    else:  # CSV
+        csv_data = CSVExporter.export_to_csv(headers, data)
+        response = HttpResponse(csv_data, content_type='text/csv')
+        response['Content-Disposition'] = f'attachment; filename="grades_{timezone.now().strftime("%Y%m%d")}.csv"'
+        return response

@@ -443,6 +443,50 @@ export default function TeacherDashboardPage() {
     return result;
   };
 
+  const handleDeleteCategory = async (categoryId) => {
+    const token = await GetToken();
+    console.log('Deleting category with ID:', categoryId);
+
+    const response = await fetch(`${Backend.auth}${Backend.objectiveCategories}${categoryId}/`, {
+      method: 'DELETE',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+    });
+
+    let result;
+    try {
+      const text = await response.text();
+      result = text ? JSON.parse(text) : { success: true, message: 'Category deleted successfully' };
+    } catch (e) {
+      // If no JSON response, assume success if status is 2xx
+      result = {
+        success: response.status >= 200 && response.status < 300,
+        message: response.status >= 200 && response.status < 300 ? 'Category deleted successfully' : 'Failed to delete category'
+      };
+    }
+
+    console.log('Delete category response:', result);
+    console.log('Response status:', response.status);
+
+    if (result.success || response.status === 204) {
+      toast.success('Category deleted! Refreshing list...');
+      await handleFetchingCategories();
+      await handleFetchingUnits();
+      await handleFetchingSubunits();
+    } else {
+      let errorMsg = result.message || 'Failed to delete category';
+      if (result.data) {
+        console.error('Error details:', result.data);
+        const details = JSON.stringify(result.data);
+        errorMsg = `${result.message || 'Error'}: ${details}`;
+      }
+      toast.error(errorMsg);
+    }
+    return result;
+  };
+
   const handleCreateUnit = async (data) => {
     const token = await GetToken();
     console.log('Creating unit with data:', data);
@@ -865,8 +909,13 @@ export default function TeacherDashboardPage() {
               </Typography>
             </Box>
           </Box>
-          <Box sx={{ boxShadow: '0 4px 14px 0 rgba(59, 130, 246, 0.39)', borderRadius: '12px' }}>
-            <AddButton title="Add Daily Lesson" onPress={() => navigate('/planning')} />
+          <Box sx={{ display: 'flex', gap: 2 }}>
+            <Box sx={{ boxShadow: '0 4px 14px 0 rgba(59, 130, 246, 0.39)', borderRadius: '12px' }}>
+              <AddButton title="Add Daily Lesson" onPress={() => navigate('/planning')} />
+            </Box>
+            <Box sx={{ boxShadow: '0 4px 14px 0 rgba(16, 185, 129, 0.39)', borderRadius: '12px' }}>
+              <AddButton title="Upload Resource" onPress={() => navigate('/library/upload')} />
+            </Box>
           </Box>
         </Box>
 
@@ -1263,6 +1312,7 @@ export default function TeacherDashboardPage() {
         onCategoryCreated={handleCreateCategory}
         onUnitCreated={handleCreateUnit}
         onSubunitCreated={handleCreateSubunit}
+        onCategoryDeleted={handleDeleteCategory}
         onRefresh={() => {
           handleFetchingCategories();
           handleFetchingUnits();

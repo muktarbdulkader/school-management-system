@@ -308,9 +308,11 @@ class TeacherViewSet(viewsets.ModelViewSet):
         from django.db.models import Count
 
         try:
+            # Only show ACTIVE assignments - inactive ones were substituted to other teachers
             teacher_subjects = TeacherAssignment.objects.filter(
                 teacher=teacher,
-                subject__isnull=False
+                subject__isnull=False,
+                is_active=True
             ).select_related('class_fk', 'section', 'subject').distinct()
 
             print(f"[TeacherDashboard] Found {teacher_subjects.count()} TeacherAssignment assignments")
@@ -461,10 +463,11 @@ class TeacherViewSet(viewsets.ModelViewSet):
         from students.models import Student
 
         try:
-            # Get all classes/subjects the teacher teaches
+            # Get all classes/subjects the teacher teaches (only active assignments)
             teacher_assignments = TeacherAssignment.objects.filter(
                 teacher=teacher,
-                subject__isnull=False
+                subject__isnull=False,
+                is_active=True
             ).select_related('class_fk', 'section', 'subject')
 
             # Collect all unique students
@@ -1998,9 +2001,123 @@ class TeacherAssignmentViewSet(viewsets.ModelViewSet):
         })
 
     def create(self, request, *args, **kwargs):
+        from django.db import IntegrityError
+
         serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        self.perform_create(serializer)
+
+        # Don't use raise_exception=True so we can handle errors manually
+        is_valid = serializer.is_valid()
+
+        if not is_valid:
+            errors = serializer.errors
+
+            # Check if our custom errors are present
+            # DRF wraps dict ValidationError with each value as a list of ErrorDetail
+            error_details = errors.get('error', [])
+            if error_details:
+                error_code = str(error_details[0])
+
+                # Extract data from ErrorDetail-wrapped format
+                def extract_value(v):
+                    """Extract value from ErrorDetail or return as-is"""
+                    if hasattr(v, '__iter__') and not isinstance(v, (str, bytes, dict)):
+                        # It's a list, extract first item
+                        if len(v) > 0:
+                            item = v[0]
+                            return str(item) if hasattr(item, '__str__') else item
+                        return None
+                    elif hasattr(v, '__str__'):
+                        return str(v)
+                    return v
+
+                existing_assignment_data = errors.get('existing_assignment', {})
+                existing_assignment = {}
+                for key, val in existing_assignment_data.items():
+                    existing_assignment[key] = extract_value(val) if hasattr(val, '__iter__') and not isinstance(val, str) else str(val) if hasattr(val, '__str__') else val
+
+                if error_code == 'SUBJECT_ALREADY_ASSIGNED':
+                    response_data = {
+                        "error": "SUBJECT_ALREADY_ASSIGNED",
+                        "message": extract_value(errors.get('message', [''])),
+                        "existing_assignment": existing_assignment,
+                        "suggestion": extract_value(errors.get('suggestion', ['']))
+                    }
+                    return Response(response_data, status=status.HTTP_400_BAD_REQUEST)
+
+                elif error_code == 'DUPLICATE_ASSIGNMENT':
+                    response_data = {
+                        "error": "DUPLICATE_ASSIGNMENT",
+                        "message": extract_value(errors.get('message', [''])),
+                        "existing_assignment": existing_assignment,
+                        "suggestion": extract_value(errors.get('suggestion', ['']))
+                    }
+                    return Response(response_data, status=status.HTTP_400_BAD_REQUEST)
+
+            # Return standard validation error format
+            return Response({
+                'success': False,
+                'message': 'Validation failed',
+                'errors': errors,
+                'status': 400
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            self.perform_create(serializer)
+        except IntegrityError as e:
+            # Log the actual error for debugging
+            import logging
+            logger = logging.getLogger(__name__)
+            error_message = str(e)
+            logger.error(f"IntegrityError during teacher assignment: {error_message}")
+
+            # Check if this is due to unique constraint violation (existing primary teacher)
+            # PostgreSQL unique constraint violation contains "unique constraint" and constraint name
+            if 'unique' in error_message.lower():
+                # Get the conflicting assignment details
+                data = request.data
+                class_fk_id = data.get('class_fk')
+                section_id = data.get('section')
+                subject_id = data.get('subject')
+                term_id = data.get('term')
+
+                logger.error(f"Looking for existing assignment: class={class_fk_id}, section={section_id}, subject={subject_id}, term={term_id}")
+
+                # Fetch existing assignment - check for ANY active assignment (not just primary)
+                existing = TeacherAssignment.objects.filter(
+                    class_fk_id=class_fk_id,
+                    section_id=section_id,
+                    subject_id=subject_id,
+                    term_id=term_id,
+                    is_active=True
+                ).select_related('teacher', 'teacher__user', 'class_fk', 'section', 'subject', 'term').first()
+
+                if existing:
+                    logger.error(f"Found existing assignment: teacher={existing.teacher.user.full_name}")
+                    section_info = f" Section {existing.section.name}" if existing.section else " All Sections"
+                    return Response({
+                        "error": "SUBJECT_ALREADY_ASSIGNED",
+                        "message": f"{existing.teacher.user.full_name} is already assigned as {existing.subject.name} teacher for {existing.class_fk.grade}{section_info}.",
+                        "existing_assignment": {
+                            "id": str(existing.id),
+                            "teacher_id": str(existing.teacher.id),
+                            "teacher_name": existing.teacher.user.full_name,
+                            "class_id": str(existing.class_fk.id),
+                            "class_name": existing.class_fk.grade,
+                            "section_id": str(existing.section.id) if existing.section else None,
+                            "section_name": existing.section.name if existing.section else "All Sections",
+                            "subject_id": str(existing.subject.id),
+                            "subject_name": existing.subject.name,
+                            "term_id": str(existing.term.id) if existing.term else None,
+                            "term_name": existing.term.name if existing.term else None,
+                        },
+                        "suggestion": "Use the 'substitute_teacher' endpoint to replace the existing assignment."
+                    }, status=status.HTTP_400_BAD_REQUEST)
+                else:
+                    logger.error("No existing assignment found in database")
+
+            # Re-raise if not handled
+            raise
+
         return Response({
             'success': True,
             'message': 'Teacher assignment created successfully',
@@ -2115,8 +2232,10 @@ class TeacherAssignmentViewSet(viewsets.ModelViewSet):
 
         # Also include teacher assignments that don't have schedule slots yet
         # (for teachers who are assigned but not yet scheduled)
+        # ONLY show ACTIVE assignments - inactive/substituted ones are removed from this teacher's view
         teacher_assignments = TeacherAssignment.objects.filter(
-            teacher=teacher
+            teacher=teacher,
+            is_active=True
         ).select_related('class_fk', 'section', 'subject', 'term')
 
         for assignment in teacher_assignments:
@@ -2160,7 +2279,7 @@ class TeacherAssignmentViewSet(viewsets.ModelViewSet):
                 'teacher_id': teacher.teacher_id,
                 'name': user.full_name if user else 'N/A',
                 'email': user.email if user else 'N/A',
-                'phone': getattr(user, 'phone', None) or getattr(user, 'mobile', None) or 'N/A',
+                'phone': user.profile.phone if user and hasattr(user, 'profile') and user.profile else 'N/A',
                 'is_active': user.is_active if user else False
             },
             'summary': {
@@ -2181,6 +2300,176 @@ class TeacherAssignmentViewSet(viewsets.ModelViewSet):
             'status': 200,
             'data': teacher_data
         })
+
+    @action(detail=False, methods=['post'], url_path='substitute_teacher')
+    def substitute_teacher(self, request):
+        """
+        Substitute a teacher for an existing assignment.
+        This endpoint removes the existing teacher's assignment and creates a new one for the new teacher.
+        
+        Request body:
+        - existing_assignment_id: ID of the existing assignment to remove
+        - new_teacher_id: ID of the new teacher to assign
+        - (optional) is_primary: boolean (default: True)
+        - (optional) is_active: boolean (default: True)
+        """
+        if not self.is_administrative_user(request.user):
+            raise PermissionDenied("Only administrators can substitute teachers")
+
+        existing_assignment_id = request.data.get('existing_assignment_id')
+        new_teacher_id = request.data.get('new_teacher_id')
+        is_primary = request.data.get('is_primary', True)
+        is_active = request.data.get('is_active', True)
+
+        if not existing_assignment_id:
+            return Response({
+                'success': False,
+                'message': 'existing_assignment_id is required',
+                'status': 400
+            }, status=400)
+
+        if not new_teacher_id:
+            return Response({
+                'success': False,
+                'message': 'new_teacher_id is required',
+                'status': 400
+            }, status=400)
+
+        try:
+            # Get the existing assignment
+            existing_assignment = TeacherAssignment.objects.select_related(
+                'teacher', 'class_fk', 'section', 'subject', 'term'
+            ).get(id=existing_assignment_id)
+        except TeacherAssignment.DoesNotExist:
+            return Response({
+                'success': False,
+                'message': 'Existing assignment not found',
+                'status': 404
+            }, status=404)
+
+        try:
+            # Get the new teacher
+            new_teacher = Teacher.objects.select_related('user').get(id=new_teacher_id)
+        except Teacher.DoesNotExist:
+            return Response({
+                'success': False,
+                'message': 'New teacher not found',
+                'status': 404
+            }, status=404)
+
+        # Check if the new teacher already has an ACTIVE assignment to this class/section/subject
+        duplicate_check = TeacherAssignment.objects.filter(
+            teacher=new_teacher,
+            class_fk=existing_assignment.class_fk,
+            section=existing_assignment.section,
+            subject=existing_assignment.subject,
+            term=existing_assignment.term,
+            is_active=True
+        ).first()
+
+        if duplicate_check:
+            return Response({
+                'success': False,
+                'message': f'{new_teacher.user.full_name} is already assigned to this class/section/subject combination',
+                'status': 400
+            }, status=400)
+
+        # Check if new teacher has an INACTIVE assignment (previously substituted away)
+        # If so, we need to re-activate it instead of creating a new one (due to database unique constraint)
+        inactive_assignment = TeacherAssignment.objects.filter(
+            teacher=new_teacher,
+            class_fk=existing_assignment.class_fk,
+            section=existing_assignment.section,
+            subject=existing_assignment.subject,
+            term=existing_assignment.term,
+            is_active=False
+        ).first()
+
+        # Store info for response before deleting
+        old_teacher = existing_assignment.teacher
+        old_teacher_name = old_teacher.user.full_name if old_teacher.user else 'Unknown'
+        class_info = existing_assignment.class_fk.grade
+        section_info = existing_assignment.section.name if existing_assignment.section else 'All Sections'
+        subject_name = existing_assignment.subject.name
+        term_info = existing_assignment.term.name if existing_assignment.term else None
+
+        # Begin substitution
+        from django.db import transaction
+        try:
+            with transaction.atomic():
+                # Deactivate the existing assignment
+                existing_assignment.is_active = False
+                existing_assignment.is_primary = False
+                existing_assignment.save()
+
+                # Update old teacher's subject_specialties to remove this subject
+                if old_teacher.subject_specialties:
+                    specialties = [s.strip().lower() for s in old_teacher.subject_specialties.split(',')]
+                    subject_to_remove = subject_name.lower()
+                    if subject_to_remove in specialties:
+                        specialties.remove(subject_to_remove)
+                        old_teacher.subject_specialties = ', '.join(specialties) if specialties else ''
+                        old_teacher.save(update_fields=['subject_specialties'])
+
+                # Update new teacher's subject_specialties to add this subject
+                if new_teacher.subject_specialties:
+                    specialties = [s.strip().lower() for s in new_teacher.subject_specialties.split(',')]
+                    if subject_name.lower() not in specialties:
+                        specialties.append(subject_name.lower())
+                        new_teacher.subject_specialties = ', '.join(specialties)
+                        new_teacher.save(update_fields=['subject_specialties'])
+                else:
+                    new_teacher.subject_specialties = subject_name.lower()
+                    new_teacher.save(update_fields=['subject_specialties'])
+
+                # Either re-activate existing inactive assignment or create new one
+                if inactive_assignment:
+                    # Re-activate the existing inactive assignment
+                    inactive_assignment.is_active = True
+                    inactive_assignment.is_primary = is_primary
+                    inactive_assignment.assigned_on = timezone.now().date()
+                    inactive_assignment.save()
+                    new_assignment = inactive_assignment
+                    created_message = f"Re-activated existing assignment for {new_teacher.user.full_name}"
+                else:
+                    # Create new assignment for the new teacher
+                    new_assignment = TeacherAssignment.objects.create(
+                        teacher=new_teacher,
+                        class_fk=existing_assignment.class_fk,
+                        section=existing_assignment.section,
+                        subject=existing_assignment.subject,
+                        term=existing_assignment.term,
+                        is_primary=is_primary,
+                        is_active=is_active
+                    )
+                    created_message = f"Created new assignment for {new_teacher.user.full_name}"
+
+                serializer = self.get_serializer(new_assignment)
+
+                return Response({
+                    'success': True,
+                    'message': f'Successfully substituted {old_teacher_name} with {new_teacher.user.full_name} as {subject_name} teacher for {class_info} - {section_info}',
+                    'status': 200,
+                    'data': {
+                        'substituted_assignment': {
+                            'id': str(existing_assignment_id),
+                            'old_teacher': old_teacher_name,
+                            'is_active': False
+                        },
+                        'new_assignment': serializer.data
+                    }
+                })
+        except Exception as e:
+            import logging
+            import traceback
+            logger = logging.getLogger(__name__)
+            logger.error(f"Substitution error: {str(e)}")
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            return Response({
+                'success': False,
+                'message': f'Error during substitution: {str(e)}',
+                'status': 500
+            }, status=500)
 
 
 class PerformanceMeasurementCriteriaViewSet(viewsets.ModelViewSet):

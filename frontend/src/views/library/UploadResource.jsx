@@ -45,6 +45,12 @@ const TARGET_TYPES = [
   { value: 'classes', label: 'Specific Classes' }
 ];
 
+const TEACHER_TARGET_TYPES = [
+  { value: 'my_classes', label: 'My Classes (All Students)' },
+  { value: 'specific_class', label: 'Specific Class/Section' },
+  { value: 'specific_students', label: 'Specific Students' }
+];
+
 const UploadResourcePage = () => {
   const navigate = useNavigate();
   // Get user from Redux store
@@ -55,6 +61,16 @@ const UploadResourcePage = () => {
   const [classes, setClasses] = useState([]);
   const [students, setStudents] = useState([]);
   const [teachers, setTeachers] = useState([]);
+  // Teacher-specific states
+  const [teacherAssignments, setTeacherAssignments] = useState([]);
+  const [selectedClass, setSelectedClass] = useState('');
+  const [selectedSection, setSelectedSection] = useState('');
+  const [selectedSubject, setSelectedSubject] = useState('');
+  const [availableSections, setAvailableSections] = useState([]);
+  const [availableSubjects, setAvailableSubjects] = useState([]);
+  const [teacherStudents, setTeacherStudents] = useState([]);
+  const [isTeacher, setIsTeacher] = useState(false);
+
   const [formData, setFormData] = useState({
     title: '',
     description: '',
@@ -62,7 +78,8 @@ const UploadResourcePage = () => {
     target_type: 'all',
     target_students: [],
     target_teachers: [],
-    target_classes: []
+    target_classes: [],
+    target_subject: ''
   });
   const [file, setFile] = useState(null);
 
@@ -79,6 +96,26 @@ const UploadResourcePage = () => {
 
     return hasAdminRole || isSuperUser;
   }, [user, userRoles]);
+
+  // Check if user is teacher and set appropriate target_type
+  useEffect(() => {
+    const checkTeacher = () => {
+      if (!user) return;
+      const teacherRoles = ['teacher', 'instructor'];
+      const hasTeacherRole = userRoles.some(role => {
+        const roleName = typeof role === 'string' ? role.toLowerCase() : role.name?.toLowerCase();
+        return teacherRoles.includes(roleName);
+      });
+      const teacherStatus = hasTeacherRole || user.is_teacher;
+      setIsTeacher(teacherStatus);
+
+      // Set default target_type based on role
+      if (teacherStatus && !isAdmin) {
+        setFormData(prev => ({ ...prev, target_type: 'my_classes' }));
+      }
+    };
+    checkTeacher();
+  }, [user, userRoles, isAdmin]);
 
   // Load dropdown data for admin users
   useEffect(() => {
@@ -111,6 +148,69 @@ const UploadResourcePage = () => {
 
     loadAssignmentData();
   }, [isAdmin]);
+
+  // Load teacher assignments
+  useEffect(() => {
+    const loadTeacherAssignments = async () => {
+      if (!isTeacher) return;
+
+      try {
+        const token = await GetToken();
+        const response = await fetch(`${Backend.api}${Backend.teacherAssignmentsMaterials}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        const data = await response.json();
+        if (data.success) {
+          setTeacherAssignments(data.data?.classes || []);
+        }
+      } catch (error) {
+        console.error('Error loading teacher assignments:', error);
+      }
+    };
+
+    loadTeacherAssignments();
+  }, [isTeacher]);
+
+  // Load students when teacher selects class/section/subject
+  useEffect(() => {
+    const loadTeacherStudents = async () => {
+      if (!isTeacher || !selectedClass || !selectedSubject) return;
+
+      try {
+        const token = await GetToken();
+        let url = `${Backend.api}${Backend.teacherStudentsMaterials}?class_id=${selectedClass}&subject_id=${selectedSubject}`;
+        if (selectedSection) {
+          url += `&section_id=${selectedSection}`;
+        }
+        const response = await fetch(url, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        const data = await response.json();
+        if (data.success) {
+          setTeacherStudents(data.data || []);
+        }
+      } catch (error) {
+        console.error('Error loading teacher students:', error);
+      }
+    };
+
+    loadTeacherStudents();
+  }, [isTeacher, selectedClass, selectedSection, selectedSubject]);
+
+  // Handle class selection for teachers
+  const handleClassChange = (classId) => {
+    setSelectedClass(classId);
+    setSelectedSection('');
+    setSelectedSubject('');
+    setTeacherStudents([]);
+
+    // Find sections and subjects for this class
+    const classData = teacherAssignments.find(c => c.id === classId);
+    if (classData) {
+      setAvailableSections(classData.sections || []);
+      setAvailableSubjects(classData.subjects || []);
+    }
+  };
 
   const handleFileChange = (e) => {
     const selectedFile = e.target.files[0];
@@ -148,6 +248,40 @@ const UploadResourcePage = () => {
           formData.target_teachers.forEach(id => data.append('target_teachers', id));
         } else if (formData.target_type === 'classes') {
           formData.target_classes.forEach(id => data.append('target_classes', id));
+        }
+      } else if (isTeacher) {
+        // Teacher upload logic - MUST include subject
+        if (!selectedSubject) {
+          toast.error('Please select a subject for this resource');
+          setLoading(false);
+          return;
+        }
+
+        data.append('target_type', formData.target_type);
+        data.append('target_subject', selectedSubject);
+
+        if (formData.target_type === 'my_classes') {
+          // Send all assigned class IDs with their sections
+          teacherAssignments.forEach(c => {
+            data.append('target_classes', c.id);
+            // If section selected, send it; otherwise all sections get the resource
+            if (selectedSection) {
+              data.append('target_sections', selectedSection);
+            } else {
+              c.sections.forEach(s => data.append('target_sections', s.id));
+            }
+          });
+        } else if (formData.target_type === 'specific_class') {
+          // Send selected class and section
+          if (selectedClass) {
+            data.append('target_classes', selectedClass);
+            if (selectedSection) {
+              data.append('target_sections', selectedSection);
+            }
+          }
+        } else if (formData.target_type === 'specific_students') {
+          // Send selected students
+          formData.target_students.forEach(id => data.append('target_students', id));
         }
       }
 
@@ -194,7 +328,7 @@ const UploadResourcePage = () => {
           <IconButton onClick={() => navigate('/home')}>
             <IconArrowLeft size={24} />
           </IconButton>
-          <Typography variant="h3">Upload Digital Resource</Typography>
+          <Typography variant="h3">{isAdmin ? 'Upload Digital Resource (Admin)' : isTeacher ? 'Upload Resource for Students' : 'Upload Digital Resource'}</Typography>
         </Stack>
 
         <Divider sx={{ mb: 3 }} />
@@ -233,8 +367,8 @@ const UploadResourcePage = () => {
               ))}
             </TextField>
 
-            {/* Target Audience Selection - Only for Admins */}
-            {isAdmin && (
+            {/* Target Audience Selection - for Admins and Teachers */}
+            {(isAdmin || isTeacher) && (
               <>
                 <TextField
                   fullWidth
@@ -242,14 +376,114 @@ const UploadResourcePage = () => {
                   label="Assign To"
                   value={formData.target_type}
                   onChange={(e) => setFormData({ ...formData, target_type: e.target.value, target_students: [], target_teachers: [], target_classes: [] })}
-                  helperText="Select who should have access to this resource"
+                  helperText={isAdmin ? "Select who should have access to this resource" : "Select which students can access this resource"}
                 >
-                  {TARGET_TYPES.map((type) => (
+                  {isAdmin ? TARGET_TYPES.map((type) => (
+                    <MenuItem key={type.value} value={type.value}>
+                      {type.label}
+                    </MenuItem>
+                  )) : TEACHER_TARGET_TYPES.map((type) => (
                     <MenuItem key={type.value} value={type.value}>
                       {type.label}
                     </MenuItem>
                   ))}
                 </TextField>
+
+                {/* Teacher - All uploads require: Class → Section → Subject */}
+                {isTeacher && formData.target_type !== 'all' && teacherAssignments.length > 0 && (
+                  <>
+                    {/* Step 1: Select Class */}
+                    <TextField
+                      fullWidth
+                      select
+                      required
+                      label="Select Class *"
+                      value={selectedClass}
+                      onChange={(e) => handleClassChange(e.target.value)}
+                      helperText="First select the class"
+                      sx={{ mt: 2 }}
+                    >
+                      {teacherAssignments.map((cls) => (
+                        <MenuItem key={cls.id} value={cls.id}>
+                          Grade {cls.grade}
+                        </MenuItem>
+                      ))}
+                    </TextField>
+
+                    {/* Step 2: Select Section (Optional) */}
+                    {selectedClass && availableSections.length > 0 && (
+                      <TextField
+                        fullWidth
+                        select
+                        label="Select Section (Optional)"
+                        value={selectedSection}
+                        onChange={(e) => setSelectedSection(e.target.value)}
+                        helperText="Leave empty for all sections"
+                        sx={{ mt: 2 }}
+                      >
+                        <MenuItem value="">
+                          <em>All Sections</em>
+                        </MenuItem>
+                        {availableSections.map((section) => (
+                          <MenuItem key={section.id} value={section.id}>
+                            {section.name}
+                          </MenuItem>
+                        ))}
+                      </TextField>
+                    )}
+
+                    {/* Step 3: Select Subject (Filtered by Class/Section) */}
+                    {selectedClass && (
+                      <TextField
+                        fullWidth
+                        select
+                        required
+                        label="Select Subject *"
+                        value={selectedSubject}
+                        onChange={(e) => setSelectedSubject(e.target.value)}
+                        helperText="Select subject you teach in this class/section"
+                        sx={{ mt: 2 }}
+                      >
+                        {/* Filter subjects based on selected class and section */}
+                        {teacherAssignments
+                          .filter(c => c.id === selectedClass)
+                          .flatMap(c => c.subjects || [])
+                          .filter((s, i, arr) => arr.findIndex(t => t.id === s.id) === i)
+                          .map((subject) => (
+                            <MenuItem key={subject.id} value={subject.id}>
+                              {subject.name}
+                            </MenuItem>
+                          ))}
+                      </TextField>
+                    )}
+                  </>
+                )}
+
+                {/* Teacher - Specific Students Selection */}
+                {isTeacher && formData.target_type === 'specific_students' && selectedSubject && teacherStudents.length > 0 && (
+                  <Autocomplete
+                    multiple
+                    options={teacherStudents}
+                    getOptionLabel={(option) => `${option.name} (${option.student_id || 'No ID'})`}
+                    value={teacherStudents.filter(s => formData.target_students.includes(s.id))}
+                    onChange={(e, newValue) => setFormData({ ...formData, target_students: newValue.map(v => v.id) })}
+                    sx={{ mt: 2 }}
+                    renderInput={(params) => (
+                      <TextField {...params} label="Select Students" placeholder="Search and select students" />
+                    )}
+                    renderTags={(value, getTagProps) =>
+                      value.map((option, index) => (
+                        <Chip
+                          variant="outlined"
+                          label={option.name}
+                          size="small"
+                          {...getTagProps({ index })}
+                          key={option.id}
+                        />
+                      ))
+                    }
+                  />
+                )}
 
                 {/* Specific Students Selection */}
                 {formData.target_type === 'specific_students' && (
@@ -354,7 +588,7 @@ const UploadResourcePage = () => {
           </Stack>
         </Paper>
       </DrogaCard>
-    </PageContainer>
+    </PageContainer >
   );
 };
 
