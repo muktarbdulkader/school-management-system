@@ -1512,11 +1512,13 @@ class GroupChatMemberViewSet(viewsets.ModelViewSet):
         if self.action in ['retrieve', 'update', 'partial_update', 'destroy']:
             return self.queryset.all()
 
-        # Super admins can see all members
-        if user.is_superuser:
-            return self.queryset.all()
+        # If group_chat param is provided, always filter by that group (for all users including super admins)
         if group_id:
             return self.queryset.filter(group_chat_id=group_id)
+
+        # Super admins without group filter can see all members
+        if user.is_superuser:
+            return self.queryset.all()
 
         # Otherwise, return groups where current user is a member
         return self.queryset.filter(user=user)
