@@ -54,7 +54,7 @@ const LibraryPage = () => {
       const response = await fetch(`${Backend.api}${Backend.libraryBooks}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      
+
       if (response.ok) {
         const data = await response.json();
         if (data.success) {
@@ -79,7 +79,7 @@ const LibraryPage = () => {
       const response = await fetch(`${Backend.api}${endpoint}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      
+
       if (response.ok) {
         const data = await response.json();
         if (data.success) {
@@ -99,7 +99,7 @@ const LibraryPage = () => {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` }
       });
-      
+
       const data = await response.json();
       if (response.ok && data.success) {
         toast.success('Book returned successfully');
@@ -215,8 +215,8 @@ const LibraryPage = () => {
                       <TableCell>{book.isbn}</TableCell>
                       <TableCell>{book.category}</TableCell>
                       <TableCell>
-                        <Chip 
-                          label={book.available_copies > 0 ? `${book.available_copies} copies` : 'Out of stock'} 
+                        <Chip
+                          label={book.available_copies > 0 ? `${book.available_copies} copies` : 'Out of stock'}
                           color={book.available_copies > 0 ? 'success' : 'error'}
                           size="small"
                         />
@@ -263,12 +263,12 @@ const LibraryPage = () => {
                       <TableCell>{dayjs(borrow.borrowed_date).format('MMM DD, YYYY')}</TableCell>
                       <TableCell>{dayjs(borrow.due_date).format('MMM DD, YYYY')}</TableCell>
                       <TableCell>
-                        <Chip 
-                          label={borrow.is_overdue && borrow.status === 'borrowed' ? 'overdue' : borrow.status} 
+                        <Chip
+                          label={borrow.is_overdue && borrow.status === 'borrowed' ? 'overdue' : borrow.status}
                           color={
                             borrow.status === 'returned' ? 'default' :
-                            (borrow.status === 'overdue' || borrow.is_overdue) ? 'error' :
-                            'primary'
+                              (borrow.status === 'overdue' || borrow.is_overdue) ? 'error' :
+                                'primary'
                           }
                           size="small"
                         />
@@ -286,9 +286,9 @@ const LibraryPage = () => {
                       </TableCell>
                       <TableCell align="right">
                         {borrow.status === 'borrowed' && !isStudent && (
-                          <Button 
-                            size="small" 
-                            variant="outlined" 
+                          <Button
+                            size="small"
+                            variant="outlined"
                             onClick={() => handleReturnBook(borrow.id)}
                           >
                             Return
@@ -307,7 +307,10 @@ const LibraryPage = () => {
       <BookBorrowForm
         open={formOpen}
         onClose={() => setFormOpen(false)}
-        onSuccess={fetchBorrowings}
+        onSuccess={() => {
+          fetchBorrowings();
+          fetchBooks(); // Also refresh books to update available_copies
+        }}
         books={books}
       />
       <BookCreateForm

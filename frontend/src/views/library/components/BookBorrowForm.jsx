@@ -28,13 +28,21 @@ const BookBorrowForm = ({ open, onClose, onSuccess, books }) => {
     }
   }, [open]);
 
+  // Auto-select first student when members load
+  useEffect(() => {
+    const students = members.filter(m => m.membership_type === 'student');
+    if (students.length > 0 && !formData.borrower) {
+      setFormData(prev => ({ ...prev, borrower: students[0].id }));
+    }
+  }, [members]);
+
   const fetchMembers = async () => {
     try {
       const token = await GetToken();
       const response = await fetch(`${Backend.api}library/members/`, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      
+
       if (response.ok) {
         const data = await response.json();
         if (data.success) {
@@ -53,7 +61,7 @@ const BookBorrowForm = ({ open, onClose, onSuccess, books }) => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    
+
     if (!formData.book || !formData.due_date || !formData.borrower) {
       toast.error('Please fill in all required fields');
       return;
@@ -116,17 +124,19 @@ const BookBorrowForm = ({ open, onClose, onSuccess, books }) => {
             <TextField
               fullWidth
               select
-              label="Borrower"
+              label="Borrower Type"
               name="borrower"
               value={formData.borrower}
               onChange={handleChange}
               required
             >
-              {members.map(member => (
-                <MenuItem key={member.id} value={member.id}>
-                  {member.user?.full_name} ({member.member_id})
-                </MenuItem>
-              ))}
+              {members
+                .filter(member => member.membership_type === 'student')
+                .map((member, index) => (
+                  <MenuItem key={member.id} value={member.id}>
+                    Student {index + 1} - {member.user_name}
+                  </MenuItem>
+                ))}
             </TextField>
             <TextField
               fullWidth
