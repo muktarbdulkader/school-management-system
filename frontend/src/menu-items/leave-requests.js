@@ -8,10 +8,10 @@ export const getLeaveRequests = () => {
   if (!auth) return null;
   const normalizedAuth = auth.map((role) => role.toLowerCase());
 
-  // Show leave requests for students, teachers, and parents
-  const allowedRoles = ['student', 'teacher', 'parent'];
+  // Show leave requests for students, teachers, parents, and admins
+  const allowedRoles = ['student', 'teacher', 'parent', 'super_admin', 'superadmin', 'admin', 'staff'];
   const hasAccess = normalizedAuth.some(role => allowedRoles.includes(role));
-  
+
   if (!hasAccess) return null;
 
   const iconElement = React.createElement(IconCalendarX, {

@@ -38,7 +38,12 @@ class TeacherViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         user = self.request.user
         branch_id = self.request.query_params.get('branch_id')
+        user_id = self.request.query_params.get('user_id')
         queryset = self.queryset
+
+        # Filter by user_id if specified (for finding teacher profile)
+        if user_id:
+            return queryset.filter(user_id=user_id)
 
         # 1. Access Filtering
         if user.is_superuser:

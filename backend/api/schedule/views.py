@@ -1004,10 +1004,22 @@ class LeaveRequestViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         user = self.request.user
         branch_id = self.request.query_params.get('branch_id')
+        request_type = self.request.query_params.get('request_type')
+        teacher_id = self.request.query_params.get('teacher_id')
+
+        queryset = self.queryset
+
+        # Filter by request type if specified
+        if request_type:
+            queryset = queryset.filter(request_type=request_type)
+        
+        # Filter by teacher_id if specified (for teacher viewing their own requests)
+        if teacher_id:
+            queryset = queryset.filter(teacher_id=teacher_id)
 
         # Superusers and Staff can see all leave requests
         if user.is_superuser or user.is_staff:
-            return self.queryset.all()
+            return queryset
 
         # Check if user is a student
         try:
@@ -1015,28 +1027,55 @@ class LeaveRequestViewSet(viewsets.ModelViewSet):
             student = Student.objects.filter(user=user).first()
             if student:
                 # Students can see their own leave requests
-                return self.queryset.filter(student_id=student.id)
+                return queryset.filter(request_type='student', student_id=student.id)
         except:
             pass
+
+        # Check if user is a teacher
+        from teachers.models import Teacher, TeacherAssignment
+        from students.models import Student
+        teacher = Teacher.objects.filter(user=user).first()
+        if teacher:
+            # Teachers can see their own teacher leave requests
+            teacher_requests = queryset.filter(request_type='teacher', teacher_id=teacher.id)
+            
+            # Teachers can also see student leave requests for students in their assigned classes/subjects
+            # Get all class and section IDs this teacher is assigned to
+            teacher_assignments = TeacherAssignment.objects.filter(teacher=teacher)
+            assigned_class_ids = set()
+            assigned_section_ids = set()
+            for assignment in teacher_assignments:
+                if assignment.class_fk_id:
+                    assigned_class_ids.add(str(assignment.class_fk_id))
+                if assignment.section_id:
+                    assigned_section_ids.add(str(assignment.section_id))
+            
+            # Get students in teacher's assigned classes/sections
+            if assigned_class_ids or assigned_section_ids:
+                # Get student IDs that are in these classes/sections
+                student_query = Student.objects.all()
+                if assigned_section_ids:
+                    student_query = student_query.filter(section_id__in=assigned_section_ids)
+                student_ids = list(student_query.values_list('id', flat=True))
+                
+                if student_ids:
+                    student_requests = queryset.filter(
+                        request_type='student', 
+                        status='pending',
+                        student_id__in=student_ids
+                    )
+                    return (teacher_requests | student_requests).distinct()
+            
+            return teacher_requests
 
         # Check if user is a parent
         parent_students = ParentStudent.objects.filter(parent__user=user).values_list('student_id', flat=True)
         if parent_students.exists():
             # Parents can see their children's leave requests
-            return self.queryset.filter(student_id__in=parent_students)
-
-        # Check if user is a teacher with permission
-        if has_model_permission(user, 'attendance', 'view_attendance', branch_id):
-            # Teachers can see all leave requests in their branch
-            if branch_id:
-                return self.queryset.filter(student_id__branch_id=branch_id)
-            else:
-                accessible_branches = UserBranchAccess.objects.filter(user=user).values_list('branch_id', flat=True)
-                if accessible_branches:
-                    return self.queryset.filter(student_id__branch_id__in=accessible_branches)
+            return queryset.filter(request_type='student', student_id__in=parent_students)
 
         # If no permission found, return empty queryset
-        return self.queryset.none()
+        return queryset.none()
 
     def list(self, request, *args, **kwargs):
         queryset = self.filter_queryset(self.get_queryset())
@@ -1061,33 +1100,99 @@ class LeaveRequestViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         user = self.request.user
-        student_id = self.request.data.get('student_id')
+        request_type = self.request.data.get('request_type', 'student')
+        date = self.request.data.get('date')
+        subject_id = self.request.data.get('subject_id')
+        
+        # Check for duplicate leave requests
+        if request_type == 'student':
+            student_id = self.request.data.get('student_id')
+            existing = LeaveRequest.objects.filter(
+                request_type='student',
+                student_id=student_id,
+                date=date,
+                status__in=['pending', 'approved']
+            )
+            if subject_id:
+                existing = existing.filter(subject_id=subject_id)
+            if existing.exists():
+                raise PermissionDenied("A leave request already exists for this date/subject.")
+        elif request_type == 'teacher':
+            teacher_id = self.request.data.get('teacher_id')
+            existing = LeaveRequest.objects.filter(
+                request_type='teacher',
+                teacher_id=teacher_id,
+                date=date,
+                status__in=['pending', 'approved']
+            )
+            if subject_id:
+                existing = existing.filter(subject_id=subject_id)
+            if existing.exists():
+                raise PermissionDenied("A leave request already exists for this date/subject.")
 
-        # Only students can create their own leave requests
-        try:
-            from students.models import Student
-            student = Student.objects.filter(user=user).first()
-            if student and str(student.id) == str(student_id):
-                # Student creating their own leave request
-                serializer.save(requested_by=user)
+        # Handle student leave requests
+        if request_type == 'student':
+            # Only students can create their own leave requests
+            student_id = self.request.data.get('student_id')
+            print(f"[DEBUG] Student leave request - user: {user}, student_id from payload: {student_id}")
+            try:
+                from students.models import Student
+                student = Student.objects.filter(user=user).first()
+                print(f"[DEBUG] Found student: {student}, student.id: {student.id if student else None}")
+                if student and str(student.id) == str(student_id):
+                    # Student creating their own leave request
+                    print(f"[DEBUG] Student ID match! Creating leave request.")
+                    # Pass student object to serializer (it expects 'student' due to source='student')
+                    serializer.save(requested_by=user, request_type='student', student=student)
+                    return
+                else:
+                    print(f"[DEBUG] Student ID mismatch! student.id: {student.id if student else None}, student_id: {student_id}")
+            except Exception as e:
+                print(f"[DEBUG] Exception in student check: {e}")
+                import traceback
+                traceback.print_exc()
+                pass
+
+            # Check branch permission for admin users
+            branch_id = self.request.data.get('branch_id')
+            if user.is_staff or user.is_superuser:
+                from students.models import Student
+                admin_student = Student.objects.filter(id=student_id).first()
+                serializer.save(requested_by=user, request_type='student', student=admin_student)
                 return
-        except:
-            pass
 
-        # Parents cannot create leave requests - removed this functionality
-        # Only admins/staff with proper permissions can create on behalf of students
+            if branch_id and has_model_permission(user, 'attendance', 'add_attendance', branch_id):
+                from students.models import Student
+                admin_student = Student.objects.filter(id=student_id).first()
+                serializer.save(requested_by=user, request_type='student', student=admin_student)
+                return
 
-        # Check branch permission for admin users
-        branch_id = self.request.data.get('branch_id')
-        if user.is_staff or user.is_superuser:
-            serializer.save(requested_by=user)
-            return
+            raise PermissionDenied("Only students can create their own leave requests.")
 
-        if branch_id and has_model_permission(user, 'attendance', 'add_attendance', branch_id):
-            serializer.save(requested_by=user)
-            return
+        # Handle teacher leave requests
+        elif request_type == 'teacher':
+            # Only teachers can create their own leave requests
+            teacher_id = self.request.data.get('teacher_id')
+            from teachers.models import Teacher
+            teacher = Teacher.objects.filter(user=user).first()
+            if teacher and str(teacher.id) == str(teacher_id):
+                # Teacher creating their own leave request
+                serializer.save(requested_by=user, request_type='teacher', teacher=teacher)
+                return
 
-        raise PermissionDenied("Only students can create their own leave requests. Parents cannot submit leave requests.")
+            # Check if user is superuser or has admin permissions
+            if user.is_staff or user.is_superuser:
+                # Admin creating on behalf of a teacher
+                teacher = Teacher.objects.filter(id=teacher_id).first()
+                if teacher:
+                    serializer.save(requested_by=user, request_type='teacher', teacher=teacher)
+                    return
+                raise PermissionDenied("Invalid teacher ID.")
+
+            raise PermissionDenied("Teachers can only create leave requests for themselves.")
+
+        else:
+            raise PermissionDenied("Invalid request type. Must be 'student' or 'teacher'.")
 
     def retrieve(self, request, *args, **kwargs):
         instance = self.get_object()
@@ -1145,8 +1250,28 @@ class LeaveRequestViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'], url_path='cancel_leave_request')
     def cancel_leave_request(self, request, pk=None):
         leave_request = self.get_object()
-        if leave_request.requested_by != self.request.user:
-            raise PermissionDenied("You can only cancel your own leave requests.")
+        user = self.request.user
+        
+        # Check if user can cancel this request
+        can_cancel = False
+        
+        # 1. User who created the request can cancel
+        if leave_request.requested_by == user:
+            can_cancel = True
+        
+        # 2. Parents can cancel their children's requests
+        if not can_cancel and leave_request.request_type == 'student' and leave_request.student:
+            from students.models import ParentStudent
+            if ParentStudent.objects.filter(parent__user=user, student=leave_request.student).exists():
+                can_cancel = True
+        
+        # 3. Staff/superusers can cancel any request
+        if not can_cancel and (user.is_staff or user.is_superuser):
+            can_cancel = True
+        
+        if not can_cancel:
+            raise PermissionDenied("You can only cancel your own leave requests or your children's requests.")
+        
         if leave_request.status != 'pending':
             return Response({
                 'success': False,
@@ -1205,25 +1330,57 @@ class LeaveRequestViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['get'], url_path='pending_leaves')
     def pending_leaves(self, request):
-        """Endpoint for teachers to view all pending leave requests"""
+        """Endpoint for teachers to view all pending student leave requests"""
         user = self.request.user
         branch_id = self.request.query_params.get('branch_id')
 
+        # Check if user is a teacher
+        from teachers.models import Teacher
+        is_teacher = Teacher.objects.filter(user=user).exists()
+
         # Check if user has permission to view leave requests
-        if not user.is_superuser and not user.is_staff and not has_model_permission(user, 'attendance', 'view_attendance', branch_id):
+        # Allow: superusers, staff, teachers, or users with view_attendance permission
+        has_permission = (
+            user.is_superuser or 
+            user.is_staff or 
+            is_teacher or
+            has_model_permission(user, 'attendance', 'view_attendance', branch_id)
+        )
+        
+        if not has_permission:
             raise PermissionDenied("You do not have permission to view pending leave requests.")
 
-        # Get pending leave requests
-        if user.is_superuser:
-            queryset = self.queryset.filter(status='pending')
+        # Get pending student leave requests only (for teachers to approve)
+        if user.is_superuser or user.is_staff:
+            queryset = self.queryset.filter(status='pending', request_type='student')
         elif branch_id:
-            queryset = self.queryset.filter(status='pending', student_id__branch_id=branch_id)
+            queryset = self.queryset.filter(status='pending', request_type='student', student_id__branch_id=branch_id)
         else:
             accessible_branches = UserBranchAccess.objects.filter(user=user).values_list('branch_id', flat=True)
             if accessible_branches:
-                queryset = self.queryset.filter(status='pending', student_id__branch_id__in=accessible_branches)
+                queryset = self.queryset.filter(status='pending', request_type='student', student_id__branch_id__in=accessible_branches)
             else:
                 queryset = self.queryset.none()
+
+        serializer = self.get_serializer(queryset, many=True)
+        return Response({
+            'success': True,
+            'message': 'OK',
+            'status': 200,
+            'data': serializer.data
+        })
+
+    @action(detail=False, methods=['get'], url_path='pending_teacher_leaves')
+    def pending_teacher_leaves(self, request):
+        """Endpoint for super admins to view all pending teacher leave requests"""
+        user = self.request.user
+
+        # Only superusers and staff can view pending teacher leave requests
+        if not user.is_superuser and not user.is_staff:
+            raise PermissionDenied("Only super admins can view pending teacher leave requests.")
+
+        # Get pending teacher leave requests
+        queryset = self.queryset.filter(status='pending', request_type='teacher')
 
         serializer = self.get_serializer(queryset, many=True)
         return Response({
@@ -1253,11 +1410,29 @@ class LeaveRequestViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'], url_path='reject_leave')
     def reject_leave(self, request, pk=None):
-        """Endpoint for teachers to reject leave requests"""
+        """Endpoint to reject leave requests"""
         leave_request = self.get_object()
         user = self.request.user
-        if not user.is_superuser and not user.is_staff and not has_model_permission(user, 'attendance', 'change_attendance'):
-            raise PermissionDenied("Only teachers can reject leave requests.")
+
+        # Check permissions based on request type
+        if leave_request.request_type == 'teacher':
+            # Only superusers/staff can approve/reject teacher leave requests
+            if not user.is_superuser and not user.is_staff:
+                raise PermissionDenied("Only super admins can reject teacher leave requests.")
+        else:
+            # For student leave requests:
+            # 1. Superusers/staff can reject any request
+            # 2. Teachers can reject if assigned to the student's class/subject
+            can_reject = False
+            if user.is_superuser or user.is_staff:
+                can_reject = True
+            elif self.can_teacher_approve_student_request(user, leave_request):
+                can_reject = True
+            elif has_model_permission(user, 'attendance', 'change_attendance'):
+                can_reject = True
+            
+            if not can_reject:
+                raise PermissionDenied("You can only reject leave requests for students in your assigned classes/subjects.")
 
         if leave_request.status != 'pending':
             return Response({
@@ -1277,12 +1452,78 @@ class LeaveRequestViewSet(viewsets.ModelViewSet):
             'status': 200,
             'data': serializer.data
         })
+    def can_teacher_approve_student_request(self, user, leave_request):
+        """Check if teacher can approve/reject this student leave request based on assignments"""
+        from teachers.models import Teacher, TeacherAssignment
+        from students.models import Student
+        
+        teacher = Teacher.objects.filter(user=user).first()
+        if not teacher:
+            return False
+        
+        student = leave_request.student
+        if not student:
+            return False
+        
+        # Get student's class and section
+        student_class_id = None
+        student_section_id = None
+        if hasattr(student, 'section') and student.section:
+            student_section_id = student.section.id if hasattr(student.section, 'id') else student.section
+            # Get class from section
+            if hasattr(student.section, 'class_details') and student.section.class_details:
+                student_class_id = student.section.class_details.id
+        
+        # Check if teacher has assignment for this class and subject
+        subject_id = leave_request.subject_id if leave_request.subject else None
+        
+        # Check 1: Teacher assignment for this class
+        class_assignment = TeacherAssignment.objects.filter(
+            teacher=teacher,
+            class_fk_id=student_class_id
+        ).exists()
+        
+        # Check 2: Teacher assignment for this specific subject (if subject specified)
+        if subject_id and class_assignment:
+            subject_assignment = TeacherAssignment.objects.filter(
+                teacher=teacher,
+                class_fk_id=student_class_id,
+                subject_id=subject_id
+            ).exists()
+            return subject_assignment
+        
+        # Check 3: Teacher is assigned to the student's section
+        section_assignment = TeacherAssignment.objects.filter(
+            teacher=teacher,
+            section_id=student_section_id
+        ).exists()
+        
+        return class_assignment or section_assignment
+
     @action(detail=True, methods=['patch'], url_path='approve_leave')
     def approve_leave(self, request, pk=None):
         leave_request = self.get_object()
         user = self.request.user
-        if not user.is_superuser and not user.is_staff and not has_model_permission(user, 'attendance', 'change_attendance'):
-            raise PermissionDenied("Only teachers can approve leave requests.")
+
+        # Check permissions based on request type
+        if leave_request.request_type == 'teacher':
+            # Only superusers/staff can approve/reject teacher leave requests
+            if not user.is_superuser and not user.is_staff:
+                raise PermissionDenied("Only super admins can approve teacher leave requests.")
+        else:
+            # For student leave requests:
+            # 1. Superusers/staff can approve any request
+            # 2. Teachers can approve if assigned to the student's class/subject
+            can_approve = False
+            if user.is_superuser or user.is_staff:
+                can_approve = True
+            elif self.can_teacher_approve_student_request(user, leave_request):
+                can_approve = True
+            elif has_model_permission(user, 'attendance', 'change_attendance'):
+                can_approve = True
+            
+            if not can_approve:
+                raise PermissionDenied("You can only approve leave requests for students in your assigned classes/subjects.")
 
         if leave_request.status != 'pending':
             return Response({
@@ -1305,12 +1546,19 @@ class LeaveRequestViewSet(viewsets.ModelViewSet):
         leave_request.save()
 
         # Optionally update related Attendance if it exists (future integration)
-        if new_status == 'approved':
+        if new_status == 'approved' and leave_request.request_type == 'student' and leave_request.student_id:
             try:
-                attendance = Attendance.objects.get(student_id=leave_request.student_id, date=leave_request.date, subject_id=leave_request.subject_id)
-                attendance.status = 'Excused'
-                attendance.save()
-            except Attendance.DoesNotExist:
+                attendance = Attendance.objects.filter(
+                    student_id=leave_request.student_id,
+                    date=leave_request.date
+                )
+                if leave_request.subject_id:
+                    attendance = attendance.filter(teacher_assignment__subject_id=leave_request.subject_id)
+                attendance = attendance.first()
+                if attendance:
+                    attendance.status = 'Excused'
+                    attendance.save()
+            except Exception:
                 pass  # Attendance not yet created, will be handled when taken
 
         serializer = self.get_serializer(leave_request)

@@ -301,29 +301,63 @@ class AttendanceSerializer(serializers.ModelSerializer):
         return data
 
 class LeaveRequestSerializer(serializers.ModelSerializer):
-    student_id = serializers.PrimaryKeyRelatedField(queryset=Student.objects.all(), write_only=True)
-    student_details = StudentSerializer(source='student_id', read_only=True)
-    subject_id = serializers.PrimaryKeyRelatedField(queryset=Subject.objects.all(), write_only=True, required=False)
-    subject = SubjectSerializer(source='subject_id', read_only=True)
+    student_id = serializers.PrimaryKeyRelatedField(queryset=Student.objects.all(), source='student', write_only=True, required=False, allow_null=True)
+    student_details = StudentSerializer(source='student', read_only=True)
+    teacher_id = serializers.PrimaryKeyRelatedField(queryset=Teacher.objects.all(), source='teacher', write_only=True, required=False, allow_null=True)
+    teacher_details = TeacherSerializer(source='teacher', read_only=True)
+    subject_id = serializers.PrimaryKeyRelatedField(queryset=Subject.objects.all(), source='subject', write_only=True, required=False, allow_null=True)
+    subject = SubjectSerializer(read_only=True)
     requested_by = serializers.PrimaryKeyRelatedField(
         queryset=User.objects.all(),
-        write_only=True
+        write_only=True,
+        required=False
     )
-    requester_details = UserSerializer(source = "requested_by", read_only=True)
+    requester_details = UserSerializer(source="requested_by", read_only=True)
 
     class Meta:
         model = LeaveRequest
-        fields = ['id', 'student_id', 'student_details', 'subject_id', 'subject', 'date', 'reason', 'status', 'created_at', 'updated_at', 'requested_by', 'requester_details']
-        read_only_fields = ['id', 'student_details', 'subject', 'status', 'created_at', 'updated_at']
+        fields = ['id', 'request_type', 'student_id', 'student_details', 'teacher_id', 'teacher_details',
+                  'subject_id', 'subject', 'date', 'reason', 'status', 'created_at', 'updated_at',
+                  'requested_by', 'requester_details']
+        read_only_fields = ['id', 'student_details', 'teacher_details', 'subject', 'status', 'created_at', 'updated_at']
 
     def validate(self, data):
         request_user = self.context['request'].user
-        if data['requested_by'] != request_user:
-            raise serializers.ValidationError("Only the requesting parent can submit a leave request.")
-        if not ParentStudent.objects.filter(parent__user=request_user, student_id=data['student_id']).exists():
-            raise serializers.ValidationError("You are not authorized to submit a leave request for this student.")
-        if data['date'] < timezone.now().date():
+        request_type = data.get('request_type', 'student')
+
+        # Validate request type specific fields
+        if request_type == 'student':
+            student = data.get('student')  # Changed from student_id to student due to source='student'
+            if not student:
+                raise serializers.ValidationError("Student ID is required for student leave requests.")
+            # Check if user is the student themselves or a parent of the student
+            from students.models import Student
+            student_obj = Student.objects.filter(user=request_user).first()
+            if student_obj and str(student_obj.id) == str(student.id if hasattr(student, 'id') else student):
+                pass  # Student creating their own leave request
+            elif not ParentStudent.objects.filter(parent__user=request_user, student=student).exists():
+                # Allow if user is staff/superuser
+                if not (request_user.is_staff or request_user.is_superuser):
+                    raise serializers.ValidationError("You are not authorized to submit a leave request for this student.")
+        elif request_type == 'teacher':
+            teacher = data.get('teacher')  # Changed from teacher_id to teacher due to source='teacher'
+            if not teacher:
+                raise serializers.ValidationError("Teacher ID is required for teacher leave requests.")
+            # Check if the requesting user is the teacher themselves
+            from teachers.models import Teacher
+            teacher_obj = Teacher.objects.filter(user=request_user).first()
+            if teacher_obj and str(teacher_obj.id) == str(teacher.id if hasattr(teacher, 'id') else teacher):
+                pass  # Teacher creating their own leave request
+            elif not (request_user.is_staff or request_user.is_superuser):
+                raise serializers.ValidationError("You can only submit leave requests for yourself.")
+        else:
+            raise serializers.ValidationError("Invalid request type. Must be 'student' or 'teacher'.")
+
+        # Validate date is not in the past
+        date = data.get('date')
+        if date and date < timezone.now().date():
             raise serializers.ValidationError("Leave request date cannot be in the past.")
+
         return data
 
 class ExamsSerializer(serializers.ModelSerializer):

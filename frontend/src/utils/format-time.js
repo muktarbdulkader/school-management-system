@@ -101,5 +101,50 @@ function fToNow(date) {
   return isValid ? dayjs(date).toNow(true) : 'Invalid time value';
 }
 
+// ----------------------------------------------------------------------
+
+/** Format time string from API (e.g., "16:11:00") to readable format (e.g., "4:11 PM")
+ * @param {string} timeStr - Time string in HH:MM:SS format
+ * @param {boolean} use24Hour - Use 24-hour format (default: false for 12-hour with AM/PM)
+ * @returns {string} Formatted time string
+ */
+function formatTimeString(timeStr, use24Hour = false) {
+  if (!timeStr) return '';
+
+  // Handle HH:MM:SS format from API
+  const parts = timeStr.split(':');
+  if (parts.length < 2) return timeStr;
+
+  let hours = parseInt(parts[0], 10);
+  const minutes = parts[1];
+
+  if (use24Hour) {
+    // Return as HH:MM (24-hour format, no seconds)
+    return `${String(hours).padStart(2, '0')}:${minutes}`;
+  }
+
+  // Convert to 12-hour format with AM/PM
+  const period = hours >= 12 ? 'PM' : 'AM';
+  hours = hours % 12;
+  hours = hours === 0 ? 12 : hours; // 0 should be 12
+
+  return `${hours}:${minutes} ${period}`;
+}
+
+/** Format time range from API (e.g., "16:11:00", "16:27:00") to readable range (e.g., "4:11 PM - 4:27 PM")
+ * @param {string} startTime - Start time string in HH:MM:SS format
+ * @param {string} endTime - End time string in HH:MM:SS format
+ * @param {boolean} use24Hour - Use 24-hour format (default: false for 12-hour with AM/PM)
+ * @returns {string} Formatted time range string
+ */
+function formatTimeRange(startTime, endTime, use24Hour = false) {
+  const formattedStart = formatTimeString(startTime, use24Hour);
+  const formattedEnd = formatTimeString(endTime, use24Hour);
+
+  if (!formattedStart || !formattedEnd) return '';
+
+  return `${formattedStart} - ${formattedEnd}`;
+}
+
 // Export all functions
-export { formatStr, today, fDateTime, fDate, fTime, fTimestamp, fToNow };
+export { formatStr, today, fDateTime, fDate, fTime, fTimestamp, fToNow, formatTimeString, formatTimeRange };

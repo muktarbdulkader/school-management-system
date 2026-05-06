@@ -28,14 +28,6 @@ const BookBorrowForm = ({ open, onClose, onSuccess, books }) => {
     }
   }, [open]);
 
-  // Auto-select first student when members load
-  useEffect(() => {
-    const students = members.filter(m => m.membership_type === 'student');
-    if (students.length > 0 && !formData.borrower) {
-      setFormData(prev => ({ ...prev, borrower: students[0].id }));
-    }
-  }, [members]);
-
   const fetchMembers = async () => {
     try {
       const token = await GetToken();
@@ -130,13 +122,24 @@ const BookBorrowForm = ({ open, onClose, onSuccess, books }) => {
               onChange={handleChange}
               required
             >
-              {members
-                .filter(member => member.membership_type === 'student')
-                .map((member, index) => (
-                  <MenuItem key={member.id} value={member.id}>
-                    Student {index + 1} - {member.user_name}
-                  </MenuItem>
-                ))}
+              <MenuItem value="">
+                <em>Select borrower type...</em>
+              </MenuItem>
+              {members.filter(m => m.membership_type === 'student').length > 0 && (
+                <MenuItem value={members.find(m => m.membership_type === 'student')?.id}>
+                  Student
+                </MenuItem>
+              )}
+              {members.filter(m => m.membership_type === 'teacher').length > 0 && (
+                <MenuItem value={members.find(m => m.membership_type === 'teacher')?.id}>
+                  Teacher
+                </MenuItem>
+              )}
+              {members.filter(m => m.membership_type === 'staff').length > 0 && (
+                <MenuItem value={members.find(m => m.membership_type === 'staff')?.id}>
+                  Staff
+                </MenuItem>
+              )}
             </TextField>
             <TextField
               fullWidth

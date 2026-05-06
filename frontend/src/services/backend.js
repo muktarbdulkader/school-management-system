@@ -268,6 +268,7 @@ const Backend = {
   leaveRequestApprove: 'leave_requests/{id}/approve_leave/',
   leaveRequestReject: 'leave_requests/{id}/reject_leave/',
   PendingLeavesRequests: 'leave_requests/pending_leaves/',
+  PendingTeacherLeavesRequests: 'leave_requests/pending_teacher_leaves/',
   studentLeavesHistory: 'leave_requests/student_leaves/{student_id}/',
 
   // Legacy/Unused endpoints (kept for backward compatibility - may need cleanup)

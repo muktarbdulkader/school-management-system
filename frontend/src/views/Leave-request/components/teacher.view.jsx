@@ -43,7 +43,8 @@ import GetToken from 'utils/auth-token';
  * Props:
  * - baseUrl: string (optional)
  */
-export default function TeacherPendingLeaves() {;
+export default function TeacherPendingLeaves() {
+  ;
 
   const [pending, setPending] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -76,7 +77,12 @@ export default function TeacherPendingLeaves() {;
       const data = Array.isArray(res.data.data) ? res.data.data : res.data?.results || [];
       setPending(data);
     } catch (err) {
-      setError(err?.response?.data || err.message || 'Failed to load pending leaves');
+      const errorMessage = err?.response?.data?.detail
+        || err?.response?.data?.message
+        || err?.response?.data
+        || err.message
+        || 'Failed to load pending leaves';
+      setError(typeof errorMessage === 'string' ? errorMessage : JSON.stringify(errorMessage));
     } finally {
       setLoading(false);
     }
@@ -97,10 +103,15 @@ export default function TeacherPendingLeaves() {;
     setActionLoading(true);
     try {
       const token = await GetToken();
-      const url = `${Backend.api}${Backend.leaveRequests}${id}/${type === 'approve' ? 'approve_leave' : 'reject_leave'}/`;
       const headers = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
       const body = { status: type === 'approve' ? 'approved' : 'rejected' };
-      await axios.post(url, body, { headers });
+      if (type === 'approve') {
+        const url = `${Backend.api}leave_requests/${id}/approve_leave/`;
+        await axios.patch(url, body, { headers });
+      } else {
+        const url = `${Backend.api}leave_requests/${id}/reject_leave/`;
+        await axios.post(url, body, { headers });
+      }
       setSnack({ open: true, severity: 'success', message: `Request ${type === 'approve' ? 'approved' : 'rejected'}` });
       // remove from list locally
       setPending((prev) => prev.filter((p) => (p.id || p.leave_request_id) !== id));

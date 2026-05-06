@@ -214,18 +214,39 @@ class Attendance(models.Model):
         return f"{self.student.user.full_name} - {subject_name} on {self.date} - {self.status}"
 
 class LeaveRequest(models.Model):
+    REQUEST_TYPE_CHOICES = (
+        ('student', 'Student'),
+        ('teacher', 'Teacher'),
+    )
+
+    STATUS_CHOICES = (
+        ('pending', 'Pending'),
+        ('approved', 'Approved'),
+        ('rejected', 'Rejected'),
+        ('canceled', 'Canceled'),
+    )
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    student = models.ForeignKey('students.Student', on_delete=models.CASCADE)
+    request_type = models.CharField(max_length=10, choices=REQUEST_TYPE_CHOICES, default='student')
+    student = models.ForeignKey('students.Student', on_delete=models.CASCADE, null=True, blank=True)
+    teacher = models.ForeignKey('teachers.Teacher', on_delete=models.CASCADE, null=True, blank=True)
     requested_by = models.ForeignKey('users.User', on_delete=models.SET_NULL, null=True, related_name='leave_requests_made')
     subject = models.ForeignKey('academics.Subject', on_delete=models.SET_NULL, null=True, blank=True)
     date = models.DateField()
     reason = models.TextField()
-    status = models.CharField(max_length=10, choices=(('pending', 'Pending'), ('approved', 'Approved'), ('rejected', 'Rejected')), default='pending')
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='pending')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    class Meta:
+        db_table = 'leave_requests'
+
     def __str__(self):
-        return f"Leave request for {self.student.user.full_name} on {self.date}"
+        if self.request_type == 'teacher' and self.teacher:
+            return f"Leave request for teacher {self.teacher.user.full_name} on {self.date}"
+        elif self.student:
+            return f"Leave request for student {self.student.user.full_name} on {self.date}"
+        return f"Leave request on {self.date}"
 
 class Exam(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)

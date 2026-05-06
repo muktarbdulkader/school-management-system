@@ -23,6 +23,8 @@ import {
 } from '@mui/material';
 import CancelOutlinedIcon from '@mui/icons-material/CancelOutlined';
 import RefreshIcon from '@mui/icons-material/Refresh';
+import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
+import BlockIcon from '@mui/icons-material/Block';
 import axios from 'axios';
 import dayjs from 'dayjs';
 import { useSelector } from 'react-redux';
@@ -34,23 +36,39 @@ import toast from 'react-hot-toast';
 /**
  * LeaveRequestList
  *
- * Parent-facing list of leave requests. Allows creating a new request (opens LeaveRequestForm)
+ * List of leave requests for students, parents, and teachers.
+ * Allows creating a new request (opens LeaveRequestForm)
  * and cancelling pending leave requests.
  *
  * Props:
  * - baseUrl: string (optional) - API base URL
+ * - requestType: 'student' | 'teacher' - type of leave requests to show
+ * - showPendingApprovals: boolean - if true, show pending requests with approve/reject buttons
  */
-export default function LeaveRequestList() {
+export default function LeaveRequestList({ requestType: propRequestType, showPendingApprovals }) {
+  // Debug: log props
+  console.log('LeaveRequestList props:', { requestType: propRequestType, showPendingApprovals });
+
   const studentId = useSelector((state) => state.student?.studentData?.student_details?.id);
   const userId = useSelector((state) => state.user?.user?.id);
   const userRoles = useSelector((state) => state.user?.user?.roles);
-  
-  // Check if current user is a student or parent
-  const normalizedRoles = userRoles?.map((role) => 
+  const userTeacherData = useSelector((state) => state.user?.user?.teacher || state.user?.user?.teacher_profiles);
+  const fullUserData = useSelector((state) => state.user?.user);
+
+  // Check user roles
+  const normalizedRoles = userRoles?.map((role) =>
     typeof role === 'string' ? role.toLowerCase() : role.name?.toLowerCase()
   ) || [];
   const isStudent = normalizedRoles.includes('student');
   const isParent = normalizedRoles.includes('parent');
+  const isTeacher = normalizedRoles.includes('teacher');
+
+  // Determine request type
+  const effectiveRequestType = propRequestType || (isTeacher ? 'teacher' : 'student');
+  console.log('LeaveRequestList computed:', { propRequestType, isTeacher, effectiveRequestType, showPendingApprovals });
+
+  // For teachers, use their own teacher ID - try multiple paths
+  const effectiveTeacherId = userTeacherData?.id || userTeacherData?.teacher_id || fullUserData?.teacher_id || fullUserData?.teacher?.id;
 
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -80,29 +98,40 @@ export default function LeaveRequestList() {
         Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
       };
-      const url = `${Backend.api}${Backend.leaveRequests}`;
+      // Add request_type filter to get only relevant requests
+      let url = `${Backend.api}${Backend.leaveRequests}?request_type=${effectiveRequestType}`;
+      // For teachers, also filter by their teacher_id
+      if (effectiveRequestType === 'teacher' && effectiveTeacherId) {
+        url += `&teacher_id=${effectiveTeacherId}`;
+      }
       const res = await axios.get(url, { headers: header });
-      
+
       // Handle response data structure
       const data = res.data?.data || res.data?.results || (Array.isArray(res.data) ? res.data : []);
-      
-      // For students, backend returns only their requests
-      // For parents, filter by selected student
+
+      // For student requests, filter by selected student if parent
       let filtered = data;
-      if (!isStudent && studentId) {
+      if (effectiveRequestType === 'student' && !isStudent && studentId) {
         filtered = data.filter((r) => {
           const reqStudentId = r?.student_id || r?.student_details?.id || r?.student?.id;
           return reqStudentId === studentId;
         });
       }
-      
+      // For teacher requests, filter by current teacher
+      if (effectiveRequestType === 'teacher' && isTeacher && effectiveTeacherId) {
+        filtered = data.filter((r) => {
+          const reqTeacherId = r?.teacher_id || r?.teacher_details?.id || r?.teacher?.id;
+          return reqTeacherId === effectiveTeacherId;
+        });
+      }
+
       setRequests(filtered);
       toast.success('Leave requests loaded');
     } catch (err) {
-      const errorMessage = err?.response?.data?.message 
+      const errorMessage = err?.response?.data?.message
         || err?.response?.data?.error
         || (typeof err?.response?.data === 'string' ? err?.response?.data : null)
-        || err.message 
+        || err.message
         || 'Failed to load leave requests';
       setError(errorMessage);
       toast.error(errorMessage);
@@ -111,7 +140,10 @@ export default function LeaveRequestList() {
     }
   };
 
-  const handleOpenForm = () => setOpenForm(true);
+  const handleOpenForm = () => {
+    console.log('Opening form with effectiveRequestType:', effectiveRequestType, 'isTeacher:', isTeacher);
+    setOpenForm(true);
+  };
   const handleCloseForm = () => setOpenForm(false);
 
   const handleCreateSuccess = (newRequest) => {
@@ -142,7 +174,7 @@ export default function LeaveRequestList() {
         Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
       };
-      const url = `${Backend.api}${Backend.leaveRequests}${selectedCancelId}/${Backend.leaveRequestCancel}`;
+      const url = `${Backend.api}${Backend.leaveRequestCancel.replace('{id}', selectedCancelId)}`;
       await axios.post(url, {}, { headers: header });
       setSnack({
         open: true,
@@ -153,10 +185,10 @@ export default function LeaveRequestList() {
       fetchRequests();
       toast.success('Leave request cancelled');
     } catch (err) {
-      const errorMessage = err?.response?.data?.message 
+      const errorMessage = err?.response?.data?.message
         || err?.response?.data?.error
         || (typeof err?.response?.data === 'string' ? err?.response?.data : null)
-        || err.message 
+        || err.message
         || 'Failed to cancel';
       setSnack({
         open: true,
@@ -164,6 +196,39 @@ export default function LeaveRequestList() {
         message: errorMessage,
       });
       closeCancelConfirm();
+      toast.error(errorMessage);
+    }
+  };
+
+  const handleApprove = async (requestId, status) => {
+    console.log('handleApprove called:', { requestId, status });
+    try {
+      const token = await GetToken();
+      const header = {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      };
+      const url = `${Backend.api}leave_requests/${requestId}/approve_leave/`;
+      console.log('Approve URL:', url);
+      await axios.patch(url, { status }, { headers: header });
+      setSnack({
+        open: true,
+        severity: 'success',
+        message: `Leave request ${status} successfully`,
+      });
+      fetchRequests();
+      toast.success(`Leave request ${status} successfully`);
+    } catch (err) {
+      const errorMessage = err?.response?.data?.message
+        || err?.response?.data?.error
+        || (typeof err?.response?.data === 'string' ? err?.response?.data : null)
+        || err.message
+        || `Failed to ${status}`;
+      setSnack({
+        open: true,
+        severity: 'error',
+        message: errorMessage,
+      });
       toast.error(errorMessage);
     }
   };
@@ -183,6 +248,11 @@ export default function LeaveRequestList() {
 
   return (
     <Box sx={{ width: '100%' }}>
+      {/* Debug indicator */}
+      <Typography variant="caption" color="text.secondary" sx={{ mb: 1, display: 'block', fontStyle: 'italic' }}>
+        List Mode: {effectiveRequestType} | Prop: {propRequestType || 'none'} | isTeacher: {isTeacher ? 'Yes' : 'No'} | TeacherId: {effectiveTeacherId || 'none'}
+      </Typography>
+
       <Stack
         direction="row"
         spacing={2}
@@ -190,7 +260,9 @@ export default function LeaveRequestList() {
         justifyContent="space-between"
         sx={{ mb: 2 }}
       >
-        <Typography variant="h6">My Leave Requests</Typography>
+        <Typography variant="h6">
+          {effectiveRequestType === 'teacher' ? 'My Teacher Leave Requests' : 'My Leave Requests'}
+        </Typography>
         <Stack direction="row" spacing={1}>
           <Button
             startIcon={<RefreshIcon />}
@@ -199,8 +271,8 @@ export default function LeaveRequestList() {
           >
             Refresh
           </Button>
-          {/* Only students can create leave requests, not parents */}
-          {isStudent && (
+          {/* Students and teachers can create leave requests */}
+          {(isStudent || isTeacher) && (
             <Button variant="contained" onClick={handleOpenForm}>
               New Leave Request
             </Button>
@@ -223,12 +295,14 @@ export default function LeaveRequestList() {
         ) : requests.length === 0 ? (
           <Box sx={{ p: 4, textAlign: 'center' }}>
             <Typography>
-              {isParent 
-                ? 'No leave requests yet for the selected student.' 
-                : 'No leave requests yet.'}
+              {isParent
+                ? 'No leave requests yet for the selected student.'
+                : effectiveRequestType === 'teacher'
+                  ? 'No teacher leave requests yet.'
+                  : 'No leave requests yet.'}
             </Typography>
-            {/* Only students can create leave requests */}
-            {isStudent && (
+            {/* Students and teachers can create leave requests */}
+            {(isStudent || isTeacher) && (
               <Button variant="outlined" sx={{ mt: 2 }} onClick={handleOpenForm}>
                 Create one
               </Button>
@@ -254,13 +328,13 @@ export default function LeaveRequestList() {
                     key={r.id || r.leave_request_id || JSON.stringify(r)}
                   >
                     <TableCell>{dayjs(r.date).format('YYYY-MM-DD')}</TableCell>
-                    <TableCell>{r.leave_type}</TableCell>
+                    <TableCell>{r.request_type || r.type}</TableCell>
                     <TableCell>
-                      {r.leave_type === 'subject' ? (
+                      {r.subject ? (
                         <div>
-                          <div>{r.subject_name || r.subject_id || '—'}</div>
+                          <div>{r.subject?.name || r.subject?.code || '—'}</div>
                           <div>
-                            {r.period_type === 'all'
+                            {(r.period_type === 'all' || !r.period_number)
                               ? 'All periods'
                               : `Period ${r.period_number}`}
                           </div>
@@ -277,23 +351,43 @@ export default function LeaveRequestList() {
                       />
                     </TableCell>
                     <TableCell align="right">
+                      {(() => { console.log('Row debug:', { showPendingApprovals, isTeacher, status: r.status || r.request_status, id: r.id || r.leave_request_id }); return null; })()}
                       <Stack
                         direction="row"
                         spacing={1}
                         justifyContent="flex-end"
                       >
-                        {/* Cancel only when pending */}
-                        {(r.status || r.request_status || '').toLowerCase() ===
-                          'pending' && (
-                          <IconButton
-                            onClick={() =>
-                              openCancelConfirm(r.id || r.leave_request_id)
-                            }
-                            title="Cancel request"
-                          >
-                            <CancelOutlinedIcon />
-                          </IconButton>
+                        {/* Approve/Reject for teachers viewing pending approvals */}
+                        {showPendingApprovals && isTeacher && (r.status || r.request_status || '').toLowerCase() === 'pending' && (
+                          <>
+                            <IconButton
+                              onClick={() => handleApprove(r.id || r.leave_request_id, 'approved')}
+                              title="Approve request"
+                              color="success"
+                            >
+                              <CheckCircleOutlineIcon />
+                            </IconButton>
+                            <IconButton
+                              onClick={() => handleApprove(r.id || r.leave_request_id, 'rejected')}
+                              title="Reject request"
+                              color="error"
+                            >
+                              <BlockIcon />
+                            </IconButton>
+                          </>
                         )}
+                        {/* Cancel only when pending (for own requests) */}
+                        {!showPendingApprovals && (r.status || r.request_status || '').toLowerCase() ===
+                          'pending' && (
+                            <IconButton
+                              onClick={() =>
+                                openCancelConfirm(r.id || r.leave_request_id)
+                              }
+                              title="Cancel request"
+                            >
+                              <CancelOutlinedIcon />
+                            </IconButton>
+                          )}
                       </Stack>
                     </TableCell>
                   </TableRow>
@@ -305,10 +399,13 @@ export default function LeaveRequestList() {
       </Paper>
 
       {/* Create form dialog */}
+      {console.log('Rendering LeaveRequestForm with requestType:', effectiveRequestType)}
       <LeaveRequestForm
+        key={`form-${effectiveRequestType}`}
         open={openForm}
         onClose={handleCloseForm}
         onSuccess={handleCreateSuccess}
+        requestType={effectiveRequestType}
       />
 
       {/* Confirm cancel dialog */}

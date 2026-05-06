@@ -19,14 +19,7 @@ import Backend from 'services/backend';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'react-toastify';
 import TimelineCardSkeleton from './TimelineCardSkeleton';
-
-const formatTime = (timeString) => {
-  const [hours, minutes] = timeString.split(':');
-  const hour = parseInt(hours, 10);
-  const ampm = hour >= 12 ? 'PM' : 'AM';
-  const formattedHour = hour % 12 || 12;
-  return `${formattedHour}:${minutes} ${ampm}`;
-};
+import { formatTimeRange } from 'utils/format-time';
 
 // Helper function to determine status based on current time
 const getStatus = (startTime, periodNumber, currentPeriod) => {
@@ -287,10 +280,7 @@ export default function TimelineCard({ scheduleData = [], loading = false }) {
                   >
                     <Box sx={{ flexGrow: 1 }}>
                       <Typography variant="body2" color="text.secondary">
-                        {formatTime(scheduleItem.start_time)} -{' '}
-                        {scheduleItem.end_time
-                          ? formatTime(scheduleItem.end_time)
-                          : 'N/A'}
+                        {formatTimeRange(scheduleItem.start_time, scheduleItem.end_time)}
                       </Typography>
                       <Typography
                         variant="h7"

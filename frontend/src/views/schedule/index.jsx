@@ -35,6 +35,7 @@ import { toast } from 'react-toastify';
 import ScheduleForm from './components/ScheduleForm';
 import { hasPermission, PERMISSIONS } from 'config/rolePermissions';
 import { useSelector } from 'react-redux';
+import { formatTimeRange } from 'utils/format-time';
 
 const SchedulePage = () => {
   const navigate = useNavigate();
@@ -396,7 +397,7 @@ const SchedulePage = () => {
                     <Stack direction="row" alignItems="center" spacing={1}>
                       <IconClock size={18} />
                       <Typography variant="subtitle2">
-                        {schedule.start_time} - {schedule.end_time}
+                        {formatTimeRange(schedule.start_time, schedule.end_time)}
                       </Typography>
                       <Chip label={`Period ${schedule.period_number}`} size="small" color="primary" />
                     </Stack>
@@ -559,7 +560,7 @@ const SchedulePage = () => {
                       </TableCell>
                       <TableCell>
                         <Typography variant="body2">
-                          {schedule.start_time} - {schedule.end_time}
+                          {formatTimeRange(schedule.start_time, schedule.end_time)}
                         </Typography>
                       </TableCell>
                       {!isStudent && !isParent && (

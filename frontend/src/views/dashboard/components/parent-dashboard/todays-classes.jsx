@@ -20,12 +20,9 @@ import {
 import Fallbacks from 'utils/components/Fallbacks';
 import ErrorPrompt from 'utils/components/ErrorPrompt';
 import { getStatusColor } from 'utils/function';
+import { formatTimeRange } from 'utils/format-time';
 
 const ClassCard = ({ classItem, index, onClick }) => {
-  const formatTime = (timeString) => {
-    if (!timeString) return '';
-    return timeString.split(':').slice(0, 2).join(':');
-  };
 
   const getStatusIcon = (status) => {
     switch (status?.toLowerCase()) {
@@ -147,7 +144,7 @@ const ClassCard = ({ classItem, index, onClick }) => {
           >
             <AccessTime sx={{ fontSize: 18, color: '#6b7280' }} />
             <Typography variant="body2" fontWeight={600} sx={{ color: '#4b5563' }}>
-              {formatTime(classItem.start_time)} - {formatTime(classItem.end_time)}
+              {formatTimeRange(classItem.start_time, classItem.end_time)}
             </Typography>
           </Box>
 
