@@ -20,6 +20,7 @@ import {
   Alert,
   Stack,
   Chip,
+  TextField,
 } from '@mui/material';
 import CancelOutlinedIcon from '@mui/icons-material/CancelOutlined';
 import RefreshIcon from '@mui/icons-material/Refresh';
@@ -46,8 +47,6 @@ import toast from 'react-hot-toast';
  * - showPendingApprovals: boolean - if true, show pending requests with approve/reject buttons
  */
 export default function LeaveRequestList({ requestType: propRequestType, showPendingApprovals }) {
-  // Debug: log props
-  console.log('LeaveRequestList props:', { requestType: propRequestType, showPendingApprovals });
 
   const studentId = useSelector((state) => state.student?.studentData?.student_details?.id);
   const userId = useSelector((state) => state.user?.user?.id);
@@ -65,7 +64,6 @@ export default function LeaveRequestList({ requestType: propRequestType, showPen
 
   // Determine request type
   const effectiveRequestType = propRequestType || (isTeacher ? 'teacher' : 'student');
-  console.log('LeaveRequestList computed:', { propRequestType, isTeacher, effectiveRequestType, showPendingApprovals });
 
   // For teachers, use their own teacher ID - try multiple paths
   const effectiveTeacherId = userTeacherData?.id || userTeacherData?.teacher_id || fullUserData?.teacher_id || fullUserData?.teacher?.id;
@@ -75,7 +73,8 @@ export default function LeaveRequestList({ requestType: propRequestType, showPen
   const [error, setError] = useState('');
   const [openForm, setOpenForm] = useState(false);
 
-  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false);
+  const [cancelReason, setCancelReason] = useState('');
   const [selectedCancelId, setSelectedCancelId] = useState(null);
 
   const [snack, setSnack] = useState({
@@ -158,12 +157,13 @@ export default function LeaveRequestList({ requestType: propRequestType, showPen
 
   const openCancelConfirm = (id) => {
     setSelectedCancelId(id);
-    setConfirmOpen(true);
+    setCancelConfirmOpen(true);
   };
 
   const closeCancelConfirm = () => {
     setSelectedCancelId(null);
-    setConfirmOpen(false);
+    setCancelConfirmOpen(false);
+    setCancelReason('');
   };
 
   const handleCancel = async () => {
@@ -175,7 +175,7 @@ export default function LeaveRequestList({ requestType: propRequestType, showPen
         'Content-Type': 'application/json',
       };
       const url = `${Backend.api}${Backend.leaveRequestCancel.replace('{id}', selectedCancelId)}`;
-      await axios.post(url, {}, { headers: header });
+      await axios.post(url, { cancel_reason: cancelReason }, { headers: header });
       setSnack({
         open: true,
         severity: 'success',
@@ -201,7 +201,6 @@ export default function LeaveRequestList({ requestType: propRequestType, showPen
   };
 
   const handleApprove = async (requestId, status) => {
-    console.log('handleApprove called:', { requestId, status });
     try {
       const token = await GetToken();
       const header = {
@@ -209,7 +208,6 @@ export default function LeaveRequestList({ requestType: propRequestType, showPen
         'Content-Type': 'application/json',
       };
       const url = `${Backend.api}leave_requests/${requestId}/approve_leave/`;
-      console.log('Approve URL:', url);
       await axios.patch(url, { status }, { headers: header });
       setSnack({
         open: true,
@@ -349,9 +347,13 @@ export default function LeaveRequestList({ requestType: propRequestType, showPen
                         label={r.status || r.request_status || 'pending'}
                         color={statusColor(r.status || r.request_status)}
                       />
+                      {r.cancel_reason && (isStudent || isParent) && (
+                        <Typography variant="caption" color="textSecondary" sx={{ display: 'block', mt: 0.5 }}>
+                          Reason: {r.cancel_reason}
+                        </Typography>
+                      )}
                     </TableCell>
                     <TableCell align="right">
-                      {(() => { console.log('Row debug:', { showPendingApprovals, isTeacher, status: r.status || r.request_status, id: r.id || r.leave_request_id }); return null; })()}
                       <Stack
                         direction="row"
                         spacing={1}
@@ -409,13 +411,19 @@ export default function LeaveRequestList({ requestType: propRequestType, showPen
       />
 
       {/* Confirm cancel dialog */}
-      <Dialog open={confirmOpen} onClose={closeCancelConfirm}>
-        <DialogTitle>Cancel leave request?</DialogTitle>
+      <Dialog open={cancelConfirmOpen} onClose={closeCancelConfirm}>
+        <DialogTitle>Cancel Leave Request?</DialogTitle>
         <DialogContent>
-          <Typography>
-            Are you sure you want to cancel this pending leave request? This
-            action cannot be undone.
-          </Typography>
+          <Typography>Are you sure you want to cancel this leave request? This action cannot be undone.</Typography>
+          <TextField
+            label="Cancellation Reason (optional)"
+            value={cancelReason}
+            onChange={(e) => setCancelReason(e.target.value)}
+            fullWidth
+            multiline
+            rows={2}
+            margin="normal"
+          />
         </DialogContent>
         <DialogActions>
           <Button onClick={closeCancelConfirm}>No</Button>

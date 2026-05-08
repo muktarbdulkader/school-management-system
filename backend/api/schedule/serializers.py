@@ -317,7 +317,7 @@ class LeaveRequestSerializer(serializers.ModelSerializer):
     class Meta:
         model = LeaveRequest
         fields = ['id', 'request_type', 'student_id', 'student_details', 'teacher_id', 'teacher_details',
-                  'subject_id', 'subject', 'date', 'reason', 'status', 'created_at', 'updated_at',
+                  'subject_id', 'subject', 'date', 'reason', 'cancel_reason', 'status', 'created_at', 'updated_at',
                   'requested_by', 'requester_details']
         read_only_fields = ['id', 'student_details', 'teacher_details', 'subject', 'status', 'created_at', 'updated_at']
 

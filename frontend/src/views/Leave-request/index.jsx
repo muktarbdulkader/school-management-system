@@ -29,8 +29,6 @@ export default function LeaveRequestsPage() {
   const hasAccess = isTeacher || isParent || isStudent || isSuperAdmin;
 
   const handleChange = (e, newVal) => {
-    console.log('Tab changed:', { from: tab, to: newVal, isTeacher, isSuperAdmin });
-    alert(`Tab clicked: ${newVal}`);
     setTab(newVal);
   };
 
@@ -68,27 +66,10 @@ export default function LeaveRequestsPage() {
               indicatorColor="primary"
               textColor="primary"
             >
-              {isTeacher ? (
-                // Teacher tabs
-                <>
-                  <Tab label="My Requests" onClick={() => { console.log('Tab 0 clicked'); setTab(0); }} />
-                  <Tab label="Student Approvals" onClick={() => { console.log('Tab 1 clicked'); setTab(1); }} />
-                  <Tab label="Archived" onClick={() => { console.log('Tab 2 clicked'); setTab(2); }} />
-                </>
-              ) : isSuperAdmin ? (
-                // Super Admin tabs
-                <>
-                  <Tab label="Teacher Leave Requests" />
-                  <Tab label="Student Requests" />
-                  <Tab label="Archived" />
-                </>
-              ) : (
-                // Student/Parent tabs
-                <>
-                  <Tab label="My Requests" />
-                  <Tab label="Archived" />
-                </>
-              )}
+              <Tab label="My Requests" value={0} />
+              {isTeacher && <Tab label="Student Approvals" value={1} />}
+              {isSuperAdmin && <Tab label="Student Requests" value={1} />}
+              <Tab label="Archived" value={isTeacher || isSuperAdmin ? 2 : 1} />
             </Tabs>
           </Paper>
 
@@ -96,9 +77,6 @@ export default function LeaveRequestsPage() {
             {isTeacher ? (
               // Teacher content
               <>
-                <Typography variant="caption" color="textSecondary" sx={{ mb: 1, display: 'block' }}>
-                  DEBUG: tab={tab}, isTeacher={isTeacher ? 'Yes' : 'No'}
-                </Typography>
                 {tab === 0 && <LeaveRequestList key="my-list" requestType="teacher" />}
                 {tab === 1 && <LeaveRequestList key="approval-list" requestType="student" showPendingApprovals />}
                 {tab === 2 && <LeaveRequestArchived />}
@@ -137,8 +115,8 @@ export default function LeaveRequestsPage() {
               indicatorColor="primary"
               textColor="primary"
             >
-              <Tab label="My Requests" />
-              <Tab label="Archived" />
+              <Tab label="My Requests" value={0} />
+              <Tab label="Archived" value={1} />
             </Tabs>
           </Paper>
 

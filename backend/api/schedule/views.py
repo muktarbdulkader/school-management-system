@@ -1281,6 +1281,9 @@ class LeaveRequestViewSet(viewsets.ModelViewSet):
             }, status=status.HTTP_400_BAD_REQUEST)
 
         leave_request.status = 'canceled'
+        cancel_reason = request.data.get('cancel_reason', '')
+        if cancel_reason:
+            leave_request.cancel_reason = cancel_reason
         leave_request.save()
         serializer = self.get_serializer(leave_request)
         return Response({
