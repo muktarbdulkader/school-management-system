@@ -154,7 +154,7 @@ const MeetingList = ({ onMessageSelect, selectedMessageId }) => {
               <ListItem sx={{ p: 0 }}>
                 <ListItemAvatar>
                   <Avatar sx={{ bgcolor: 'primary.main' }}>
-                    {meeting.requested_by_full_name?.charAt(0) || 'A'}
+                    {meeting.requested_by_details?.full_name?.charAt(0) || 'A'}
                   </Avatar>
                 </ListItemAvatar>
                 <ListItemText
@@ -171,7 +171,7 @@ const MeetingList = ({ onMessageSelect, selectedMessageId }) => {
                         variant="subtitle1"
                         sx={{ fontWeight: 600, mr: 1 }}
                       >
-                        Meeting with {meeting.requested_to_details.full_name}
+                        {meeting.requested_by_details?.full_name} with {meeting.requested_to_details?.full_name}
                       </Typography>
                       <Chip
                         label={meeting.status}

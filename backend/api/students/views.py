@@ -948,7 +948,9 @@ class ParentStudentViewSet(AdministrativeUserMixin, TeacherCheckMixin, viewsets.
             'data': serializer.data
         })
 
-    @action(detail=False, methods=['get'], url_path='available_teachers/(?P<student_id>[^/.]+)')
+
+
+    @action(detail=False, methods=['get'], url_path=r'available_teachers/(?P<student_id>[0-9a-fA-F-]+)')
     def available_teachers(self, request, student_id=None, *args, **kwargs):
         """
         Get all teachers available for a specific student based on their enrolled subjects.

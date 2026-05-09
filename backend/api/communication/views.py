@@ -399,7 +399,7 @@ class ChatViewSet(viewsets.ModelViewSet):
         class_id = request.query_params.get('class_id')
         
         from teachers.models import Teacher, TeacherAssignment
-        from students.models import Student, ParentStudent, StudentSubject
+        from students.models import Student, ParentStudent, StudentSubject, Parent
         from academics.models import Subject, Class, Section
         from users.models import UserBranchAccess
         from django.db.models import Q
@@ -409,6 +409,7 @@ class ChatViewSet(viewsets.ModelViewSet):
         is_admin_staff = user.is_staff or user.is_superuser
         teacher_profile = Teacher.objects.filter(user=user).first()
         student_profile = Student.objects.filter(user=user).first()
+        parent_profile = Parent.objects.filter(user=user).first()
         
         student_contacts = []
         teacher_contacts = []
@@ -550,9 +551,14 @@ class ChatViewSet(viewsets.ModelViewSet):
             
             # Peer Teachers (Same branch)
             from users.models import UserBranchAccess
-            accessible_branches = UserBranchAccess.objects.filter(user=user).values_list('branch_id', flat=True)
+            accessible_branches = list(UserBranchAccess.objects.filter(user=user).values_list('branch_id', flat=True))
+            
+            # If no explicit branch access, use the teacher's own branch
+            if not accessible_branches and teacher_profile.branch_id:
+                accessible_branches = [teacher_profile.branch_id]
+
             peers = Teacher.objects.filter(
-                Q(branch__in=accessible_branches) | Q(user__userbranchaccess__branch_id__in=accessible_branches)
+                Q(branch_id__in=accessible_branches) | Q(user__userbranchaccess__branch_id__in=accessible_branches)
             ).exclude(user=user).distinct().select_related('user', 'branch')
             
             for p in peers:
@@ -625,6 +631,31 @@ class ChatViewSet(viewsets.ModelViewSet):
 
             # Available subjects for student
             available_subjects = Subject.objects.filter(studentsubject__student_id=student_profile).values('id', 'name').distinct()
+
+        # 4. PARENT LOGIC
+        elif parent_profile:
+            # Get students linked to this parent
+            children_ids = ParentStudent.objects.filter(parent=parent_profile).values_list('student_id', flat=True)
+            children = Student.objects.filter(id__in=children_ids).select_related('grade', 'section')
+            
+            # Fetch teachers for these children
+            teacher_ids = TeacherAssignment.objects.filter(
+                Q(class_fk__in=[child.grade for child in children if child.grade]) |
+                Q(section__in=[child.section for child in children if child.section])
+            ).values_list('teacher', flat=True).distinct()
+            
+            if subject_id:
+                teacher_ids = teacher_ids.filter(subject=subject_id)
+                
+            teachers = Teacher.objects.filter(id__in=teacher_ids).select_related('user', 'branch')
+            for t in teachers:
+                teacher_contacts.append({
+                    'user_id': str(t.user.id),
+                    'teacher_id': str(t.id),
+                    'full_name': t.user.full_name,
+                    'email': t.user.email,
+                    'branch_name': t.branch.name if t.branch else 'Global'
+                })
 
         return Response({
             'success': True,
@@ -736,12 +767,8 @@ class MeetingViewSet(viewsets.ModelViewSet):
         user = self.request.user
         branch_id = self.request.data.get('branch_id')
         
-        # Super admins bypass permission check
-        if not user.is_superuser:
-            if not has_model_permission(user, 'meeting', 'add_meeting', branch_id):
-                raise PermissionDenied("You do not have permission to create meetings.")
-        
-        # Auto-set requested_by to current user
+        # All authenticated users are allowed to initiate a meeting request.
+        # Strict permissions only apply to administrative actions like approving/rejecting.
         serializer.save(requested_by=user)
 
     def create(self, request, *args, **kwargs):
@@ -794,8 +821,11 @@ class MeetingViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['patch'], url_path='reschedule')
     def reschedule(self, request, pk=None):
         meeting = self.get_object()
-        if not has_model_permission(self.request.user, 'meeting', 'change_meeting', branch_id=None):
-            raise PermissionDenied("You do not have permission to reschedule meetings.")
+        is_requester = request.user == meeting.requested_by
+        is_recipient = request.user == meeting.requested_to
+        if not (request.user.is_superuser or request.user.is_staff or is_requester or is_recipient):
+            if not has_model_permission(self.request.user, 'meeting', 'change_meeting', branch_id=None):
+                raise PermissionDenied("You do not have permission to reschedule meetings.")
 
         if meeting.is_canceled:
             return Response({
@@ -833,10 +863,12 @@ class MeetingViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['patch'], url_path='approve')
     def approve(self, request, pk=None):
         meeting = self.get_object()
-        if not has_model_permission(self.request.user, 'meeting', 'change_meeting', branch_id=None):
-            raise PermissionDenied("You do not have permission to approve meetings.")
+        is_recipient = request.user == meeting.requested_to
+        if not (request.user.is_superuser or request.user.is_staff or is_recipient):
+            if not has_model_permission(self.request.user, 'meeting', 'change_meeting', branch_id=None):
+                raise PermissionDenied("You do not have permission to approve meetings.")
 
-        if request.user == meeting.requested_by and not request.user.is_superuser:
+        if request.user == meeting.requested_by and not (request.user.is_superuser or request.user.is_staff):
             raise PermissionDenied("You cannot approve your own meeting request.")
 
         if meeting.status != 'pending':
@@ -861,10 +893,12 @@ class MeetingViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['patch'], url_path='reject')
     def reject(self, request, pk=None):
         meeting = self.get_object()
-        if not has_model_permission(self.request.user, 'meeting', 'change_meeting', branch_id=None):
-            raise PermissionDenied("You do not have permission to reject meetings.")
+        is_recipient = request.user == meeting.requested_to
+        if not (request.user.is_superuser or request.user.is_staff or is_recipient):
+            if not has_model_permission(self.request.user, 'meeting', 'change_meeting', branch_id=None):
+                raise PermissionDenied("You do not have permission to reject meetings.")
 
-        if request.user == meeting.requested_by and not request.user.is_superuser:
+        if request.user == meeting.requested_by and not (request.user.is_superuser or request.user.is_staff):
             raise PermissionDenied("You cannot reject your own meeting request.")
 
         if meeting.status != 'pending':
@@ -889,10 +923,12 @@ class MeetingViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['patch'], url_path='mark_completed')
     def mark_completed(self, request, pk=None):
         meeting = self.get_object()
-        if not has_model_permission(self.request.user, 'meeting', 'change_meeting', branch_id=None):
-            raise PermissionDenied("You do not have permission to update meetings.")
+        is_recipient = request.user == meeting.requested_to
+        if not (request.user.is_superuser or request.user.is_staff or is_recipient):
+            if not has_model_permission(self.request.user, 'meeting', 'change_meeting', branch_id=None):
+                raise PermissionDenied("You do not have permission to update meetings.")
 
-        if request.user == meeting.requested_by and not request.user.is_superuser:
+        if request.user == meeting.requested_by and not (request.user.is_superuser or request.user.is_staff):
             raise PermissionDenied("You cannot mark your own meeting request as completed.")
 
         if meeting.status not in ['approved', 'confirmed']:
@@ -917,8 +953,11 @@ class MeetingViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'], url_path='cancel')
     def cancel(self, request, pk=None):
         meeting = self.get_object()
-        if not has_model_permission(self.request.user, 'meeting', 'change_meeting', branch_id=None):
-            raise PermissionDenied("You do not have permission to cancel meetings.")
+        is_requester = request.user == meeting.requested_by
+        is_recipient = request.user == meeting.requested_to
+        if not (request.user.is_superuser or request.user.is_staff or is_requester or is_recipient):
+            if not has_model_permission(self.request.user, 'meeting', 'change_meeting', branch_id=None):
+                raise PermissionDenied("You do not have permission to cancel meetings.")
 
         if meeting.is_canceled:
             return Response({
@@ -928,14 +967,15 @@ class MeetingViewSet(viewsets.ModelViewSet):
                 'data': []
             }, status=status.HTTP_400_BAD_REQUEST)
 
-        if meeting.status != 'pending':
+        if meeting.status in ['completed', 'rejected', 'canceled']:
             return Response({
                 'success': False,
-                'message': 'Only pending meetings can be canceled',
+                'message': f'Cannot cancel a meeting with status: {meeting.status}',
                 'status': 400,
                 'data': []
             }, status=status.HTTP_400_BAD_REQUEST)
 
+        meeting.status = 'canceled'
         meeting.is_canceled = True
         meeting.canceled_at = timezone.now()
         meeting.save()
@@ -1842,9 +1882,14 @@ class ParentFeedbackViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         user = self.request.user
         branch_id = self.request.query_params.get('branch_id')
-        if branch_id and not has_model_permission(user, 'parentfeedback', 'view_parentfeedback', branch_id):
+        is_parent = user.userrole_set.filter(role__name__iexact='parent').exists()
+        
+        if branch_id and not is_parent and not has_model_permission(user, 'parentfeedback', 'view_parentfeedback', branch_id):
             raise PermissionDenied("You do not have permission to view parent feedback in this branch.")
-        return self.queryset.filter(parent=user)
+            
+        if is_parent:
+            return self.queryset.filter(parent=user)
+        return self.queryset
 
     def list(self, request, *args, **kwargs):
         queryset = self.filter_queryset(self.get_queryset())
@@ -1870,7 +1915,8 @@ class ParentFeedbackViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         branch_id = self.request.data.get('branch_id')
-        if branch_id and not has_model_permission(self.request.user, 'parentfeedback', 'add_parentfeedback', branch_id):
+        is_parent = self.request.user.userrole_set.filter(role__name__iexact='parent').exists()
+        if branch_id and not is_parent and not has_model_permission(self.request.user, 'parentfeedback', 'add_parentfeedback', branch_id):
             raise PermissionDenied("You do not have permission to submit parent feedback in this branch.")
         serializer.save()
 
@@ -1958,8 +2004,9 @@ class ParentFeedbackViewSet(viewsets.ModelViewSet):
     def parent_feedback(self, request, *args, **kwargs):
         user = request.user
         branch_id = request.query_params.get('branch_id')
+        is_parent = user.userrole_set.filter(role__name__iexact='parent').exists()
 
-        if branch_id and not has_model_permission(user, 'parentfeedback', 'view_parentfeedback', branch_id):
+        if branch_id and not is_parent and not has_model_permission(user, 'parentfeedback', 'view_parentfeedback', branch_id):
             raise PermissionDenied("You do not have permission to view or manage parent feedback in this branch.")
 
         if request.method == 'GET':
@@ -1988,7 +2035,7 @@ class ParentFeedbackViewSet(viewsets.ModelViewSet):
 
         # POST: Add new feedback for non-rated staff
         elif request.method == 'POST':
-            if not has_model_permission(user, 'parentfeedback', 'add_parentfeedback', branch_id):
+            if not is_parent and not has_model_permission(user, 'parentfeedback', 'add_parentfeedback', branch_id):
                 raise PermissionDenied("You do not have permission to submit parent feedback.")
 
             data = request.data.copy()

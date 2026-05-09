@@ -24,8 +24,7 @@ export const getTeacherPortalMenu = () => {
       { id: 'teacher-reports', title: 'Performance', type: 'item', url: '/teacher-reports', icon: IconReport, breadcrumbs: false },
       { id: 'teacher-report-cards', title: 'Report Cards', type: 'item', url: '/academic-reports/teacher', icon: IconCertificate, breadcrumbs: false },
       { id: 'teacher-messages', title: 'Messages', type: 'item', url: '/messages', icon: IconMessage, breadcrumbs: false },
-      { id: 'teacher-meetings', title: 'Meetings', type: 'item', url: '/meeting-requests', icon: IconCalendar, breadcrumbs: false },
-      { id: 'teacher-meeting-hist', title: 'Meeting History', type: 'item', url: '/meeting-history', icon: IconCalendar, breadcrumbs: false },
+      { id: 'teacher-meeting-hist', title: 'Meetings', type: 'item', url: '/meeting-history', icon: IconCalendar, breadcrumbs: false },
     ],
   };
 };

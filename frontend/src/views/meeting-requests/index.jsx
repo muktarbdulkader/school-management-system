@@ -69,7 +69,11 @@ export default function MeetingRequestsPage() {
 
       const data = await response.json();
       if (data.success) {
-        setTeachers(data.data?.teachers || []);
+        // Filter out current user from teachers list
+        const filteredTeachers = (data.data?.teachers || []).filter(t => 
+          t.user_id !== user.id && t.id !== user.id
+        );
+        setTeachers(filteredTeachers);
       }
     } catch (error) {
       console.error('Error fetching teachers:', error);
@@ -123,9 +127,7 @@ export default function MeetingRequestsPage() {
             requested_to: formData.teacher_id,
             requested_date: formData.preferred_date ? formData.preferred_date.toISOString().split('T')[0] : '',
             requested_time: formData.preferred_date ? formData.preferred_date.toTimeString().split(' ')[0] : '',
-            notes: formData.notes,
-            purpose: formData.purpose,
-            requested_by: studentId || undefined,
+            notes: `Purpose: ${formData.purpose}\nNotes: ${formData.notes}`,
           }),
         }
       );
@@ -216,6 +218,7 @@ export default function MeetingRequestsPage() {
                         <MenuItem key={teacher.user_id || teacher.id} value={teacher.user_id || teacher.id}>
                           {teacher.full_name || teacher.name}
                           {teacher.branch_name && ` - ${teacher.branch_name}`}
+                          {teacher.roles && ` (${teacher.roles})`}
                           {teacher.subjects && teacher.subjects.length > 0 && ` (${teacher.subjects.join(', ')})`}
                         </MenuItem>
                       ))}
@@ -286,12 +289,17 @@ export default function MeetingRequestsPage() {
                   <List>
                     {meetings.map((meeting, index) => (
                       <React.Fragment key={meeting.id}>
-                        <ListItem alignItems="flex-start">
+                        <ListItem 
+                          alignItems="flex-start"
+                          button 
+                          onClick={() => window.location.href = '/meeting-history'}
+                          sx={{ '&:hover': { bgcolor: 'action.hover' }, borderRadius: 1 }}
+                        >
                           <ListItemText
                             primary={
                               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                                 <Typography variant="subtitle1">
-                                  {meeting.teacher_name}
+                                  {meeting.requested_to_details?.full_name || 'Meeting'}
                                 </Typography>
                                 <Chip
                                   icon={getStatusIcon(meeting.status)}
@@ -303,11 +311,11 @@ export default function MeetingRequestsPage() {
                             }
                             secondary={
                               <>
-                                <Typography variant="body2" color="text.secondary">
-                                  {meeting.purpose}
+                                <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
+                                  {meeting.notes}
                                 </Typography>
                                 <Typography variant="caption" color="text.secondary">
-                                  Requested: {new Date(meeting.preferred_date).toLocaleString()}
+                                  Requested: {meeting.requested_date ? new Date(`${meeting.requested_date}T${meeting.requested_time || '00:00:00'}`).toLocaleString() : 'N/A'}
                                 </Typography>
                               </>
                             }

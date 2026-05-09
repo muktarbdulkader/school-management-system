@@ -16,6 +16,8 @@ router.register(r'behavior_ratings', BehaviorRatingsViewSet)
 router.register(r'parent-teacher-ratings', TeacherRatingViewSet)
 
 urlpatterns = [
+    path('parent_students/available_teachers/<uuid:student_id>/', ParentStudentViewSet.as_view({'get': 'available_teachers'}), name='parent-student-available-teachers'),
+    path('parent_students/available_teachers/<str:student_id>/', ParentStudentViewSet.as_view({'get': 'available_teachers'}), name='parent-student-available-teachers-str'),
     path('', include(router.urls)),
     path('parent/login/', ParentLoginView.as_view(), name='parent-login'),
     path('parent/dashboard/', ParentDashboardView.as_view(), name='parent-dashboard'),

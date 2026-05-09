@@ -300,8 +300,11 @@ const MeetingDetailView = ({ meeting, fetchMeetings }) => {
     meeting.status === 'approved' || meeting.status === 'confirmed';
     
   const isRequester = user && meeting?.requested_by_details && user.id === meeting.requested_by_details.id;
-  const canApproveOrReject = isPendingMeeting && !isRequester;
-  const canShowCompleteButton = isApprovedOrConfirmedMeeting && !isRequester;
+  const isRecipient = user && meeting?.requested_to_details && user.id === meeting.requested_to_details.id;
+  const isAdmin = user?.is_staff || user?.is_superuser;
+
+  const canApproveOrReject = isPendingMeeting && (isRecipient || (isAdmin && !isRequester));
+  const canShowCompleteButton = isApprovedOrConfirmedMeeting && (isRecipient || (isAdmin && !isRequester));
 
   return (
     <Box>
@@ -319,10 +322,13 @@ const MeetingDetailView = ({ meeting, fetchMeetings }) => {
           />
           <Box>
             <Typography variant="h6" fontWeight={600}>
-              {meeting.requested_to_details.full_name || 'Mr'}
+              With: {meeting.requested_to_details.full_name || 'Mr'}
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              {meeting.requested_to_details.roles || 'Mathematics Teacher'}
+              {meeting.requested_to_details.roles || 'Teacher'}
+            </Typography>
+            <Typography variant="body2" sx={{ mt: 0.5, color: 'primary.main', fontWeight: 500 }}>
+              Requested by: {meeting.requested_by_details?.full_name}
             </Typography>
           </Box>
         </Stack>
@@ -340,7 +346,7 @@ const MeetingDetailView = ({ meeting, fetchMeetings }) => {
                 : meeting.status === 'pending'
                   ? 'warning'
                   : meeting.status === 'rejected' ||
-                      meeting.status === 'cancelled'
+                      meeting.status === 'canceled'
                     ? 'error'
                     : 'default'
             }
@@ -451,14 +457,16 @@ const MeetingDetailView = ({ meeting, fetchMeetings }) => {
           {loadingUser ? <CircularProgress size={24} /> : 'Reschedule'}
         </Button>
 
-        <Button
-          variant="outlined"
-          color="inherit"
-          onClick={handleCancel}
-          sx={{ minWidth: 120 }}
-        >
-          Cancel Meeting
-        </Button>
+        {(isPendingMeeting || isApprovedOrConfirmedMeeting || meeting.status === 'rescheduled') && (
+          <Button
+            variant="outlined"
+            color="inherit"
+            onClick={handleCancel}
+            sx={{ minWidth: 120 }}
+          >
+            Cancel Meeting
+          </Button>
+        )}
       </Stack>
       <ToastContainer />
 

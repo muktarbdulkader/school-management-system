@@ -18,8 +18,7 @@ export const getParentPortalMenu = () => {
     children: [
       { id: 'parent-home', title: 'Dashboard', type: 'item', url: '/home', icon: IconHome, breadcrumbs: false },
       { id: 'parent-messages', title: 'Messages', type: 'item', url: '/messages', icon: IconMessage, breadcrumbs: false },
-      { id: 'parent-meetings', title: 'Meetings', type: 'item', url: '/meeting-requests', icon: IconCalendar, breadcrumbs: false },
-      { id: 'parent-meeting-hist', title: 'Meeting History', type: 'item', url: '/meeting-history', icon: IconCalendar, breadcrumbs: false },
+      { id: 'parent-meeting-hist', title: 'Meetings', type: 'item', url: '/meeting-history', icon: IconCalendar, breadcrumbs: false },
       { id: 'parent-announcements', title: 'Announcements', type: 'item', url: '/announcements', icon: IconBell, breadcrumbs: false },
       { id: 'parent-assignments', title: 'Assignments', type: 'item', url: '/assignments', icon: IconClipboardList, breadcrumbs: false },
       { id: 'parent-academic-reports', title: 'Academic Reports', type: 'item', url: '/academic-reports/parent', icon: IconCertificate, breadcrumbs: false },

@@ -581,7 +581,18 @@ class BranchViewSet(viewsets.ModelViewSet):
                 return queryset.none()
         else:
             if not accessible_branches:
-                # If they have no branch access, they see nothing
+                # If they have no explicit branch access, check their profile (Teacher/Student/Parent)
+                from teachers.models import Teacher
+                from students.models import Student
+                
+                teacher_branch = Teacher.objects.filter(user=user).values_list('branch_id', flat=True).first()
+                if teacher_branch:
+                    return queryset.filter(id=teacher_branch)
+                    
+                student_branch = Student.objects.filter(user=user).values_list('branch_id', flat=True).first()
+                if student_branch:
+                    return queryset.filter(id=student_branch)
+
                 return queryset.none()
             return queryset.filter(id__in=accessible_branches)
 

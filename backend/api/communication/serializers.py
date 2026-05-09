@@ -254,7 +254,7 @@ class ParentFeedbackSerializer(serializers.ModelSerializer):
         write_only=True
     )
     parent_detail = UserSerializer(source='parent', read_only=True)
-    rating = serializers.IntegerField(min_value=1, max_value=5)  # Validate rating range
+    rating = serializers.IntegerField(min_value=1, max_value=5, required=False, allow_null=True)  # Validate rating range
 
     class Meta:
         model = ParentFeedback

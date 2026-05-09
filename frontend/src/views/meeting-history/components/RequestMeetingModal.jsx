@@ -102,6 +102,7 @@ const RequestMeetingModal = ({ open, onClose, onSuccess }) => {
           console.log('DEBUG RequestMeetingModal: allUsers sample:', allUsers.slice(0, 3));
 
           const filtered = allUsers.filter(u => {
+            if (u.id === user.id || u.user_id === user.id) return false;
             const uRoles = (u.roles || []).map(r => typeof r === 'string' ? r.toLowerCase() : (r?.name || '').toLowerCase());
             const match = contactType === 'teachers' ? uRoles.some(r => r.includes('teacher')) :
                          contactType === 'admins' ? uRoles.some(r => ['admin', 'staff', 'super_admin', 'super admin'].includes(r)) :
@@ -170,8 +171,14 @@ const RequestMeetingModal = ({ open, onClose, onSuccess }) => {
   const handleSubjectChange = (e) => {
     const value = e.target.value;
     setSelectedSubject(value);
-    fetchRoleBasedContacts();
   };
+
+  // Re-fetch contacts when subject changes
+  useEffect(() => {
+    if (open) {
+      fetchContacts();
+    }
+  }, [selectedSubject]);
 
   const handleFileChange = (event) => {
     const selectedFile = event.target.files[0];
@@ -215,7 +222,6 @@ const RequestMeetingModal = ({ open, onClose, onSuccess }) => {
       formDataToSend.append('requested_date', formData.requested_date);
       formDataToSend.append('requested_time', formData.requested_time);
       formDataToSend.append('notes', formData.notes);
-      formDataToSend.append('requested_by', user.id);
       if (formData.branch_id) {
         formDataToSend.append('branch_id', formData.branch_id);
       }

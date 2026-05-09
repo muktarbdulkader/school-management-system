@@ -336,14 +336,20 @@ export default function ParentFeedbackPage() {
               <TableBody>
                 {allFeedbacks
                   .filter(fb => {
+                    const parentName = fb.parent_name || fb.parent_detail?.full_name || fb.parent_detail?.name || 'Unknown Parent';
+                    const teacherName = fb.feedbacked_name || fb.feedbacked_detail?.full_name || fb.feedbacked_detail?.name || 'Unknown Teacher';
                     const parentMatch = !filterParent ||
-                      (fb.parent_name || '').toLowerCase().includes(filterParent.toLowerCase());
+                      parentName.toLowerCase().includes(filterParent.toLowerCase());
                     const teacherMatch = !filterTeacher ||
-                      (fb.feedbacked_name || '').toLowerCase().includes(filterTeacher.toLowerCase());
+                      teacherName.toLowerCase().includes(filterTeacher.toLowerCase());
                     return parentMatch && teacherMatch;
                   })
                   .slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage)
-                  .map((feedback) => (
+                  .map((feedback) => {
+                    const displayParent = feedback.parent_name || feedback.parent_detail?.full_name || feedback.parent_detail?.name || 'Unknown Parent';
+                    const displayTeacher = feedback.feedbacked_name || feedback.feedbacked_detail?.full_name || feedback.feedbacked_detail?.name || 'Unknown Teacher';
+                    
+                    return (
                     <TableRow key={feedback.id} hover>
                       <TableCell>
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -351,11 +357,11 @@ export default function ParentFeedbackPage() {
                             <Person fontSize="small" />
                           </Avatar>
                           <Typography variant="body2">
-                            {feedback.parent_name || 'Unknown Parent'}
+                            {displayParent}
                           </Typography>
                         </Box>
                       </TableCell>
-                      <TableCell>{feedback.feedbacked_name || 'Unknown Teacher'}</TableCell>
+                      <TableCell>{displayTeacher}</TableCell>
                       <TableCell>{feedback.subject}</TableCell>
                       <TableCell>
                         {feedback.rating ? (
@@ -396,7 +402,7 @@ export default function ParentFeedbackPage() {
                         </Button>
                       </TableCell>
                     </TableRow>
-                  ))}
+                  )})}
                 {allFeedbacks.length === 0 && (
                   <TableRow>
                     <TableCell colSpan={7} align="center">
@@ -437,7 +443,7 @@ export default function ParentFeedbackPage() {
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
           {children.map((child) => {
             // Handle various data structures for child ID
-            const childId = child.id || child.student_details?.id || child.student?.id || child.student_id;
+            const childId = child.student_details?.id || child.student?.id || child.student_id || child.student || child.id;
             // Handle various data structures for child name
             const childName = child.full_name ||
               child.student_details?.full_name ||
@@ -686,7 +692,7 @@ export default function ParentFeedbackPage() {
                     secondary={
                       <>
                         <Typography variant="body2" color="text.secondary">
-                          To: {feedback.feedbacked_name || getTeacherName(feedback.feedbacked)}
+                          To: {feedback.feedbacked_name || feedback.feedbacked_detail?.full_name || feedback.feedbacked_detail?.name || getTeacherName(feedback.feedbacked)}
                         </Typography>
                         <Typography
                           variant="body2"
