@@ -133,7 +133,7 @@ const MyTasks = () => {
   const handleCompleteTask = async (taskId) => {
     try {
       const token = Storage.getItem('token');
-      const response = await fetch(`${Backend.api}${Backend.teacherTasks}/${taskId}/complete/`, {
+      const response = await fetch(`${Backend.api}${Backend.teacherTasks}${taskId}/complete/`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,

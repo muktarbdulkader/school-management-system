@@ -324,7 +324,11 @@ class UserRegistrationViewSet(viewsets.ModelViewSet):
             role_name=serializer.validated_data.get('role_name')
         )
 
-        return Response(UserSerializer(user).data, status=status.HTTP_201_CREATED)
+        return Response({
+            'success': True,
+            'message': 'User registered successfully',
+            'data': UserSerializer(user).data
+        }, status=status.HTTP_201_CREATED)
 
 
 class UserProfileViewSet(viewsets.ModelViewSet):

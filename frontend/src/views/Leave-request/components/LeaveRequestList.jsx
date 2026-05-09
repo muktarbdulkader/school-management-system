@@ -61,6 +61,7 @@ export default function LeaveRequestList({ requestType: propRequestType, showPen
   const isStudent = normalizedRoles.includes('student');
   const isParent = normalizedRoles.includes('parent');
   const isTeacher = normalizedRoles.includes('teacher');
+  const isSuperAdmin = normalizedRoles.includes('super_admin') || normalizedRoles.includes('superadmin') || fullUserData?.is_superuser;
 
   // Determine request type
   const effectiveRequestType = propRequestType || (isTeacher ? 'teacher' : 'student');
@@ -312,6 +313,7 @@ export default function LeaveRequestList({ requestType: propRequestType, showPen
               <TableHead>
                 <TableRow>
                   <TableCell>Date</TableCell>
+                  {(showPendingApprovals || isTeacher) && <TableCell>Student</TableCell>}
                   <TableCell>Type</TableCell>
                   <TableCell>Subject / Period</TableCell>
                   <TableCell>Reason</TableCell>
@@ -326,6 +328,11 @@ export default function LeaveRequestList({ requestType: propRequestType, showPen
                     key={r.id || r.leave_request_id || JSON.stringify(r)}
                   >
                     <TableCell>{dayjs(r.date).format('YYYY-MM-DD')}</TableCell>
+                    {(showPendingApprovals || isTeacher) && (
+                      <TableCell sx={{ fontWeight: 'bold' }}>
+                        {r.student_details?.name || r.student_details?.full_name || r.student_details?.user_details?.full_name || '—'}
+                      </TableCell>
+                    )}
                     <TableCell>{r.request_type || r.type}</TableCell>
                     <TableCell>
                       {r.subject ? (
@@ -359,8 +366,8 @@ export default function LeaveRequestList({ requestType: propRequestType, showPen
                         spacing={1}
                         justifyContent="flex-end"
                       >
-                        {/* Approve/Reject for teachers viewing pending approvals */}
-                        {showPendingApprovals && isTeacher && (r.status || r.request_status || '').toLowerCase() === 'pending' && (
+                        {/* Approve/Reject for teachers and admins viewing pending approvals */}
+                        {showPendingApprovals && (isTeacher || isSuperAdmin) && (r.status || r.request_status || '').toLowerCase() === 'pending' && (
                           <>
                             <IconButton
                               onClick={() => handleApprove(r.id || r.leave_request_id, 'approved')}

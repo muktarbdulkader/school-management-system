@@ -23,15 +23,16 @@ import DrogaFormModal from 'ui-component/modal/DrogaFormModal';
 import { useSelector } from 'react-redux';
 
 const RequestMeetingModal = ({ open, onClose, onSuccess }) => {
-  const { user } = useSelector((state) => state.user);
-  const userRole = user?.role?.toLowerCase() || '';
-  const isSuperAdmin = user?.is_superuser || user?.is_staff || userRole.includes('super');
-  const isAdmin = userRole.includes('admin');
-  const isTeacher = userRole.includes('teacher');
-  const isParent = userRole.includes('parent');
+  const { user, roles = [] } = useSelector((state) => state.user);
+  const normalizedRoles = (roles || []).map(r => typeof r === 'string' ? r.toLowerCase() : (r?.name || '').toLowerCase());
+  const isSuperAdmin = normalizedRoles.some(r => ['super_admin', 'super admin', 'admin'].includes(r)) || user?.is_superuser || user?.is_staff;
+  const isAdmin = normalizedRoles.some(r => r.includes('admin'));
+  const isTeacher = normalizedRoles.some(r => r.includes('teacher'));
+  const isParent = normalizedRoles.some(r => r.includes('parent'));
+  const userRole = user?.role?.toLowerCase() || (normalizedRoles.length > 0 ? normalizedRoles[0] : '');
 
   console.log('DEBUG RequestMeetingModal INIT: user=', user);
-  console.log('DEBUG RequestMeetingModal INIT: userRole=', userRole);
+  console.log('DEBUG RequestMeetingModal INIT: roles=', roles);
   console.log('DEBUG RequestMeetingModal INIT: isSuperAdmin=', isSuperAdmin, 'isAdmin=', isAdmin);
 
   const [formData, setFormData] = useState({
@@ -101,12 +102,11 @@ const RequestMeetingModal = ({ open, onClose, onSuccess }) => {
           console.log('DEBUG RequestMeetingModal: allUsers sample:', allUsers.slice(0, 3));
 
           const filtered = allUsers.filter(u => {
-            const role = u.role?.toLowerCase() || '';
-            const match = contactType === 'teachers' ? role.includes('teacher') :
-              contactType === 'admins' ? role.includes('admin') :
-                contactType === 'parents' ? role.includes('parent') :
-                  contactType === 'students' ? role.includes('student') : true;
-            console.log(`DEBUG: User ${u.full_name}, role=${role}, match=${match}`);
+            const uRoles = (u.roles || []).map(r => typeof r === 'string' ? r.toLowerCase() : (r?.name || '').toLowerCase());
+            const match = contactType === 'teachers' ? uRoles.some(r => r.includes('teacher')) :
+                         contactType === 'admins' ? uRoles.some(r => ['admin', 'staff', 'super_admin', 'super admin'].includes(r)) :
+                         contactType === 'parents' ? uRoles.some(r => r.includes('parent')) :
+                         contactType === 'students' ? uRoles.some(r => r.includes('student')) : true;
             return match;
           });
           console.log('DEBUG RequestMeetingModal: filtered count=', filtered.length);
@@ -200,6 +200,10 @@ const RequestMeetingModal = ({ open, onClose, onSuccess }) => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (!formData.requested_to || !formData.requested_date || !formData.requested_time) {
+      toast.error('Please fill in all required fields (Person, Date, and Time).');
+      return;
+    }
     setLoading(true);
 
     try {
@@ -309,19 +313,19 @@ const RequestMeetingModal = ({ open, onClose, onSuccess }) => {
             <InputLabel>
               {isSuperAdmin || isAdmin
                 ? `Select ${contactType.charAt(0).toUpperCase() + contactType.slice(1)}`
-                : 'Select Teacher'}
+                : (isTeacher ? 'Select Person' : 'Select Teacher')}
             </InputLabel>
             <Select
               labelId="contact-select-label"
               id="contact-select"
               name="requested_to"
               value={formData.requested_to}
-              label={isSuperAdmin || isAdmin ? `Select ${contactType}` : 'Select Teacher'}
+              label={isSuperAdmin || isAdmin ? `Select ${contactType}` : (isTeacher ? 'Select Person' : 'Select Teacher')}
               onChange={handleChange}
               disabled={loadingUser}
             >
               <MenuItem value="">
-                <em>{isSuperAdmin || isAdmin ? `Select a ${contactType.slice(0, -1)}` : 'Select a teacher'}</em>
+                <em>{isSuperAdmin || isAdmin ? `Select a ${contactType.slice(0, -1)}` : (isTeacher ? 'Select a person' : 'Select a teacher')}</em>
               </MenuItem>
               {contacts.map((contact) => (
                 <MenuItem key={contact.user_id || contact.id} value={contact.user_id || contact.id}>

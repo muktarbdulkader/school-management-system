@@ -564,6 +564,22 @@ class ChatViewSet(viewsets.ModelViewSet):
                     'branch_name': p.branch.name if p.branch else 'Global'
                 })
 
+            # Staff and Admins (for teachers to request meetings with)
+            staff_admins = User.objects.filter(
+                Q(is_staff=True) | Q(is_superuser=True)
+            ).exclude(id=user.id).distinct()
+            
+            for sa in staff_admins:
+                # Avoid adding if already added as a peer teacher
+                if not any(tc['user_id'] == str(sa.id) for tc in teacher_contacts):
+                    teacher_contacts.append({
+                        'user_id': str(sa.id),
+                        'teacher_id': None,
+                        'full_name': f"{sa.full_name} (Staff/Admin)",
+                        'email': sa.email,
+                        'branch_name': 'Administration'
+                    })
+
             # Get available subjects and classes from teacher's assignments
             available_subjects = Subject.objects.filter(
                 id__in=assignment_records.values_list('subject_id', flat=True)

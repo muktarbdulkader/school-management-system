@@ -79,12 +79,14 @@ class MessageDetailSerializer(serializers.ModelSerializer):
 class MeetingSerializer(serializers.ModelSerializer):
     requested_by = serializers.PrimaryKeyRelatedField(
         queryset=User.objects.all(),
-        write_only=True
+        write_only=True,
+        required=False
     )
     requested_to = serializers.PrimaryKeyRelatedField(
         queryset=User.objects.all(),
         write_only=True
     )
+    attachment = serializers.FileField(source='attchemnt', required=False, allow_null=True)
     requested_by_details = UserSerializer(source='requested_by', read_only=True)
     requested_to_details = UserSerializer(source='requested_to', read_only=True)
     branch_id = serializers.CharField(write_only=True, required=False, allow_null=True)
@@ -93,9 +95,14 @@ class MeetingSerializer(serializers.ModelSerializer):
         model = Meeting
         fields = ['id', 'requested_by', 'requested_to', 'requested_by_details',
                 'requested_to_details', 'requested_date', 'requested_time',
-                'status', 'notes', 'is_canceled', 'canceled_at', 'parent_comment', 'parent_rating', 'branch_id']
+                'status', 'notes', 'is_canceled', 'canceled_at', 'parent_comment', 'parent_rating', 'branch_id', 'attachment']
         read_only_fields = ['id', 'requested_by_details', 'requested_to_details',
                             'is_canceled', 'canceled_at']
+
+    def create(self, validated_data):
+        # Remove branch_id as it's not a field on the Meeting model
+        validated_data.pop('branch_id', None)
+        return super().create(validated_data)
 
     def validate(self, data):
         request_user = self.context.get('request').user if self.context.get('request') else None
@@ -125,6 +132,9 @@ class MeetingSerializer(serializers.ModelSerializer):
         return data
 
     def update(self, instance, validated_data):
+        # Remove branch_id as it's not a field on the Meeting model
+        validated_data.pop('branch_id', None)
+        
         if 'parent_comment' in validated_data or 'parent_rating' in validated_data:
             if not instance.can_add_feedback():
                 raise serializers.ValidationError("Feedback can only be added after the approved meeting date.")

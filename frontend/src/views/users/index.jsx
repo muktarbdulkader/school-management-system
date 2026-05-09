@@ -132,7 +132,7 @@ const Users = () => {
   const handleUserAddition = async (value) => {
     setIsAdding(true);
     const token = await GetToken();
-    const Api = Backend.auth + Backend.userRegister + '/';
+    const Api = Backend.auth + Backend.userRegister;
     const header = {
       Authorization: `Bearer ${token}`,
       accept: 'application/json',
@@ -202,7 +202,7 @@ const Users = () => {
     setIsUpdating(true);
     const token = await GetToken();
 
-    const Api = `${Backend.auth}${Backend.users}/${selectedRow?.id}/`; // Update the selected user by ID
+    const Api = `${Backend.auth}${Backend.users}${selectedRow?.id}/`; // Update the selected user by ID
 
     const header = {
       Authorization: `Bearer ${token}`,

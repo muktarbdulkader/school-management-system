@@ -1003,78 +1003,74 @@ class LeaveRequestViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
-        branch_id = self.request.query_params.get('branch_id')
         request_type = self.request.query_params.get('request_type')
         teacher_id = self.request.query_params.get('teacher_id')
 
-        queryset = self.queryset
+        # Use a fresh queryset each time
+        queryset = LeaveRequest.objects.all()
 
-        # Filter by request type if specified
+        # Apply basic filters from query params if present
         if request_type:
             queryset = queryset.filter(request_type=request_type)
-        
-        # Filter by teacher_id if specified (for teacher viewing their own requests)
         if teacher_id:
             queryset = queryset.filter(teacher_id=teacher_id)
 
-        # Superusers and Staff can see all leave requests
+        # 1. Superusers and Staff: Full access
         if user.is_superuser or user.is_staff:
             return queryset
 
-        # Check if user is a student
-        try:
-            from students.models import Student
-            student = Student.objects.filter(user=user).first()
-            if student:
-                # Students can see their own leave requests
-                return queryset.filter(request_type='student', student_id=student.id)
-        except:
-            pass
+        # 2. Students: Can only see their own requests
+        student = Student.objects.filter(user=user).first()
+        if student:
+            return queryset.filter(request_type='student', student_id=student.id)
 
-        # Check if user is a teacher
+        # 3. Teachers: Own requests + Assigned student requests
         from teachers.models import Teacher, TeacherAssignment
-        from students.models import Student
         teacher = Teacher.objects.filter(user=user).first()
         if teacher:
-            # Teachers can see their own teacher leave requests
-            teacher_requests = queryset.filter(request_type='teacher', teacher_id=teacher.id)
+            assignments = TeacherAssignment.objects.filter(teacher=teacher)
             
-            # Teachers can also see student leave requests for students in their assigned classes/subjects
-            # Get all class and section IDs this teacher is assigned to
-            teacher_assignments = TeacherAssignment.objects.filter(teacher=teacher)
-            assigned_class_ids = set()
-            assigned_section_ids = set()
-            for assignment in teacher_assignments:
-                if assignment.class_fk_id:
-                    assigned_class_ids.add(str(assignment.class_fk_id))
-                if assignment.section_id:
-                    assigned_section_ids.add(str(assignment.section_id))
+            # Build student visibility conditions
+            # Condition A: Subject-specific requests
+            subject_q = Q()
+            for assignment in assignments:
+                subject_q |= Q(
+                    student__grade=assignment.class_fk,
+                    student__section=assignment.section,
+                    subject=assignment.subject,
+                    student__enrolled_subjects__subject=assignment.subject
+                )
             
-            # Get students in teacher's assigned classes/sections
-            if assigned_class_ids or assigned_section_ids:
-                # Get student IDs that are in these classes/sections
-                student_query = Student.objects.all()
-                if assigned_section_ids:
-                    student_query = student_query.filter(section_id__in=assigned_section_ids)
-                student_ids = list(student_query.values_list('id', flat=True))
-                
-                if student_ids:
-                    student_requests = queryset.filter(
-                        request_type='student', 
-                        status='pending',
-                        student_id__in=student_ids
-                    )
-                    return (teacher_requests | student_requests).distinct()
+            # Condition B: Full-day requests for class teachers
+            managed_sections = teacher.managed_sections.all()
+            class_teacher_q = Q(subject__isnull=True, student__section__in=managed_sections)
             
-            return teacher_requests
+            # Condition C: Full-day requests for any teacher who teaches that student
+            teaches_student_inner_q = Q()
+            for assignment in assignments:
+                teaches_student_inner_q |= Q(
+                    student__grade=assignment.class_fk,
+                    student__section=assignment.section,
+                    student__enrolled_subjects__subject=assignment.subject
+                )
+            teaches_student_q = Q(subject__isnull=True) & teaches_student_inner_q
+            
+            # Combine everything: Own requests OR (Assigned student requests AND status=pending)
+            teacher_view_filter = Q(request_type='teacher', teacher_id=teacher.id)
+            teacher_view_filter |= Q(
+                (subject_q | class_teacher_q | teaches_student_q),
+                request_type='student', 
+                status='pending'
+            )
+            
+            return queryset.filter(teacher_view_filter).distinct()
 
-        # Check if user is a parent
+        # 4. Parents: Can see their children's requests
         parent_students = ParentStudent.objects.filter(parent__user=user).values_list('student_id', flat=True)
         if parent_students.exists():
-            # Parents can see their children's leave requests
             return queryset.filter(request_type='student', student_id__in=parent_students)
 
-        # If no permission found, return empty queryset
+        # 5. Default: No access
         return queryset.none()
 
     def list(self, request, *args, **kwargs):
@@ -1313,10 +1309,19 @@ class LeaveRequestViewSet(viewsets.ModelViewSet):
                     )
                 else:
                     # For parents and teachers
-                    queryset = self.queryset.filter(
-                        requested_by=user,
-                        status__in=['canceled', 'rejected']
-                    )
+                    from teachers.models import Teacher, TeacherAssignment
+                    teacher = Teacher.objects.filter(user=user).first()
+                    if teacher:
+                        assignments = TeacherAssignment.objects.filter(teacher=teacher)
+                        q_objects = Q(requested_by=user) # Requests made by the teacher
+                        for assignment in assignments:
+                            q_objects |= Q(student__grade=assignment.class_fk, student__section=assignment.section)
+                        queryset = self.queryset.filter(q_objects, status__in=['canceled', 'rejected']).distinct()
+                    else:
+                        queryset = self.queryset.filter(
+                            requested_by=user,
+                            status__in=['canceled', 'rejected']
+                        )
             except:
                 queryset = self.queryset.filter(
                     requested_by=user,
@@ -1356,6 +1361,40 @@ class LeaveRequestViewSet(viewsets.ModelViewSet):
         # Get pending student leave requests only (for teachers to approve)
         if user.is_superuser or user.is_staff:
             queryset = self.queryset.filter(status='pending', request_type='student')
+        elif is_teacher:
+            from teachers.models import Teacher, TeacherAssignment
+            teacher = Teacher.objects.filter(user=user).first()
+            assignments = TeacherAssignment.objects.filter(teacher=teacher)
+            teacher_subject_ids = list(assignments.values_list('subject_id', flat=True))
+            
+            # 1. Subject-specific requests: 
+            subject_matches = Q()
+            for assignment in assignments:
+                subject_matches |= Q(
+                    student__grade=assignment.class_fk,
+                    student__section=assignment.section,
+                    subject=assignment.subject,
+                    student__enrolled_subjects__subject=assignment.subject
+                )
+            
+            # 2. Full-day requests (subject is None):
+            managed_sections = teacher.managed_sections.all()
+            class_teacher_matches = Q(subject__isnull=True, student__section__in=managed_sections)
+            
+            teaches_student_inner_q = Q()
+            for assignment in assignments:
+                teaches_student_inner_q |= Q(
+                    student__grade=assignment.class_fk,
+                    student__section=assignment.section,
+                    student__enrolled_subjects__subject=assignment.subject
+                )
+            teaches_student_matches = Q(subject__isnull=True) & teaches_student_inner_q
+            
+            queryset = self.queryset.filter(
+                subject_matches | class_teacher_matches | teaches_student_matches, 
+                status='pending', 
+                request_type='student'
+            ).distinct()
         elif branch_id:
             queryset = self.queryset.filter(status='pending', request_type='student', student_id__branch_id=branch_id)
         else:
@@ -1474,8 +1513,12 @@ class LeaveRequestViewSet(viewsets.ModelViewSet):
         if hasattr(student, 'section') and student.section:
             student_section_id = student.section.id if hasattr(student.section, 'id') else student.section
             # Get class from section
-            if hasattr(student.section, 'class_details') and student.section.class_details:
-                student_class_id = student.section.class_details.id
+            if hasattr(student.section, 'class_fk') and student.section.class_fk:
+                student_class_id = student.section.class_fk.id
+        
+        # Fallback to student's direct grade field if class_id is still None
+        if not student_class_id and hasattr(student, 'grade') and student.grade:
+            student_class_id = student.grade.id if hasattr(student.grade, 'id') else student.grade
         
         # Check if teacher has assignment for this class and subject
         subject_id = leave_request.subject_id if leave_request.subject else None

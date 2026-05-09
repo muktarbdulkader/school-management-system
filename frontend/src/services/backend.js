@@ -304,8 +304,6 @@ const Backend = {
   myNotification: 'my-notifications',
   readNotification: 'read-notification/',
   readAllNotification: 'read-all-notifications',
-  teacherTasks: 'teacher-tasks/',
-  teacherReports: 'teacher-reports/',
   teacherPerformance: 'teacher-reports/',
 };
 

@@ -1,3 +1,4 @@
+from django.db import models
 from django.shortcuts import render
 
 # Create your views here.
@@ -270,14 +271,13 @@ def export_report_card(request, student_id):
 
     try:
         # Get the current/active term
-        from academics.models import Term as TermModel
-        current_term = TermModel.objects.filter(is_current=True).first()
+        current_term = Term.objects.filter(is_current=True).first()
         if not current_term:
             # Fallback to the term_id from query params or most recent term
             if term_id:
-                current_term = TermModel.objects.filter(id=term_id).first()
+                current_term = Term.objects.filter(id=term_id).first()
             if not current_term:
-                current_term = TermModel.objects.order_by('-start_date').first()
+                current_term = Term.objects.order_by('-start_date').first()
         
         if not current_term:
             return Response({'success': False, 'message': 'No term found'}, status=200)
@@ -313,14 +313,12 @@ def export_report_card(request, student_id):
         # Generate PDF
         buffer = PDFExporter.export_report_card(student, current_term, grades, attendance_data)
 
-        response = HttpResponse(buffer, content_type='application/pdf')
+        response = HttpResponse(buffer.getvalue(), content_type='application/pdf')
         response['Content-Disposition'] = f'attachment; filename="report_card_{student.user.full_name}_{current_term.name}.pdf"'
         return response
 
-    except Student.DoesNotExist:
-        return Response({'success': False, 'message': 'Student not found'}, status=200)
-    except TermModel.DoesNotExist:
-        return Response({'success': False, 'message': 'Term not found'}, status=200)
+    except Exception as e:
+        return Response({'success': False, 'message': f'Error generating report card: {str(e)}'}, status=200)
 
 
 @api_view(['GET'])

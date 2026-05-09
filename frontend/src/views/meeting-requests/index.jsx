@@ -43,13 +43,17 @@ export default function MeetingRequestsPage() {
   });
 
   const studentId = useSelector((state) => state.student.studentId);
+  const roles = useSelector((state) => state.user.roles);
+  const isTeacher = roles.some(role => role.toLowerCase() === 'teacher');
+  const isStaff = roles.some(role => ['admin', 'staff', 'super admin'].includes(role.toLowerCase()));
+  const isParentOrStudent = !isTeacher && !isStaff;
 
   useEffect(() => {
-    if (studentId) {
+    if (studentId || isTeacher || isStaff) {
       fetchTeachers();
       fetchMeetings();
     }
-  }, [studentId]);
+  }, [studentId, isTeacher, isStaff]);
 
   const fetchTeachers = async () => {
     try {
@@ -121,7 +125,7 @@ export default function MeetingRequestsPage() {
             requested_time: formData.preferred_date ? formData.preferred_date.toTimeString().split(' ')[0] : '',
             notes: formData.notes,
             purpose: formData.purpose,
-            requested_by: studentId,
+            requested_by: studentId || undefined,
           }),
         }
       );
@@ -185,7 +189,7 @@ export default function MeetingRequestsPage() {
           </Typography>
         </Box>
 
-        {!studentId && (
+        {isParentOrStudent && !studentId && (
           <Alert severity="warning" sx={{ mb: 3 }}>
             Please select a student from the dashboard
           </Alert>
@@ -202,7 +206,7 @@ export default function MeetingRequestsPage() {
 
                 <Box component="form" onSubmit={handleSubmit} sx={{ mt: 2 }}>
                   <FormControl fullWidth sx={{ mb: 2 }}>
-                    <InputLabel>Select Teacher</InputLabel>
+                    <InputLabel>{isTeacher || isStaff ? 'Select Person' : 'Select Teacher'}</InputLabel>
                     <Select
                       value={formData.teacher_id}
                       onChange={(e) => setFormData({ ...formData, teacher_id: e.target.value })}
@@ -251,7 +255,7 @@ export default function MeetingRequestsPage() {
                     type="submit"
                     variant="contained"
                     fullWidth
-                    disabled={submitting || !studentId}
+                    disabled={submitting || (isParentOrStudent && !studentId)}
                   >
                     {submitting ? <CircularProgress size={24} /> : 'Submit Request'}
                   </Button>

@@ -88,6 +88,8 @@ export const getAdminPortalMenu = () => {
 
   items.push({ id: 'task-mgmt', title: 'Tasks', type: 'item', url: '/tasks', icon: IconChecklist, breadcrumbs: false });
   items.push({ id: 'messages-admin', title: 'Messages', type: 'item', url: '/messages', icon: IconMessage, breadcrumbs: false });
+  items.push({ id: 'admin-meetings', title: 'Meetings', type: 'item', url: '/meeting-requests', icon: IconCalendar, breadcrumbs: false });
+  items.push({ id: 'admin-meeting-hist', title: 'Meeting History', type: 'item', url: '/meeting-history', icon: IconCalendar, breadcrumbs: false });
 
   return {
     id: 'admin-portal',

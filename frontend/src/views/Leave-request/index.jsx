@@ -46,57 +46,6 @@ export default function LeaveRequestsPage() {
             Please contact your administrator if you believe this is an error.
           </Typography>
         </Box>
-      ) : isSuperAdmin ? (
-        <AdminTeacherLeaveRequestsPage />
-      ) : isTeacher ? (
-        <Box sx={{ p: 3, width: '100%', mx: 'auto', mt: 4 }}>
-          <Stack
-            direction="row"
-            justifyContent="space-between"
-            alignItems="center"
-            sx={{ mb: 2 }}
-          >
-            <Typography variant="h3">Leave Requests</Typography>
-          </Stack>
-
-          <Paper sx={{ mb: 2 }}>
-            <Tabs
-              value={tab}
-              onChange={handleChange}
-              indicatorColor="primary"
-              textColor="primary"
-            >
-              <Tab label="My Requests" value={0} />
-              {isTeacher && <Tab label="Student Approvals" value={1} />}
-              {isSuperAdmin && <Tab label="Student Requests" value={1} />}
-              <Tab label="Archived" value={isTeacher || isSuperAdmin ? 2 : 1} />
-            </Tabs>
-          </Paper>
-
-          <Box>
-            {isTeacher ? (
-              // Teacher content
-              <>
-                {tab === 0 && <LeaveRequestList key="my-list" requestType="teacher" />}
-                {tab === 1 && <LeaveRequestList key="approval-list" requestType="student" showPendingApprovals />}
-                {tab === 2 && <LeaveRequestArchived />}
-              </>
-            ) : isSuperAdmin ? (
-              // Super Admin content
-              <>
-                {tab === 0 && <LeaveRequestList key="teacher-list" requestType="teacher" />}
-                {tab === 1 && <LeaveRequestList key="student-list" requestType="student" />}
-                {tab === 2 && <LeaveRequestArchived />}
-              </>
-            ) : (
-              // Student/Parent content
-              <>
-                {tab === 0 && <LeaveRequestList key="my-list" requestType="student" />}
-                {tab === 1 && <LeaveRequestArchived />}
-              </>
-            )}
-          </Box>
-        </Box>
       ) : (
         <Box sx={{ p: 3, width: '100%', mx: 'auto', mt: 4 }}>
           <Stack
@@ -116,13 +65,35 @@ export default function LeaveRequestsPage() {
               textColor="primary"
             >
               <Tab label="My Requests" value={0} />
-              <Tab label="Archived" value={1} />
+              {(isTeacher || isSuperAdmin) && <Tab label="Student Approvals" value={1} />}
+              {isSuperAdmin && <Tab label="Teacher Approvals" value={2} />}
+              <Tab label="Archived" value={isSuperAdmin ? 3 : (isTeacher ? 2 : 1)} />
             </Tabs>
           </Paper>
 
           <Box>
-            {tab === 0 && <LeaveRequestList />}
-            {tab === 1 && <LeaveRequestArchived />}
+            {isSuperAdmin ? (
+              // Super Admin content
+              <>
+                {tab === 0 && <LeaveRequestList key="my-list" requestType="teacher" />}
+                {tab === 1 && <LeaveRequestList key="student-list" requestType="student" showPendingApprovals />}
+                {tab === 2 && <AdminTeacherLeaveRequestsPage />}
+                {tab === 3 && <LeaveRequestArchived />}
+              </>
+            ) : isTeacher ? (
+              // Teacher content
+              <>
+                {tab === 0 && <LeaveRequestList key="my-list" requestType="teacher" />}
+                {tab === 1 && <LeaveRequestList key="approval-list" requestType="student" showPendingApprovals />}
+                {tab === 2 && <LeaveRequestArchived />}
+              </>
+            ) : (
+              // Student/Parent content
+              <>
+                {tab === 0 && <LeaveRequestList key="my-list" requestType="student" />}
+                {tab === 1 && <LeaveRequestArchived />}
+              </>
+            )}
           </Box>
         </Box>
       )}
