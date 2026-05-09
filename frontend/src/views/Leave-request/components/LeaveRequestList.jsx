@@ -26,6 +26,7 @@ import CancelOutlinedIcon from '@mui/icons-material/CancelOutlined';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import BlockIcon from '@mui/icons-material/Block';
+import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import axios from 'axios';
 import dayjs from 'dayjs';
 import { useSelector } from 'react-redux';
@@ -78,6 +79,9 @@ export default function LeaveRequestList({ requestType: propRequestType, showPen
   const [cancelReason, setCancelReason] = useState('');
   const [selectedCancelId, setSelectedCancelId] = useState(null);
 
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [selectedDeleteId, setSelectedDeleteId] = useState(null);
+
   const [snack, setSnack] = useState({
     open: false,
     severity: 'success',
@@ -123,6 +127,11 @@ export default function LeaveRequestList({ requestType: propRequestType, showPen
           const reqTeacherId = r?.teacher_id || r?.teacher_details?.id || r?.teacher?.id;
           return reqTeacherId === effectiveTeacherId;
         });
+      }
+
+      // If showPendingApprovals is true, filter to show ONLY pending requests
+      if (showPendingApprovals) {
+        filtered = filtered.filter(r => (r.status || '').toLowerCase() === 'pending');
       }
 
       setRequests(filtered);
@@ -201,6 +210,47 @@ export default function LeaveRequestList({ requestType: propRequestType, showPen
     }
   };
 
+
+  const openDeleteConfirm = (id) => {
+    setSelectedDeleteId(id);
+    setDeleteConfirmOpen(true);
+  };
+
+  const closeDeleteConfirm = () => {
+    setSelectedDeleteId(null);
+    setDeleteConfirmOpen(false);
+  };
+
+  const handleDelete = async () => {
+    if (!selectedDeleteId) return;
+    try {
+      const token = await GetToken();
+      const header = {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      };
+      const url = `${Backend.api}${Backend.leaveRequests}${selectedDeleteId}/`;
+      await axios.delete(url, { headers: header });
+      setSnack({
+        open: true,
+        severity: 'success',
+        message: 'Leave request deleted successfully',
+      });
+      fetchRequests();
+      toast.success('Leave request deleted successfully');
+      closeDeleteConfirm();
+    } catch (err) {
+      const errorMessage = err?.response?.data?.message || err.message || 'Failed to delete';
+      setSnack({
+        open: true,
+        severity: 'error',
+        message: errorMessage,
+      });
+      toast.error(errorMessage);
+      closeDeleteConfirm();
+    }
+  };
+
   const handleApprove = async (requestId, status) => {
     try {
       const token = await GetToken();
@@ -208,7 +258,7 @@ export default function LeaveRequestList({ requestType: propRequestType, showPen
         Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
       };
-      const url = `${Backend.api}leave_requests/${requestId}/approve_leave/`;
+      const url = `${Backend.api}${Backend.leaveRequests}${requestId}/approve_leave/`;
       await axios.patch(url, { status }, { headers: header });
       setSnack({
         open: true,
@@ -232,6 +282,7 @@ export default function LeaveRequestList({ requestType: propRequestType, showPen
     }
   };
 
+
   const statusColor = (status) => {
     switch ((status || '').toLowerCase()) {
       case 'approved':
@@ -247,10 +298,7 @@ export default function LeaveRequestList({ requestType: propRequestType, showPen
 
   return (
     <Box sx={{ width: '100%' }}>
-      {/* Debug indicator */}
-      <Typography variant="caption" color="text.secondary" sx={{ mb: 1, display: 'block', fontStyle: 'italic' }}>
-        List Mode: {effectiveRequestType} | Prop: {propRequestType || 'none'} | isTeacher: {isTeacher ? 'Yes' : 'No'} | TeacherId: {effectiveTeacherId || 'none'}
-      </Typography>
+
 
       <Stack
         direction="row"
@@ -260,7 +308,9 @@ export default function LeaveRequestList({ requestType: propRequestType, showPen
         sx={{ mb: 2 }}
       >
         <Typography variant="h6">
-          {effectiveRequestType === 'teacher' ? 'My Teacher Leave Requests' : 'My Leave Requests'}
+          {showPendingApprovals 
+            ? 'Student Pending Approvals' 
+            : (effectiveRequestType === 'teacher' ? 'My Teacher Leave Requests' : 'My Leave Requests')}
         </Typography>
         <Stack direction="row" spacing={1}>
           <Button
@@ -301,7 +351,7 @@ export default function LeaveRequestList({ requestType: propRequestType, showPen
                   : 'No leave requests yet.'}
             </Typography>
             {/* Students and teachers can create leave requests */}
-            {(isStudent || isTeacher) && (
+            {(isStudent || isTeacher) && !showPendingApprovals && (
               <Button variant="outlined" sx={{ mt: 2 }} onClick={handleOpenForm}>
                 Create one
               </Button>
@@ -330,22 +380,29 @@ export default function LeaveRequestList({ requestType: propRequestType, showPen
                     <TableCell>{dayjs(r.date).format('YYYY-MM-DD')}</TableCell>
                     {(showPendingApprovals || isTeacher) && (
                       <TableCell sx={{ fontWeight: 'bold' }}>
-                        {r.student_details?.name || r.student_details?.full_name || r.student_details?.user_details?.full_name || '—'}
+                        {r.request_type === 'teacher' 
+                          ? (r.teacher_details?.full_name || r.teacher_details?.user_details?.full_name || 'Teacher')
+                          : (r.student_details?.name || r.student_details?.full_name || r.student_details?.user_details?.full_name || '—')
+                        }
                       </TableCell>
                     )}
-                    <TableCell>{r.request_type || r.type}</TableCell>
+                    <TableCell>
+                      {r.subject ? 'Subject' : 'Full day'}
+                    </TableCell>
                     <TableCell>
                       {r.subject ? (
                         <div>
-                          <div>{r.subject?.name || r.subject?.code || '—'}</div>
-                          <div>
+                          <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                            {r.subject?.name || r.subject?.code || '—'}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
                             {(r.period_type === 'all' || !r.period_number)
                               ? 'All periods'
                               : `Period ${r.period_number}`}
-                          </div>
+                          </Typography>
                         </div>
                       ) : (
-                        'Full day'
+                        <Typography variant="body2" color="text.secondary">—</Typography>
                       )}
                     </TableCell>
                     <TableCell>{r.reason}</TableCell>
@@ -397,6 +454,15 @@ export default function LeaveRequestList({ requestType: propRequestType, showPen
                               <CancelOutlinedIcon />
                             </IconButton>
                           )}
+                          {isSuperAdmin && (
+                            <IconButton
+                              onClick={() => openDeleteConfirm(r.id || r.leave_request_id)}
+                              title="Delete request"
+                              color="error"
+                            >
+                              <DeleteOutlineIcon />
+                            </IconButton>
+                          )}
                       </Stack>
                     </TableCell>
                   </TableRow>
@@ -436,6 +502,20 @@ export default function LeaveRequestList({ requestType: propRequestType, showPen
           <Button onClick={closeCancelConfirm}>No</Button>
           <Button variant="contained" color="error" onClick={handleCancel}>
             Yes, cancel
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Confirm delete dialog */}
+      <Dialog open={deleteConfirmOpen} onClose={closeDeleteConfirm}>
+        <DialogTitle>Delete Leave Request?</DialogTitle>
+        <DialogContent>
+          <Typography>Are you sure you want to permanently delete this leave request? This action cannot be undone.</Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={closeDeleteConfirm}>No</Button>
+          <Button variant="contained" color="error" onClick={handleDelete}>
+            Yes, delete
           </Button>
         </DialogActions>
       </Dialog>

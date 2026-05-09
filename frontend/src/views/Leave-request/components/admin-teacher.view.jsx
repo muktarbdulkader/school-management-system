@@ -28,6 +28,7 @@ import ThumbUpOffAltIcon from '@mui/icons-material/ThumbUpOffAlt';
 import ThumbDownOffAltIcon from '@mui/icons-material/ThumbDownOffAlt';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import RefreshIcon from '@mui/icons-material/Refresh';
+import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import axios from 'axios';
 import dayjs from 'dayjs';
 import Backend from 'services/backend';
@@ -42,7 +43,8 @@ import GetToken from 'utils/auth-token';
  * - POST /api/leave_requests/{id}/approve_leave/  -> { status: 'approved' }
  * - POST /api/lease_requests/{id}/reject_leave/
  */
-export default function AdminTeacherLeaveRequestsPage() {
+export default function AdminTeacherLeaveRequestsPage({ onlyPending, showOnlyAll }) {
+
   const [tab, setTab] = useState(0);
   const [pending, setPending] = useState([]);
   const [allRequests, setAllRequests] = useState([]);
@@ -57,6 +59,9 @@ export default function AdminTeacherLeaveRequestsPage() {
   const [selectedTeacherId, setSelectedTeacherId] = useState(null);
   const [teacherHistory, setTeacherHistory] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [selectedDeleteId, setSelectedDeleteId] = useState(null);
 
   const [snack, setSnack] = useState({ open: false, severity: 'success', message: '' });
 
@@ -161,6 +166,35 @@ export default function AdminTeacherLeaveRequestsPage() {
     setTeacherHistory([]);
   };
 
+  const openDeleteConfirm = (id) => {
+    setSelectedDeleteId(id);
+    setDeleteConfirmOpen(true);
+  };
+
+  const closeDeleteConfirm = () => {
+    setSelectedDeleteId(null);
+    setDeleteConfirmOpen(false);
+  };
+
+  const performDelete = async () => {
+    if (!selectedDeleteId) return;
+    setActionLoading(true);
+    try {
+      const token = await GetToken();
+      const url = `${Backend.api}${Backend.leaveRequests}${selectedDeleteId}/`;
+      const headers = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
+      await axios.delete(url, { headers });
+      setSnack({ open: true, severity: 'success', message: 'Leave request deleted successfully' });
+      fetchPending();
+      fetchAllRequests();
+      closeDeleteConfirm();
+    } catch (err) {
+      setSnack({ open: true, severity: 'error', message: err?.response?.data?.message || err.message || 'Failed to delete' });
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   const statusColor = (status) => {
     switch ((status || '').toLowerCase()) {
       case 'approved':
@@ -199,6 +233,8 @@ export default function AdminTeacherLeaveRequestsPage() {
               <TableRow>
                 <TableCell>Date</TableCell>
                 <TableCell>Teacher</TableCell>
+                <TableCell>Type</TableCell>
+                <TableCell>Subject / Period</TableCell>
                 <TableCell>Reason</TableCell>
                 <TableCell>Status</TableCell>
                 <TableCell align="right">Actions</TableCell>
@@ -209,12 +245,29 @@ export default function AdminTeacherLeaveRequestsPage() {
                 const id = r.id || r.leave_request_id;
                 const teacherName = r.teacher_details?.user_details?.full_name ||
                   r.teacher?.user?.full_name ||
+                  r.teacher_details?.full_name ||
+                  r.teacher?.full_name ||
+                  r.requested_by_details?.full_name ||
                   r.teacher_name ||
                   'Teacher';
                 return (
                   <TableRow key={id}>
                     <TableCell>{dayjs(r.date).format('YYYY-MM-DD')}</TableCell>
                     <TableCell>{teacherName}</TableCell>
+                    <TableCell>
+                      {r.subject ? 'Subject' : 'Full day'}
+                    </TableCell>
+                    <TableCell>
+                      {r.subject ? (
+                        <div>
+                          <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                            {r.subject?.name || r.subject?.code || '—'}
+                          </Typography>
+                        </div>
+                      ) : (
+                        <Typography variant="body2" color="text.secondary">—</Typography>
+                      )}
+                    </TableCell>
                     <TableCell>{r.reason}</TableCell>
                     <TableCell>
                       <Chip label={r.status || 'pending'} color={statusColor(r.status)} />
@@ -239,6 +292,13 @@ export default function AdminTeacherLeaveRequestsPage() {
                         >
                           Approve
                         </Button>
+                        <IconButton
+                          onClick={() => openDeleteConfirm(id)}
+                          title="Delete request"
+                          color="error"
+                        >
+                          <DeleteOutlineIcon />
+                        </IconButton>
                       </Stack>
                     </TableCell>
                   </TableRow>
@@ -264,9 +324,12 @@ export default function AdminTeacherLeaveRequestsPage() {
               <TableRow>
                 <TableCell>Date</TableCell>
                 <TableCell>Teacher</TableCell>
+                <TableCell>Type</TableCell>
+                <TableCell>Subject / Period</TableCell>
                 <TableCell>Reason</TableCell>
                 <TableCell>Status</TableCell>
                 <TableCell>Created At</TableCell>
+                <TableCell align="right">Actions</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -274,17 +337,44 @@ export default function AdminTeacherLeaveRequestsPage() {
                 const id = r.id || r.leave_request_id;
                 const teacherName = r.teacher_details?.user_details?.full_name ||
                   r.teacher?.user?.full_name ||
+                  r.teacher_details?.full_name ||
+                  r.teacher?.full_name ||
+                  r.requested_by_details?.full_name ||
                   r.teacher_name ||
                   'Teacher';
                 return (
                   <TableRow key={id}>
                     <TableCell>{dayjs(r.date).format('YYYY-MM-DD')}</TableCell>
                     <TableCell>{teacherName}</TableCell>
+                    <TableCell>
+                      {r.subject ? 'Subject' : 'Full day'}
+                    </TableCell>
+                    <TableCell>
+                      {r.subject ? (
+                        <div>
+                          <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                            {r.subject?.name || r.subject?.code || '—'}
+                          </Typography>
+                        </div>
+                      ) : (
+                        <Typography variant="body2" color="text.secondary">—</Typography>
+                      )}
+                    </TableCell>
                     <TableCell>{r.reason}</TableCell>
                     <TableCell>
                       <Chip label={r.status || 'pending'} color={statusColor(r.status)} />
                     </TableCell>
                     <TableCell>{dayjs(r.created_at).format('YYYY-MM-DD HH:mm')}</TableCell>
+                    <TableCell align="right">
+                        <IconButton
+                          onClick={() => openDeleteConfirm(id)}
+                          title="Delete request"
+                          color="error"
+                          size="small"
+                        >
+                          <DeleteOutlineIcon fontSize="small" />
+                        </IconButton>
+                    </TableCell>
                   </TableRow>
                 );
               })}
@@ -296,9 +386,8 @@ export default function AdminTeacherLeaveRequestsPage() {
   );
 
   return (
-    <Box sx={{ p: 3, width: '100%', mx: 'auto', mt: 4 }}>
-      <Stack direction="row" spacing={2} alignItems="center" justifyContent="space-between" sx={{ mb: 2 }}>
-        <Typography variant="h3">Teacher Leave Requests (Admin)</Typography>
+    <Box sx={{ width: '100%' }}>
+      <Stack direction="row" spacing={2} alignItems="center" justifyContent="flex-end" sx={{ mb: 2 }}>
         <Stack direction="row" spacing={1}>
           <Button startIcon={<RefreshIcon />} onClick={() => { fetchPending(); fetchAllRequests(); }} disabled={loading}>
             Refresh
@@ -306,21 +395,35 @@ export default function AdminTeacherLeaveRequestsPage() {
         </Stack>
       </Stack>
 
-      <Paper sx={{ mb: 2 }}>
-        <Tabs
-          value={tab}
-          onChange={handleChange}
-          indicatorColor="primary"
-          textColor="primary"
-        >
-          <Tab label="Pending Requests" />
-          <Tab label="All Requests" />
-        </Tabs>
-      </Paper>
+      {!showOnlyAll && !onlyPending && (
+        <Paper sx={{ mb: 2 }}>
+          <Tabs
+            value={tab}
+            onChange={handleChange}
+            indicatorColor="primary"
+            textColor="primary"
+          >
+            <Tab label="Pending Requests" />
+            <Tab label="All Requests" />
+          </Tabs>
+        </Paper>
+      )}
 
       <Box>
-        {tab === 0 && renderPendingTable()}
-        {tab === 1 && renderAllRequestsTable()}
+        {(tab === 0 || onlyPending) && !showOnlyAll && (
+          <>
+            {!onlyPending && !showOnlyAll && <Typography variant="h6" sx={{ mb: 2 }}>Teacher Pending Requests</Typography>}
+            {onlyPending && <Typography variant="h6" sx={{ mb: 2 }}>Teacher Pending Requests</Typography>}
+            {renderPendingTable()}
+          </>
+        )}
+        {(tab === 1 || showOnlyAll) && !onlyPending && (
+          <>
+            {!onlyPending && !showOnlyAll && <Typography variant="h6" sx={{ mb: 2 }}>All Teacher Requests</Typography>}
+            {showOnlyAll && <Typography variant="h6" sx={{ mb: 2, mt: 4 }}>All Teacher Requests</Typography>}
+            {renderAllRequestsTable()}
+          </>
+        )}
       </Box>
 
       {/* Confirm dialog */}
@@ -378,6 +481,20 @@ export default function AdminTeacherLeaveRequestsPage() {
         </DialogContent>
         <DialogActions>
           <Button onClick={closeHistory}>Close</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Confirm delete dialog */}
+      <Dialog open={deleteConfirmOpen} onClose={closeDeleteConfirm}>
+        <DialogTitle>Delete Teacher Leave Request?</DialogTitle>
+        <DialogContent>
+          <Typography>Are you sure you want to permanently delete this teacher leave request? This action cannot be undone.</Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={closeDeleteConfirm}>No</Button>
+          <Button variant="contained" color="error" onClick={performDelete} disabled={actionLoading}>
+            {actionLoading ? <CircularProgress size={18} /> : 'Yes, delete'}
+          </Button>
         </DialogActions>
       </Dialog>
 

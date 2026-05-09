@@ -32,6 +32,16 @@ export default function LeaveRequestsPage() {
     setTab(newVal);
   };
 
+  // Helper to get tab index for Super Admin
+  const getAdminTabIndex = (idx) => {
+    return idx;
+  };
+
+  // Helper to get tab index for others
+  const getOtherTabIndex = (idx) => {
+    return idx;
+  };
+
   return (
     <PageContainer className="w-full" title="Leave Requests">
       {!hasAccess ? (
@@ -47,50 +57,62 @@ export default function LeaveRequestsPage() {
           </Typography>
         </Box>
       ) : (
-        <Box sx={{ p: 3, width: '100%', mx: 'auto', mt: 4 }}>
-          <Stack
-            direction="row"
-            justifyContent="space-between"
-            alignItems="center"
-            sx={{ mb: 2 }}
-          >
-            <Typography variant="h3">Leave Requests</Typography>
-          </Stack>
+        <Box sx={{ p: 2, width: '100%', mx: 'auto' }}>
 
-          <Paper sx={{ mb: 2 }}>
+
+          <Box sx={{ bgcolor: 'background.paper', borderRadius: 2, mb: 2, boxShadow: 1 }}>
             <Tabs
               value={tab}
               onChange={handleChange}
               indicatorColor="primary"
               textColor="primary"
             >
-              <Tab label="My Requests" value={0} />
-              {(isTeacher || isSuperAdmin) && <Tab label="Student Approvals" value={1} />}
-              {isSuperAdmin && <Tab label="Teacher Approvals" value={2} />}
-              <Tab label="Archived" value={isSuperAdmin ? 3 : (isTeacher ? 2 : 1)} />
+              {isSuperAdmin && <Tab label="Pending Requests" />}
+              {isSuperAdmin && <Tab label="All Requests" />}
+              
+              {!isSuperAdmin && isTeacher && <Tab label="Pending Requests" />}
+              {!isSuperAdmin && isTeacher && <Tab label="All Requests" />}
+              {!isSuperAdmin && isTeacher && <Tab label="My Requests" />}
+              
+              {!isSuperAdmin && !isTeacher && <Tab label="My Requests" />}
+              {!isSuperAdmin && !isTeacher && <Tab label="Archived" />}
             </Tabs>
-          </Paper>
+          </Box>
 
           <Box>
             {isSuperAdmin ? (
-              // Super Admin content
+              // Super Admin content - Unified view (No "My Requests")
               <>
-                {tab === 0 && <LeaveRequestList key="my-list" requestType="teacher" />}
-                {tab === 1 && <LeaveRequestList key="student-list" requestType="student" showPendingApprovals />}
-                {tab === 2 && <AdminTeacherLeaveRequestsPage />}
-                {tab === 3 && <LeaveRequestArchived />}
+                {tab === 0 && (
+                  <Stack spacing={4}>
+                    <AdminTeacherLeaveRequestsPage onlyPending />
+                    <LeaveRequestList key="pending-students" requestType="student" showPendingApprovals />
+                  </Stack>
+                )}
+                {tab === 1 && (
+                  <Stack spacing={1}>
+                     <AdminTeacherLeaveRequestsPage showOnlyAll />
+                     <LeaveRequestArchived title="All Historical Requests" />
+                  </Stack>
+                )}
               </>
             ) : isTeacher ? (
-              // Teacher content
+              // Teacher content - Unified view (Includes "My Requests")
               <>
-                {tab === 0 && <LeaveRequestList key="my-list" requestType="teacher" />}
-                {tab === 1 && <LeaveRequestList key="approval-list" requestType="student" showPendingApprovals />}
-                {tab === 2 && <LeaveRequestArchived />}
+                {tab === 0 && (
+                   <LeaveRequestList key="pending-students-teacher" requestType="student" showPendingApprovals />
+                )}
+                {tab === 1 && (
+                   <LeaveRequestArchived title="Previous Student Requests" />
+                )}
+                {tab === 2 && (
+                   <LeaveRequestList key="my-list-teacher" requestType="teacher" />
+                )}
               </>
             ) : (
               // Student/Parent content
               <>
-                {tab === 0 && <LeaveRequestList key="my-list" requestType="student" />}
+                {tab === 0 && <LeaveRequestList key="my-list-student" requestType="student" />}
                 {tab === 1 && <LeaveRequestArchived />}
               </>
             )}

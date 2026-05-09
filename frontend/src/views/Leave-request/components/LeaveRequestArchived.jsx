@@ -40,10 +40,18 @@ import GetToken from 'utils/auth-token';
  * Props:
  * - baseUrl: string (optional) - API base URL
  */
-export default function LeaveRequestArchived() {
+export default function LeaveRequestArchived({ title }) {
+
   const studentId = useSelector(
     (state) => state.student?.studentData?.student_details?.id,
   );
+  const user = useSelector((state) => state.user.user);
+  const userRoles = user?.roles?.map((role) =>
+    typeof role === 'string' ? role.toLowerCase() : role.name?.toLowerCase()
+  ) || [];
+  const isSuperAdmin = userRoles.includes('super_admin') || userRoles.includes('superadmin') || user?.is_superuser;
+  const isTeacher = userRoles.includes('teacher');
+
   const API_BASE = Backend.api;
 
   const [archived, setArchived] = useState([]);
@@ -78,21 +86,7 @@ export default function LeaveRequestArchived() {
       const data = Array.isArray(res.data.data)
         ? res.data.data
         : res.data?.results || [];
-      const filtered = data.filter(
-        (r) =>
-          r.student_details?.id === studentId &&
-          ((r?.status || '').toLowerCase() === 'canceled' ||
-            (r.status || '').toLowerCase() === 'rejected' ||
-            (r.request_status || '').toLowerCase() === 'canceled' ||
-            (r.request_status || '').toLowerCase() === 'rejected'),
-      );
-      console.log(
-        'Fetched archived leave requests:',
-        data,
-        filtered,
-        studentId,
-      );
-      setArchived(filtered);
+      setArchived(data);
     } catch (err) {
       setError(
         err?.response?.data ||
@@ -117,8 +111,10 @@ export default function LeaveRequestArchived() {
   const handleDelete = async () => {
     if (!selectedDeleteId) return;
     try {
-      const url = `${API_BASE.replace(/\/$/, '')}/api/leave_requests/${selectedDeleteId}`;
-      await axios.delete(url);
+      const token = await GetToken();
+      const url = `${Backend.api}${Backend.leaveRequests}${selectedDeleteId}/`;
+      const headers = { Authorization: `Bearer ${token}` };
+      await axios.delete(url, { headers });
       setSnack({
         open: true,
         severity: 'success',
@@ -158,7 +154,7 @@ export default function LeaveRequestArchived() {
         justifyContent="space-between"
         sx={{ mb: 2 }}
       >
-        <Typography variant="h6">Archived Leave Requests</Typography>
+        <Typography variant="h6">{title || "Archived Leave Requests"}</Typography>
         <Stack direction="row" spacing={1}>
           <Button
             startIcon={<RefreshIcon />}
@@ -185,7 +181,9 @@ export default function LeaveRequestArchived() {
         ) : archived.length === 0 ? (
           <Box sx={{ p: 4, textAlign: 'center' }}>
             <Typography>
-              No archived leave requests for the selected student.
+              {(isSuperAdmin || isTeacher)
+                ? 'No archived leave requests found.' 
+                : 'No archived leave requests for the selected student.'}
             </Typography>
           </Box>
         ) : (
@@ -220,7 +218,7 @@ export default function LeaveRequestArchived() {
                           </div>
                         </div>
                       ) : (
-                        'Full day'
+                        <Typography variant="body2" color="text.secondary">—</Typography>
                       )}
                     </TableCell>
                     <TableCell>{r.reason}</TableCell>
@@ -237,12 +235,12 @@ export default function LeaveRequestArchived() {
                         justifyContent="flex-end"
                       >
                         <IconButton
-                          onClick={() =>
-                            openDeleteConfirm(r.id || r.leave_request_id)
-                          }
-                          title="Delete archived request"
+                          onClick={() => openDeleteConfirm(r.id || r.leave_request_id)}
+                          title="Delete request"
+                          color="error"
+                          size="small"
                         >
-                          <DeleteOutlineIcon />
+                          <DeleteOutlineIcon fontSize="small" />
                         </IconButton>
                       </Stack>
                     </TableCell>

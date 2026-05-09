@@ -1225,10 +1225,16 @@ class LeaveRequestViewSet(viewsets.ModelViewSet):
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
-        if instance.requested_by != self.request.user:
-            raise PermissionDenied("You can only delete your own leave requests.")
-        if instance.status not in ['pending', 'rejected']:  # Allow deletion only for pending or rejected requests
+        user = self.request.user
+        # Allow deletion if it's the user's own request OR if user is admin/staff
+        if instance.requested_by != user and not (user.is_staff or user.is_superuser):
+            raise PermissionDenied("You do not have permission to delete this leave request.")
+        
+        # Super admins can delete any request. 
+        # Others can only delete pending or rejected requests.
+        if not (user.is_staff or user.is_superuser) and instance.status not in ['pending', 'rejected']:
             raise PermissionDenied("Only pending or rejected leave requests can be deleted.")
+            
         self.perform_destroy(instance)
         return Response({
             'success': True,
